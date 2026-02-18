@@ -1,0 +1,7 @@
+{
+  "name": "Copy of RhizaCore Web Wallet",
+  "description": "The elite TON network wallet and decentralized asset management suite. Secure, fast, and powered by intelligent insights.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

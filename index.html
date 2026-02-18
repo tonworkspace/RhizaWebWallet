@@ -1,0 +1,128 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RhizaCore | The Premier Private TON Office</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- TON requires Buffer -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/buffer/6.0.3/buffer.min.js"></script>
+    <script>window.Buffer = window.Buffer || buffer.Buffer;</script>
+    <style>
+        :root {
+            --primary: #00FF88;
+            --secondary: #00CCFF;
+            --deep-bg: #020202;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--deep-bg);
+            color: #ffffff;
+            margin: 0;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: radial-gradient(circle at 50% 50%, #050a08 0%, #020202 100%);
+            overflow: hidden;
+        }
+        
+        .bg-canvas::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            opacity: 0.03;
+            background-image: url("https://www.transparenttextures.com/patterns/stardust.png");
+            pointer-events: none;
+        }
+
+        .silk-sphere {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.12;
+            animation: drift 25s infinite alternate ease-in-out;
+        }
+        
+        .sphere-1 { width: 800px; height: 800px; background: var(--primary); top: -20%; left: -10%; }
+        .sphere-2 { width: 600px; height: 600px; background: var(--secondary); bottom: -10%; right: -10%; animation-delay: -5s; }
+        .sphere-3 { width: 400px; height: 400px; background: #ffffff; top: 30%; right: 20%; opacity: 0.04; animation-duration: 35s; }
+
+        @keyframes drift {
+            0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+            50% { transform: translate(50px, 100px) scale(1.1) rotate(10deg); }
+            100% { transform: translate(-30px, -50px) scale(0.9) rotate(-10deg); }
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #00FF88 0%, #00CCFF 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .luxury-card {
+            background: linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .luxury-card:hover {
+            border-color: rgba(0, 255, 136, 0.4);
+            transform: translateY(-5px);
+            box-shadow: 0 20px 60px -15px rgba(0, 255, 136, 0.1);
+        }
+
+        .tracking-tight-custom { letter-spacing: -0.04em; }
+        .tracking-wide-custom { letter-spacing: 0.15em; }
+
+        .page-enter {
+            animation: pageIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes pageIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
+    "@ton/ton": "https://esm.sh/@ton/ton@^13.5.0",
+    "@ton/crypto": "https://esm.sh/@ton/crypto@^3.2.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.574.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div class="bg-canvas">
+        <div class="silk-sphere sphere-1"></div>
+        <div class="silk-sphere sphere-2"></div>
+        <div class="silk-sphere sphere-3"></div>
+    </div>
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
