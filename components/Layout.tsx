@@ -9,9 +9,12 @@ import {
   ShieldCheck, 
   Zap,
   Users,
-  Globe
+  Maximize,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import SessionTimeoutWarning from './SessionTimeoutWarning';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -22,14 +25,14 @@ const SidebarItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: 
   <NavLink
     to={to}
     className={({ isActive }) => `
-      flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+      flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300
       ${isActive 
-        ? 'bg-[#00FF88]/10 text-[#00FF88] border border-[#00FF88]/20' 
-        : 'text-gray-400 hover:text-white hover:bg-white/5'}
+        ? 'bg-black/5 dark:bg-white/10 text-primary border border-black/5 dark:border-white/10 shadow-[0_4px_12px_rgba(0,0,0,0.05)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.1)]' 
+        : 'text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'}
     `}
   >
-    <Icon size={20} />
-    <span className="font-medium">{label}</span>
+    <Icon size={18} />
+    <span className="font-semibold text-sm tracking-tight">{label}</span>
   </NavLink>
 );
 
@@ -37,21 +40,23 @@ const MobileNavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label
   <NavLink
     to={to}
     className={({ isActive }) => `
-      flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all duration-200
-      ${isActive ? 'text-[#00FF88]' : 'text-gray-500 hover:text-gray-300'}
+      flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all duration-300
+      ${isActive ? 'text-primary' : 'text-slate-500 dark:text-gray-500'}
     `}
   >
     {({ isActive }: { isActive: boolean }) => (
       <>
-        <Icon size={22} className={isActive ? 'scale-110 transition-transform' : ''} />
-        <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
+        <div className={`p-1.5 rounded-xl transition-all duration-300 ${isActive ? 'bg-primary/10' : ''}`}>
+          <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+        </div>
+        <span className="text-[9px] font-black uppercase tracking-tighter">{label}</span>
       </>
     )}
   </NavLink>
 );
 
 export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
-  const { address, profile, network, switchNetwork } = useWallet();
+  const { address, theme, toggleTheme } = useWallet();
   if (!isWalletMode) return <>{children}</>;
 
   const shortenAddress = (addr: string | null) => {
@@ -60,78 +65,80 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#050505] text-white page-enter">
-      {/* Sidebar - Desktop */}
-      <aside className="hidden lg:flex flex-col w-64 border-r border-[#1a1a1a] p-6 gap-8 fixed h-full bg-[#050505] z-40">
+    <div className="flex min-h-screen bg-slate-50 dark:bg-[#020202] text-slate-900 dark:text-white transition-colors duration-300">
+      {/* Session Timeout Warning */}
+      <SessionTimeoutWarning />
+      
+      {/* Sidebar - Desktop (Institutional Look) */}
+      <aside className="hidden lg:flex flex-col w-72 border-r border-slate-200 dark:border-white/5 p-8 gap-10 fixed h-full bg-white dark:bg-[#050505] z-40 shadow-2xl dark:shadow-none">
         <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-[#00FF88] rounded-xl flex items-center justify-center">
-            <Zap className="text-black fill-current" size={24} />
+          <div className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-black rounded-xl flex items-center justify-center shadow-lg transition-colors">
+            <Zap className="fill-current" size={20} />
           </div>
-          <span className="text-xl font-bold tracking-tight">RhizaCore</span>
+          <span className="text-xl font-extrabold tracking-tight luxury-gradient-text">RhizaCore</span>
         </div>
 
-        <nav className="flex flex-col gap-2">
-          <SidebarItem to="/wallet/dashboard" icon={LayoutDashboard} label="Dashboard" />
+        <nav className="flex flex-col gap-1">
+          <SidebarItem to="/wallet/dashboard" icon={LayoutDashboard} label="Home" />
           <SidebarItem to="/wallet/assets" icon={Wallet} label="Assets" />
-          <SidebarItem to="/wallet/history" icon={History} label="History" />
+          <SidebarItem to="/wallet/history" icon={History} label="Activity" />
           <SidebarItem to="/wallet/referral" icon={Users} label="Referral" />
         </nav>
 
-        <div className="mt-auto flex flex-col gap-2">
+        <div className="mt-auto space-y-4">
+          <button 
+            onClick={toggleTheme}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            <span className="font-semibold text-sm tracking-tight">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
           <SidebarItem to="/wallet/settings" icon={Settings} label="Settings" />
-          <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-            <div className="flex items-center gap-2 text-xs text-[#00FF88] mb-1">
-              <ShieldCheck size={14} />
-              <span>SECURED</span>
-            </div>
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">RhizaCore Shield Active</p>
+          <div className="p-5 rounded-[2rem] bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 space-y-3">
+             <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 dark:text-gray-500 uppercase tracking-widest">Vault Status</span>
+                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+             </div>
+             <p className="text-xs font-medium text-slate-600 dark:text-gray-300 leading-relaxed">System fully operational. End-to-end encryption active.</p>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 lg:ml-64 relative pb-24 lg:pb-0 min-h-screen">
-        <header className="h-16 border-b border-[#1a1a1a] flex items-center justify-between px-6 sticky top-0 bg-[#050505]/80 backdrop-blur-md z-30">
+      {/* Main Content Area */}
+      <main className="flex-1 lg:ml-72 relative min-h-screen pb-safe">
+        {/* Header - Transparent Glass */}
+        <header className="h-20 lg:h-16 flex items-center justify-between px-6 sticky top-0 bg-white/60 dark:bg-[#020202]/60 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-white/5 transition-colors">
           <div className="flex items-center gap-3 lg:hidden">
-            <Zap className="text-[#00FF88]" size={24} />
-            <span className="font-bold tracking-tight">RhizaCore</span>
+            <div className="w-8 h-8 bg-slate-900 dark:bg-white text-white dark:text-black rounded-lg flex items-center justify-center transition-colors">
+              <Zap size={18} fill="currentColor" />
+            </div>
+            <span className="text-lg font-black tracking-tight">RhizaCore</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
-                network === 'mainnet' 
-                  ? 'bg-[#00FF88]/5 border-[#00FF88]/20 text-[#00FF88]' 
-                  : 'bg-amber-500/5 border-amber-500/20 text-amber-500'
-              }`}
-            >
-              <div className={`w-2 h-2 rounded-full animate-pulse ${network === 'mainnet' ? 'bg-[#00FF88]' : 'bg-amber-500'}`} />
-              <span className="text-[10px] font-black uppercase tracking-widest">
-                TON {network}
-              </span>
+          <div className="hidden lg:flex items-center gap-4">
+            <div className="bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-3 py-1.5 rounded-xl flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(0,255,136,0.5)]" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-gray-400">TON Mainnet</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={toggleTheme} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors text-slate-500 dark:text-gray-500 lg:hidden">
+               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-          </div>
-
-          <div className="flex items-center gap-4">
-             <div className="hidden sm:flex items-center gap-2 font-mono text-xs bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 text-gray-300">
-               {shortenAddress(address)}
-             </div>
-             <div className="flex items-center gap-3">
-               <span className="text-xs font-bold hidden md:block">{profile.name}</span>
-               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#00FF88] to-[#00CCFF] flex items-center justify-center border border-white/10 text-lg">
-                 {profile.avatar}
-               </div>
-             </div>
+            <div className="bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-3 py-1.5 rounded-xl font-mono text-[11px] text-primary font-bold">
+              {shortenAddress(address)}
+            </div>
           </div>
         </header>
 
-        <div className={`p-4 lg:p-8 max-w-7xl mx-auto transition-all ${network === 'testnet' ? 'ring-1 ring-amber-500/10 bg-amber-500/[0.01]' : ''}`}>
+        {/* Content Container */}
+        <div className="max-w-4xl mx-auto pt-4 pb-20 sm:p-5 lg:p-10 page-enter">
           {children}
         </div>
 
-        {/* Mobile Nav */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-[#0a0a0a]/90 backdrop-blur-xl border-t border-[#1a1a1a] flex items-center justify-around px-2 z-50">
+        {/* Persistent Bottom Nav - Optimized for iOS/Android Gestures */}
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-2xl border-t border-slate-200 dark:border-white/5 flex items-center justify-around px-4 z-50 pb-[var(--safe-area-inset-bottom)] shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
           <MobileNavItem to="/wallet/dashboard" icon={LayoutDashboard} label="Home" />
           <MobileNavItem to="/wallet/assets" icon={Wallet} label="Assets" />
           <MobileNavItem to="/wallet/history" icon={History} label="History" />

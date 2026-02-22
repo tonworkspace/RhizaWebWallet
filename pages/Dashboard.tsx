@@ -1,166 +1,391 @@
 
-import React, { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { 
   Send, 
   Download, 
   RefreshCw,
   TrendingUp,
-  Copy,
   ShieldCheck,
-  Sparkles,
-  AlertTriangle
+  ExternalLink,
+  ShoppingBag,
+  Eye,
+  EyeOff,
+  History,
+  AlertCircle,
+  Info
 } from 'lucide-react';
-import { MOCK_PORTFOLIO_HISTORY } from '../constants';
+import { MOCK_PORTFOLIO_HISTORY, getNetworkConfig, getExplorerUrl } from '../constants';
 import { useWallet } from '../context/WalletContext';
+import { useBalance } from '../hooks/useBalance';
+import { useTransactions } from '../hooks/useTransactions';
+import TransactionItem from '../components/TransactionItem';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 
-const ActionButton = ({ icon: Icon, label, to, primary = false }: { icon: any, label: string, to: string, primary?: boolean }) => (
-  <Link to={to} className={`
-    flex flex-col items-center gap-3 p-6 rounded-[2rem] transition-all duration-300 flex-1
-    ${primary 
-      ? 'bg-[#00FF88] text-black hover:bg-[#00e67a] shadow-[0_0_30px_rgba(0,255,136,0.15)] active:scale-95' 
-      : 'luxury-card text-white hover:bg-white/10 active:scale-95'}
-  `}>
-    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${primary ? 'bg-black/10' : 'bg-white/5'}`}>
-      <Icon size={22} />
+interface ActionButtonProps {
+  icon: any;
+  label: string;
+  primary?: boolean;
+  onClick?: () => void;
+}
+
+const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, primary = false, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`
+      flex flex-col items-center gap-1.5 sm:gap-2 p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl transition-all duration-300 flex-1
+      ${primary 
+        ? 'bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-primary dark:hover:bg-primary shadow-xl active:scale-95 transition-colors' 
+        : 'bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-white/10 active:scale-95'}
+    `}
+  >
+    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center ${primary ? 'bg-white/10 dark:bg-black/5' : 'bg-slate-100 dark:bg-white/5'}`}>
+      <Icon size={18} strokeWidth={2.5} />
     </div>
-    <span className="text-[9px] font-black uppercase tracking-[0.2em]">{label}</span>
-  </Link>
+    <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
+  </button>
 );
 
 const Dashboard: React.FC = () => {
-  const { balance, address, refreshData, jettons, profile, isRateLimited } = useWallet();
+  const navigate = useNavigate();
+  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData } = useWallet();
+  const networkConfig = getNetworkConfig(network);
+  const { 
+    tonBalance, 
+    tonPrice, 
+    totalUsdValue, 
+    change24h, 
+    changePercent24h,
+    isLoading: balanceLoading,
+    error: balanceError,
+    refreshBalance 
+  } = useBalance();
+  const { 
+    transactions, 
+    isLoading: txLoading, 
+    error: txError, 
+    refreshTransactions 
+  } = useTransactions();
+  
+  const [balanceVisible, setBalanceVisible] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showNetworkInfo, setShowNetworkInfo] = useState(false);
 
   useEffect(() => {
     refreshData();
   }, []);
 
-  const shortenAddress = (addr: string | null) => {
-    if (!addr) return '...';
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  };
-
-  const handleCopy = () => {
-    if (address) navigator.clipboard.writeText(address);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await Promise.all([
+      refreshBalance(),
+      refreshTransactions(),
+      refreshData()
+    ]);
+    setIsRefreshing(false);
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
+    <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0">
       
-      {/* Rate Limit Warning */}
-      {isRateLimited && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-4 text-amber-500 animate-in slide-in-from-top-4">
-          <AlertTriangle size={24} className="shrink-0" />
-          <div className="text-xs">
-            <p className="font-black uppercase tracking-widest mb-1">Network Congestion (429)</p>
-            <p className="font-medium opacity-80 leading-relaxed">Public TON nodes are under heavy load. Balances may be slightly out of sync. Retrying automatically...</p>
+      {/* Profile Greeting - Compact */}
+      {userProfile && (
+        <div className="flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-r from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 rounded-xl sm:rounded-2xl">
+          <div className="text-2xl sm:text-3xl">{userProfile.avatar}</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] sm:text-xs text-gray-500">Welcome back,</p>
+            <h1 className="text-base sm:text-lg font-bold text-white truncate">{userProfile.name}</h1>
+            {referralData && (
+              <p className="text-[9px] sm:text-[10px] text-[#00FF88] font-mono mt-0.5">
+                {referralData.rank} • {referralData.total_referrals} Refs
+              </p>
+            )}
+          </div>
+          {/* RZC Balance Badge - Compact */}
+          <div className="text-right">
+            <p className="text-[8px] sm:text-[9px] text-gray-500 uppercase tracking-wider font-bold">RZC</p>
+            <p className="text-lg sm:text-xl font-black text-[#00FF88]">
+              {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
+            </p>
           </div>
         </div>
       )}
-
-      {/* Greeting Section */}
-      <div className="flex items-center justify-between px-2">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">{profile.avatar}</span>
-            <h1 className="text-3xl font-black text-white tracking-tight-custom">Welcome, {profile.name}</h1>
-          </div>
-          <p className="text-gray-500 text-xs font-medium">Your terminal is online and secured.</p>
-        </div>
-        <div className="w-12 h-12 rounded-2xl bg-[#00FF88]/10 border border-[#00FF88]/20 flex items-center justify-center text-[#00FF88] animate-pulse">
-          <Sparkles size={20} />
-        </div>
-      </div>
-
-      {/* Portfolio Card - Luxury High Contrast */}
-      <div className="relative p-10 rounded-[3rem] bg-[#0a0a0a] ring-1 ring-white/10 overflow-hidden shadow-2xl">
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-[#00FF88]/10 via-transparent to-transparent blur-[120px] rounded-full" />
-        
-        <div className="relative z-10 flex flex-col items-center text-center space-y-6">
-          <div onClick={handleCopy} className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/5 group cursor-pointer hover:bg-white/10 transition-all">
-            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest font-mono">{shortenAddress(address)}</span>
-            <Copy size={12} className="text-gray-700 group-hover:text-[#00FF88]" />
-          </div>
-          
-          <div className="space-y-2">
-            <p className="text-[10px] font-black text-gray-600 uppercase tracking-[0.4em]">TON Balance</p>
-            <h2 className="text-6xl font-black tracking-tight-custom text-white">
-              {balance} <span className="text-xl text-[#00FF88]">TON</span>
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#00FF88]/10 text-[#00FF88] text-[10px] font-black uppercase tracking-[0.2em]">
-              <TrendingUp size={12} /> Network Live
-            </div>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 text-gray-500 text-[10px] font-black uppercase tracking-[0.2em]">
-              <ShieldCheck size={12} /> Verified Vault
-            </div>
-          </div>
-        </div>
-
-        {/* Chart Integrated Sleekly */}
-        <div className="h-32 w-full mt-12 -mb-6 opacity-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={MOCK_PORTFOLIO_HISTORY}>
-              <defs>
-                <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00FF88" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#00FF88" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <Area 
-                type="monotone" 
-                dataKey="value" 
-                stroke="#00FF88" 
-                strokeWidth={4}
-                fillOpacity={1} 
-                fill="url(#chartGradient)" 
-                animationDuration={2000}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Unified Action Grid */}
-      <div className="flex gap-4">
-        <ActionButton icon={Send} label="Transfer" to="/wallet/transfer" primary />
-        <ActionButton icon={Download} label="Receive" to="/wallet/receive" />
-        <ActionButton icon={RefreshCw} label="Swap" to="/wallet/assets" />
-      </div>
-
-      {/* Jettons List */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-600">Your Tokens</h3>
-          <button className="text-[9px] font-black text-[#00FF88] tracking-widest hover:opacity-70 transition-opacity" onClick={() => refreshData()}>
-            REFRESH DATA
+      
+      {/* Network Switcher - Compact */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-1.5 h-1.5 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
+          <span className="text-[10px] font-bold text-slate-500 dark:text-gray-500 uppercase tracking-wider">
+            {networkConfig.NAME}
+          </span>
+          <button
+            onClick={() => setShowNetworkInfo(!showNetworkInfo)}
+            className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+            aria-label="Network info"
+          >
+            <Info size={12} className="text-slate-400 dark:text-gray-500" />
           </button>
         </div>
-        <div className="glass rounded-[2.5rem] overflow-hidden divide-y divide-white/5">
-          {jettons.length > 0 ? jettons.map((j: any, i: number) => (
-            <div key={i} className="p-6 flex items-center justify-between hover:bg-white/5 transition-all cursor-pointer group">
-              <div className="flex items-center gap-5">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl bg-white/5 border border-white/5 group-hover:border-[#00FF88]/30 transition-all overflow-hidden">
-                  {j.jetton.image ? <img src={j.jetton.image} className="w-full h-full object-cover" /> : '💎'}
-                </div>
+        <button
+          onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
+          className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-gray-400 hover:bg-white/10 hover:text-primary transition-all active:scale-95"
+        >
+          Switch
+        </button>
+      </div>
+
+      {/* Network Info Panel - Compact */}
+      {showNetworkInfo && (
+        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-gray-400">Network Details</h4>
+            <button
+              onClick={() => setShowNetworkInfo(false)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-gray-300 text-sm"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5 text-xs">
+            <div>
+              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">Network</p>
+              <p className="text-slate-900 dark:text-white font-bold text-xs">{networkConfig.NAME}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">Chain ID</p>
+              <p className="text-slate-900 dark:text-white font-bold text-xs">{networkConfig.CHAIN_ID}</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">Explorer</p>
+              <a
+                href={networkConfig.EXPLORER_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-mono text-[10px] flex items-center gap-1 break-all"
+              >
+                {networkConfig.EXPLORER_URL.replace('https://', '')}
+                <ExternalLink size={10} className="flex-shrink-0" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Portfolio Terminal Card - Compact */}
+      <div className="relative group">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
+        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-slate-200 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden p-5 sm:p-6 shadow-sm">
+          
+          {balanceError ? (
+            <div className="p-4 sm:p-5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl sm:rounded-2xl">
+              <div className="flex items-start gap-2.5 sm:gap-3">
+                <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
                 <div>
-                  <h4 className="font-black text-sm text-white">{j.jetton.name}</h4>
-                  <p className="text-[10px] text-gray-500 font-bold tracking-tight uppercase mt-0.5">{(Number(j.balance) / Math.pow(10, j.jetton.decimals)).toFixed(2)} {j.jetton.symbol}</p>
+                  <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">Failed to load balance</h4>
+                  <p className="text-xs text-red-700 dark:text-red-400 mb-2.5">{balanceError}</p>
+                  <button 
+                    onClick={handleRefresh}
+                    className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95"
+                  >
+                    Retry
+                  </button>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-[10px] text-emerald-500 font-black mt-0.5">Verified</div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between">
+                <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 dark:text-gray-500">
+                    <ShieldCheck size={12} className="text-primary flex-shrink-0" />
+                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">TON Wallet</span>
+                  </div>
+                  
+                  {balanceLoading ? (
+                    <LoadingSkeleton width={200} height={40} />
+                  ) : (
+                    <h2 className="text-3xl sm:text-4xl font-black tracking-tight-custom text-slate-900 dark:text-white">
+                      {balanceVisible ? (
+                        <>
+                          {tonBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} 
+                          <span className="text-base sm:text-lg font-bold text-slate-400 dark:text-gray-600"> TON</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400 dark:text-gray-600">••••••</span>
+                      )}
+                    </h2>
+                  )}
+                  
+                  {balanceLoading ? (
+                    <LoadingSkeleton width={120} height={14} />
+                  ) : (
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs ${
+                        change24h >= 0 ? 'text-emerald-500' : 'text-red-500'
+                      }`}>
+                        <TrendingUp size={10} className={change24h < 0 ? 'rotate-180' : ''} />
+                        <span>
+                          {balanceVisible ? (
+                            change24h === 0 ? 'No change' : `${change24h >= 0 ? '+' : ''}${Math.abs(change24h).toFixed(2)} (${changePercent24h}%)`
+                          ) : (
+                            '•••••'
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {!balanceLoading && balanceVisible && totalUsdValue > 0 && (
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 font-medium">
+                      ≈ ${totalUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="flex gap-1.5 sm:gap-2">
+                  <button 
+                    onClick={() => setBalanceVisible(!balanceVisible)}
+                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90"
+                    aria-label={balanceVisible ? 'Hide balance' : 'Show balance'}
+                  >
+                    {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                  </button>
+                  <button 
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90 disabled:opacity-50"
+                    aria-label="Refresh balance"
+                  >
+                    <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
-            </div>
-          )) : (
-            <div className="p-12 text-center text-gray-600 font-black text-[10px] uppercase tracking-widest">
-              No Jettons found in this vault.
-            </div>
+
+              <div className="h-20 sm:h-24 w-full mt-6 sm:mt-8 -mb-2 opacity-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={MOCK_PORTFOLIO_HISTORY}>
+                    <defs>
+                      <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#00FF88" stopOpacity={0.15}/>
+                        <stop offset="100%" stopColor="#00FF88" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <Area 
+                      type="monotone" 
+                      dataKey="value" 
+                      stroke="#00FF88" 
+                      strokeWidth={2}
+                      fill="url(#chartFill)" 
+                      animationDuration={1500}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </>
           )}
         </div>
+      </div>
+
+      {/* Functional Action Grid - Compact */}
+      <div className="flex gap-2 sm:gap-2.5">
+        <ActionButton 
+          icon={Send} 
+          label="Pay" 
+          primary 
+          onClick={() => navigate('/wallet/transfer')} 
+        />
+        <ActionButton 
+          icon={Download} 
+          label="Receive" 
+          onClick={() => navigate('/wallet/receive')} 
+        />
+        <ActionButton 
+          icon={ShoppingBag} 
+          label="Shop" 
+          onClick={() => navigate('/marketplace')} 
+        />
+      </div>
+
+      {/* Transaction History - Compact */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-gray-500 flex items-center gap-1.5">
+            <History size={12} />
+            Recent Activity
+          </h3>
+          <button 
+            onClick={() => navigate('/wallet/history')}
+            className="text-[9px] font-black text-primary tracking-widest hover:underline active:scale-95"
+          >
+            VIEW ALL
+          </button>
+        </div>
+
+        {txError ? (
+          <div className="p-4 sm:p-5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl sm:rounded-2xl">
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
+              <div>
+                <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">Failed to load transactions</h4>
+                <p className="text-xs text-red-700 dark:text-red-400 mb-2.5">{txError}</p>
+                <button 
+                  onClick={refreshTransactions}
+                  className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : txLoading ? (
+          <div className="space-y-2.5">
+            <LoadingSkeleton height={70} />
+            <LoadingSkeleton height={70} />
+            <LoadingSkeleton height={70} />
+          </div>
+        ) : transactions.length === 0 ? (
+          <div className="p-6 sm:p-8 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl text-center">
+            <History size={28} className="mx-auto mb-2.5 text-slate-300 dark:text-gray-700" />
+            <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">No transactions yet</h4>
+            <p className="text-xs text-slate-500 dark:text-gray-400 mb-3">
+              Your transaction history will appear here
+            </p>
+            <button 
+              onClick={() => navigate('/wallet/transfer')}
+              className="px-5 py-2 bg-primary text-black rounded-xl text-[10px] font-black uppercase hover:scale-105 transition-all active:scale-95"
+            >
+              Make First Transaction
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {transactions.slice(0, 5).map((tx) => (
+              <TransactionItem 
+                key={tx.id} 
+                transaction={tx}
+                onClick={() => navigate('/wallet/history')}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Marketplace Banner - Compact */}
+      <div 
+        onClick={() => navigate('/marketplace')}
+        className="p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br from-secondary/5 to-transparent border border-secondary/10 flex items-center justify-between group cursor-pointer active:scale-[0.98] transition-all hover:border-secondary/30"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary flex-shrink-0">
+            <ShoppingBag size={18} />
+          </div>
+          <div className="min-w-0">
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">Rhiza Marketplace</h4>
+            <p className="text-[10px] text-slate-500 dark:text-gray-400 font-medium truncate">Explore products on TON</p>
+          </div>
+        </div>
+        <ExternalLink size={14} className="text-secondary group-hover:translate-x-1 transition-transform flex-shrink-0" />
       </div>
     </div>
   );

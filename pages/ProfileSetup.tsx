@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Check, ArrowRight, Shield } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import { authService } from '../services/authService';
 
 const AVATARS = ['🌱', '💎', '🦁', '⚡', '👑', '🦅', '🌊', '🧿'];
 
@@ -12,11 +13,33 @@ const ProfileSetup: React.FC = () => {
   const [name, setName] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0]);
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
+    const finalName = name.trim() || 'Rhiza Sovereign';
+    const finalAvatar = selectedAvatar;
+    
+    // Update local profile
     updateProfile({ 
-      name: name.trim() || 'Rhiza Sovereign', 
-      avatar: selectedAvatar 
+      name: finalName, 
+      avatar: finalAvatar 
     });
+
+    // Update Supabase profile if user is authenticated
+    try {
+      const { user } = await authService.getCurrentUser();
+      if (user) {
+        const walletUser = await authService.getWalletUser(user.id);
+        if (walletUser) {
+          await authService.updateWalletUser(walletUser.id, {
+            name: finalName,
+            avatar: finalAvatar
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update Supabase profile:', error);
+      // Continue anyway - local profile is updated
+    }
+
     navigate('/wallet/dashboard');
   };
 

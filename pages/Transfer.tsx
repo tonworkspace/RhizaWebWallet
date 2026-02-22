@@ -42,22 +42,22 @@ const Transfer: React.FC = () => {
   const isValid = recipient.length > 20 && Number(amount) > 0;
 
   return (
-    <div className="max-w-xl mx-auto space-y-8 page-enter pb-12">
-      <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/wallet/dashboard')} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400">
+    <div className="max-w-xl mx-auto space-y-6 sm:space-y-8 page-enter pb-8 sm:pb-12 px-3 sm:px-4 md:px-0">
+      <div className="flex items-center gap-3 sm:gap-4">
+        <button onClick={() => navigate('/wallet/dashboard')} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 active:scale-95">
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-2xl font-black text-white">Send Assets</h1>
+        <h1 className="text-xl sm:text-2xl font-black text-white">Send Assets</h1>
       </div>
 
       {step === 'form' && (
-        <div className="space-y-6">
-          <div className="luxury-card p-8 rounded-[2.5rem] space-y-8">
-            <div className="space-y-3">
+        <div className="space-y-5 sm:space-y-6">
+          <div className="luxury-card p-6 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] space-y-6 sm:space-y-8">
+            <div className="space-y-2.5 sm:space-y-3">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">Select Asset</label>
-              <button className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between hover:bg-white/10 transition-all">
-                <div className="flex items-center gap-4">
-                  <div className="text-xl">{selectedAsset.icon}</div>
+              <button className="w-full p-4 sm:p-5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl flex items-center justify-between hover:bg-white/10 transition-all active:scale-[0.98]">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="text-lg sm:text-xl">{selectedAsset.icon}</div>
                   <div className="text-left">
                     <div className="font-bold text-sm text-white">{selectedAsset.symbol}</div>
                     <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Balance: {selectedAsset.balance}</div>
@@ -67,21 +67,21 @@ const Transfer: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">Recipient Address</label>
               <input 
                 type="text"
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value)}
                 placeholder="EQ... or UQ..."
-                className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-white font-bold text-sm outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
+                className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-bold text-sm outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
               />
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               <div className="flex items-center justify-between ml-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Amount</label>
-                <button onClick={handleMax} className="text-[9px] font-black text-[#00FF88] uppercase tracking-widest hover:opacity-70">Send Max</button>
+                <button onClick={handleMax} className="text-[9px] font-black text-[#00FF88] uppercase tracking-widest hover:opacity-70 active:scale-95">Send Max</button>
               </div>
               <div className="relative">
                 <input 
@@ -89,20 +89,20 @@ const Transfer: React.FC = () => {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-white font-black text-2xl outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-800"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-black text-xl sm:text-2xl outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-800"
                 />
-                <span className="absolute right-6 top-1/2 -translate-y-1/2 font-black text-[#00FF88] text-sm">{selectedAsset.symbol}</span>
+                <span className="absolute right-5 sm:right-6 top-1/2 -translate-y-1/2 font-black text-[#00FF88] text-sm">{selectedAsset.symbol}</span>
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">Comment (Optional)</label>
               <input 
                 type="text"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="Attached message..."
-                className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-white font-bold text-sm outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
+                className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-bold text-sm outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
               />
             </div>
           </div>
@@ -110,8 +110,8 @@ const Transfer: React.FC = () => {
           <button 
             disabled={!isValid}
             onClick={handleNext}
-            className={`w-full p-6 rounded-2xl flex items-center justify-center gap-3 text-sm font-black uppercase tracking-widest transition-all ${
-                isValid ? 'bg-[#00FF88] text-black shadow-3xl hover:scale-[1.02]' : 'bg-white/5 text-gray-600 cursor-not-allowed'
+            className={`w-full p-5 sm:p-6 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 text-sm font-black uppercase tracking-widest transition-all ${
+                isValid ? 'bg-[#00FF88] text-black shadow-3xl hover:scale-[1.02] active:scale-[0.98]' : 'bg-white/5 text-gray-600 cursor-not-allowed'
             }`}
           >
             Review Transaction <Send size={18} />
@@ -120,17 +120,17 @@ const Transfer: React.FC = () => {
       )}
 
       {step === 'confirm' && (
-        <div className="space-y-8 animate-in zoom-in-95 duration-300">
-           <div className="luxury-card p-10 rounded-[3rem] space-y-8">
-              <div className="text-center space-y-4">
+        <div className="space-y-6 sm:space-y-8 animate-in zoom-in-95 duration-300">
+           <div className="luxury-card p-8 sm:p-10 rounded-[2rem] sm:rounded-[3rem] space-y-6 sm:space-y-8">
+              <div className="text-center space-y-3 sm:space-y-4">
                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.3em]">You are sending</p>
-                 <h2 className="text-5xl font-black text-[#00FF88] tracking-tight-custom">{amount} <span className="text-xl text-white">{selectedAsset.symbol}</span></h2>
+                 <h2 className="text-4xl sm:text-5xl font-black text-[#00FF88] tracking-tight-custom">{amount} <span className="text-lg sm:text-xl text-white">{selectedAsset.symbol}</span></h2>
               </div>
 
-              <div className="space-y-4 pt-6 border-t border-white/5">
+              <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6 border-t border-white/5">
                 <div className="flex justify-between items-center text-sm">
                    <span className="text-gray-500 font-bold">To</span>
-                   <span className="text-white font-mono truncate max-w-[200px]">{recipient}</span>
+                   <span className="text-white font-mono truncate max-w-[150px] sm:max-w-[200px]">{recipient}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                    <span className="text-gray-500 font-bold">Fee</span>
@@ -139,27 +139,27 @@ const Transfer: React.FC = () => {
                 {comment && (
                   <div className="flex justify-between items-center text-sm">
                      <span className="text-gray-500 font-bold">Comment</span>
-                     <span className="text-white italic">"{comment}"</span>
+                     <span className="text-white italic truncate max-w-[150px] sm:max-w-[200px]">"{comment}"</span>
                   </div>
                 )}
               </div>
 
-              <div className="p-4 bg-white/5 rounded-2xl flex items-center gap-3">
+              <div className="p-3.5 sm:p-4 bg-white/5 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3">
                  <Info size={16} className="text-blue-400 shrink-0" />
                  <p className="text-[10px] text-gray-500 font-medium">Verify the address carefully. Transactions on TON are irreversible.</p>
               </div>
            </div>
 
-           <div className="flex flex-col gap-4">
+           <div className="flex flex-col gap-3 sm:gap-4">
               <button 
                 onClick={handleConfirm}
-                className="w-full p-6 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-[1.02] transition-all"
+                className="w-full p-5 sm:p-6 bg-[#00FF88] text-black rounded-xl sm:rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all"
               >
                 Confirm & Disperse
               </button>
               <button 
                 onClick={() => setStep('form')}
-                className="w-full p-4 text-gray-500 font-black text-[10px] uppercase tracking-widest hover:text-white transition-colors"
+                className="w-full p-3 sm:p-4 text-gray-500 font-black text-[10px] uppercase tracking-widest hover:text-white transition-colors active:scale-95"
               >
                 Cancel & Edit
               </button>

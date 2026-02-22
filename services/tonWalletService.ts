@@ -1,78 +1,92 @@
 
-import { TonClient, WalletContractV4, Address, toNano } from "@ton/ton";
+import { TonClient, WalletContractV4, internal, Address, toNano } from "@ton/ton";
 import { mnemonicToWalletKey, mnemonicNew } from "@ton/crypto";
-
-export type NetworkType = 'mainnet' | 'testnet';
-
-const CONFIG = {
-  mainnet: {
-    rpc: 'https://toncenter.com/api/v2/jsonRPC',
-    api: 'https://tonapi.io/v2'
-  },
-  testnet: {
-    rpc: 'https://testnet.toncenter.com/api/v2/jsonRPC',
-    api: 'https://testnet.tonapi.io/v2'
-  }
-};
-
-// Simple cache to prevent redundant hammering of public APIs
-const cache: Record<string, { data: any, timestamp: number }> = {};
-const CACHE_TTL = 10000; // 10 seconds
+import { encryptMnemonic, decryptMnemonic } from '../utils/encryption';
+import { NetworkType, getNetworkConfig, getApiEndpoint, getApiKey } from '../constants';
 
 const sessionManager = {
-  saveSession: (mnemonic: string[]) => {
-    localStorage.setItem('rhiza_session', JSON.stringify(mnemonic));
+  saveSession: async (mnemonic: string[], password: string) => {
+    try {
+      const encrypted = await encryptMnemonic(mnemonic, password);
+      localStorage.setItem('rhiza_session', encrypted);
+      // Store a flag that session is encrypted
+      localStorage.setItem('rhiza_session_encrypted', 'true');
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
   },
-  restoreSession: () => {
-    const data = localStorage.getItem('rhiza_session');
-    return data ? JSON.parse(data) : null;
+  restoreSession: async (password: string) => {
+    try {
+      const encrypted = localStorage.getItem('rhiza_session');
+      const isEncrypted = localStorage.getItem('rhiza_session_encrypted') === 'true';
+      
+      if (!encrypted) return null;
+      
+      if (isEncrypted) {
+        // Decrypt with password
+        const mnemonic = await decryptMnemonic(encrypted, password);
+        return mnemonic;
+      } else {
+        // Legacy unencrypted session (for backward compatibility)
+        return JSON.parse(encrypted);
+      }
+    } catch (error) {
+      console.error('Session restore failed:', error);
+      return null;
+    }
   },
   clearSession: () => {
     localStorage.removeItem('rhiza_session');
+    localStorage.removeItem('rhiza_session_encrypted');
+    localStorage.removeItem('rhiza_session_timeout');
+  },
+  hasSession: () => {
+    return !!localStorage.getItem('rhiza_session');
+  },
+  isEncrypted: () => {
+    return localStorage.getItem('rhiza_session_encrypted') === 'true';
   }
 };
 
 export class TonWalletService {
-  private client: TonClient | null = null;
+  private client: TonClient;
   private keyPair: any = null;
   private wallet: any = null;
   private contract: any = null;
-  private currentNetwork: NetworkType = 'mainnet';
+  private currentNetwork: NetworkType = 'testnet';
 
   constructor() {
-    this.updateConfig('mainnet');
+    // Initialize with testnet by default
+    const network = (localStorage.getItem('rhiza_network') as NetworkType) || 'testnet';
+    this.currentNetwork = network;
+    const config = getNetworkConfig(network);
+    
+    this.client = new TonClient({
+      endpoint: config.API_ENDPOINT,
+      apiKey: config.API_KEY
+    });
+    
+    console.log(`🔧 TonWalletService initialized with ${config.NAME}`);
   }
 
-  updateConfig(network: NetworkType) {
+  // Update network and reinitialize client
+  setNetwork(network: NetworkType) {
     this.currentNetwork = network;
+    const config = getNetworkConfig(network);
+    
     this.client = new TonClient({
-      endpoint: CONFIG[network].rpc,
-      apiKey: '' // Public access
+      endpoint: config.API_ENDPOINT,
+      apiKey: config.API_KEY
     });
-    if (this.keyPair) {
-      this.wallet = WalletContractV4.create({ workchain: 0, publicKey: this.keyPair.publicKey });
+    
+    // Reinitialize contract if wallet exists
+    if (this.wallet) {
       this.contract = this.client.open(this.wallet);
     }
-    // Clear cache on network switch
-    Object.keys(cache).forEach(key => delete cache[key]);
-  }
-
-  private async fetchWithRetry(url: string, options: RequestInit = {}, retries = 2): Promise<Response> {
-    try {
-      const response = await fetch(url, options);
-      if (response.status === 429 && retries > 0) {
-        console.warn(`Rate limited (429) on ${url}. Retrying in 2s...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return this.fetchWithRetry(url, options, retries - 1);
-      }
-      return response;
-    } catch (e) {
-      if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return this.fetchWithRetry(url, options, retries - 1);
-      }
-      throw e;
-    }
+    
+    console.log(`🔄 Network switched to ${config.NAME}`);
+    console.log(`📡 Using endpoint: ${config.API_ENDPOINT}`);
   }
 
   async generateNewWallet() {
@@ -80,133 +94,188 @@ export class TonWalletService {
       const mnemonic = await mnemonicNew(24);
       const keyPair = await mnemonicToWalletKey(mnemonic);
       const wallet = WalletContractV4.create({ workchain: 0, publicKey: keyPair.publicKey });
-      return { 
-        success: true, 
-        mnemonic, 
-        address: wallet.address.toString({ bounceable: true, testOnly: this.currentNetwork === 'testnet' }) 
-      };
+      return { success: true, mnemonic, address: wallet.address.toString() };
     } catch (e) {
       return { success: false, error: String(e) };
     }
   }
 
-  async initializeWallet(mnemonic: string[]) {
+  async initializeWallet(mnemonic: string[], password?: string) {
     try {
       this.keyPair = await mnemonicToWalletKey(mnemonic);
       this.wallet = WalletContractV4.create({ workchain: 0, publicKey: this.keyPair.publicKey });
-      this.contract = this.client!.open(this.wallet);
-      sessionManager.saveSession(mnemonic);
-      return { 
-        success: true, 
-        address: this.wallet.address.toString({ bounceable: true, testOnly: this.currentNetwork === 'testnet' }) 
-      };
+      this.contract = this.client.open(this.wallet);
+      
+      console.log(`✅ Wallet initialized: ${this.wallet.address.toString()}`);
+      
+      // Save session with encryption if password provided
+      if (password) {
+        const result = await sessionManager.saveSession(mnemonic, password);
+        if (!result.success) {
+          return { success: false, error: 'Failed to save encrypted session' };
+        }
+      }
+      
+      return { success: true, address: this.wallet.address.toString() };
     } catch (e) {
+      console.error('❌ Wallet initialization failed:', e);
       return { success: false, error: String(e) };
     }
   }
 
   async getBalance() {
-    if (!this.contract) return { success: false, error: 'Not initialized' };
-    const cacheKey = `balance_${this.currentNetwork}_${this.getWalletAddress()}`;
-    if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-      return { success: true, balance: cache[cacheKey].data };
+    if (!this.contract) {
+      console.warn('⚠️ Contract not initialized');
+      return { success: false, error: 'Not initialized' };
     }
-
+    
     try {
-      // TonClient doesn't easily expose the raw response for status codes, 
-      // but the getBalance call is often the bottleneck.
+      console.log(`💰 Fetching balance for ${this.wallet.address.toString()} on ${this.currentNetwork}...`);
+      
       const balance = await this.contract.getBalance();
-      const formatted = (Number(balance) / 1e9).toFixed(4);
-      cache[cacheKey] = { data: formatted, timestamp: Date.now() };
-      return { success: true, balance: formatted };
-    } catch (e: any) {
-      if (e.message?.includes('429')) {
-        console.warn("TON RPC Rate Limited");
-        return { success: false, error: 'Rate Limited', isRateLimit: true };
-      }
-      console.error("Balance fetch failed", e);
+      const balanceInTon = (Number(balance) / 1e9).toFixed(4);
+      
+      console.log(`✅ Balance fetched: ${balanceInTon} TON`);
+      
+      return { success: true, balance: balanceInTon };
+    } catch (e) {
+      console.error('❌ Balance fetch failed:', e);
       return { success: false, error: String(e) };
     }
   }
 
-  async getJettons(address: string) {
-    const cacheKey = `jettons_${this.currentNetwork}_${address}`;
-    if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-      return { success: true, jettons: cache[cacheKey].data };
-    }
-
+  async getBalanceByAddress(address: string) {
     try {
-      const baseUrl = CONFIG[this.currentNetwork].api;
-      const res = await this.fetchWithRetry(`${baseUrl}/accounts/${address}/jettons`);
-      if (!res.ok) throw new Error(`TonAPI jettons request failed: ${res.status}`);
+      console.log(`💰 Fetching balance for address ${address} on ${this.currentNetwork}...`);
+      
+      const config = getNetworkConfig(this.currentNetwork);
+      const endpoint = config.API_ENDPOINT;
+      const apiKey = config.API_KEY;
+      
+      // Use TonCenter API to get balance
+      const response = await fetch(`${endpoint}?api_key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getAddressBalance',
+          params: {
+            address: address
+          }
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error.message || 'API error');
+      }
+      
+      const balanceInNano = data.result || '0';
+      const balanceInTon = (Number(balanceInNano) / 1e9).toFixed(4);
+      
+      console.log(`✅ Balance fetched: ${balanceInTon} TON`);
+      
+      return { success: true, balance: balanceInTon };
+    } catch (e) {
+      console.error('❌ Balance fetch failed:', e);
+      return { success: false, error: String(e), balance: '0.0000' };
+    }
+  }
+
+  async getJettons(address: string) {
+    try {
+      const config = getNetworkConfig(this.currentNetwork);
+      const tonApiEndpoint = this.currentNetwork === 'mainnet' 
+        ? 'https://tonapi.io/v2'
+        : 'https://testnet.tonapi.io/v2';
+      
+      console.log(`🪙 Fetching jettons for ${address} on ${this.currentNetwork}...`);
+      
+      const res = await fetch(`${tonApiEndpoint}/accounts/${address}/jettons`, {
+        headers: {
+          'Authorization': `Bearer ${config.TONAPI_KEY}`
+        }
+      });
+      
+      if (!res.ok) {
+        console.warn('⚠️ Jettons fetch failed, returning empty array');
+        return { success: true, jettons: [] };
+      }
+      
       const data = await res.json();
-      cache[cacheKey] = { data: data.balances || [], timestamp: Date.now() };
+      console.log(`✅ Jettons fetched: ${data.balances?.length || 0} tokens`);
+      
       return { success: true, jettons: data.balances || [] };
     } catch (e) {
-      console.warn("Jetton fetch failed", e);
-      return { success: true, jettons: cache[cacheKey]?.data || [] }; // Return stale cache if exists
+      console.error('❌ Jettons fetch failed:', e);
+      return { success: false, error: String(e) };
     }
   }
 
-  async getNFTs(address: string) {
-    const cacheKey = `nfts_${this.currentNetwork}_${address}`;
-    if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-      return { success: true, nfts: cache[cacheKey].data };
-    }
-
+  async getTransactions(address: string, limit: number = 50) {
     try {
-      const baseUrl = CONFIG[this.currentNetwork].api;
-      const res = await this.fetchWithRetry(`${baseUrl}/accounts/${address}/nfts?limit=50&offset=0`);
-      if (!res.ok) throw new Error(`TonAPI nfts request failed: ${res.status}`);
-      const data = await res.json();
-      cache[cacheKey] = { data: data.nft_items || [], timestamp: Date.now() };
+      const config = getNetworkConfig(this.currentNetwork);
+      const tonApiEndpoint = this.currentNetwork === 'mainnet' 
+        ? 'https://tonapi.io/v2'
+        : 'https://testnet.tonapi.io/v2';
+      
+      console.log(`📜 Fetching transactions for ${address} on ${this.currentNetwork}...`);
+      
+      const response = await fetch(`${tonApiEndpoint}/blockchain/accounts/${address}/transactions?limit=${limit}`, {
+        headers: {
+          'Authorization': `Bearer ${config.TONAPI_KEY}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Fetched ${data.transactions?.length || 0} transactions`);
+      
+      return { success: true, transactions: data.transactions || [] };
+    } catch (e) {
+      console.error('❌ Transactions fetch failed:', e);
+      return { success: false, error: String(e), transactions: [] };
+    }
+  }
+
+  async getNFTs(address: string, limit: number = 100) {
+    try {
+      const config = getNetworkConfig(this.currentNetwork);
+      const tonApiEndpoint = this.currentNetwork === 'mainnet' 
+        ? 'https://tonapi.io/v2'
+        : 'https://testnet.tonapi.io/v2';
+      
+      console.log(`🖼️ Fetching NFTs for ${address} on ${this.currentNetwork}...`);
+      
+      const response = await fetch(`${tonApiEndpoint}/accounts/${address}/nfts?limit=${limit}`, {
+        headers: {
+          'Authorization': `Bearer ${config.TONAPI_KEY}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Fetched ${data.nft_items?.length || 0} NFTs`);
+      
       return { success: true, nfts: data.nft_items || [] };
     } catch (e) {
-      console.warn("NFT fetch failed", e);
-      return { success: true, nfts: cache[cacheKey]?.data || [] };
+      console.error('❌ NFTs fetch failed:', e);
+      return { success: false, error: String(e), nfts: [] };
     }
-  }
-
-  async getEvents(address: string) {
-    const cacheKey = `events_${this.currentNetwork}_${address}`;
-    if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
-      return { success: true, events: cache[cacheKey].data };
-    }
-
-    try {
-      const baseUrl = CONFIG[this.currentNetwork].api;
-      const res = await this.fetchWithRetry(`${baseUrl}/accounts/${address}/events?limit=25`);
-      if (!res.ok) throw new Error(`TonAPI events request failed: ${res.status}`);
-      const data = await res.json();
-      cache[cacheKey] = { data: data.events || [], timestamp: Date.now() };
-      return { success: true, events: data.events || [] };
-    } catch (e) {
-      console.warn("Events fetch failed", e);
-      return { success: true, events: cache[cacheKey]?.data || [] };
-    }
-  }
-
-  async getReferralData(address: string) {
-    const jitter = (Math.random() * 0.05);
-    const suffix = this.currentNetwork === 'testnet' ? ' (TEST)' : '';
-    return {
-      success: true,
-      stats: {
-        totalEarned: (this.currentNetwork === 'testnet' ? 5.20 : 142.50) + jitter,
-        rank: this.currentNetwork === 'testnet' ? 'Test Node' : 'Core Node',
-        nextRankProgress: 75,
-        levels: [
-          { level: 1, count: 12, earned: 85.00, commission: '10%' },
-          { level: 2, count: 48, earned: 42.50, commission: '5%' },
-          { level: 3, count: 112, earned: 15.00, commission: '2.5%' }
-        ],
-        recentInvites: [
-          { address: 'EQB2...1F8J', level: 1, time: '2h ago', reward: `+0.50 TON${suffix}` },
-          { address: 'UQC9...4A2D', level: 2, time: '5h ago', reward: `+0.25 TON${suffix}` },
-          { address: 'EQD4...9Z3K', level: 1, time: '12h ago', reward: `+1.20 TON${suffix}` }
-        ]
-      }
-    };
   }
 
   logout() {
@@ -214,15 +283,15 @@ export class TonWalletService {
     this.wallet = null;
     this.contract = null;
     sessionManager.clearSession();
-    Object.keys(cache).forEach(key => delete cache[key]);
+    console.log('👋 Logged out');
   }
 
   isInitialized() { return !!this.contract; }
-  getStoredSession() { return sessionManager.restoreSession(); }
-  getWalletAddress() { 
-    if (!this.wallet) return null;
-    return this.wallet.address.toString({ bounceable: true, testOnly: this.currentNetwork === 'testnet' }); 
-  }
+  getStoredSession(password: string) { return sessionManager.restoreSession(password); }
+  hasStoredSession() { return sessionManager.hasSession(); }
+  isSessionEncrypted() { return sessionManager.isEncrypted(); }
+  getWalletAddress() { return this.wallet?.address.toString(); }
+  getCurrentNetwork() { return this.currentNetwork; }
 }
 
 export const tonWalletService = new TonWalletService();
