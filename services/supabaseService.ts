@@ -1272,6 +1272,277 @@ class SupabaseService {
       return { success: false, error: error.message };
     }
   }
+
+  // ============================================================================
+  // UPLINE/DOWNLINE METHODS
+  // ============================================================================
+
+  /**
+   * Get upline (who referred this user)
+   */
+  async getUpline(userId: string): Promise<{
+    success: boolean;
+    data?: UserProfile | null;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      console.log('🔍 Fetching upline for user:', userId);
+
+      // Get user's referral data to find referrer_id
+      const { data: referralData, error: refError } = await this.client
+        .from('wallet_referrals')
+        .select('referrer_id')
+        .eq('user_id', userId)
+        .single();
+
+      if (refError) {
+        if (refError.code === 'PGRST116') {
+          return { success: true, data: null };
+        }
+        throw refError;
+      }
+
+      // If no referrer, return null
+      if (!referralData?.referrer_id) {
+        console.log('ℹ️ User has no upline');
+        return { success: true, data: null };
+      }
+
+      // Get referrer's profile
+      const { data: uplineProfile, error: profileError } = await this.client
+        .from('wallet_users')
+        .select('*')
+        .eq('id', referralData.referrer_id)
+        .single();
+
+      if (profileError) {
+        if (profileError.code === 'PGRST116') {
+          return { success: true, data: null };
+        }
+        throw profileError;
+      }
+
+      console.log('✅ Upline found:', uplineProfile.name);
+      return { success: true, data: uplineProfile };
+    } catch (error: any) {
+      console.error('❌ Get upline error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get downline (users referred by this user) with their stats
+   */
+  async getDownline(userId: string): Promise<{
+    success: boolean;
+    data?: Array<UserProfile & { total_referrals?: number; rzc_earned?: number }>;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      console.log('🔍 Fetching downline for user:', userId);
+
+      // Get all users who have this user as their referrer
+      const { data: downlineData, error } = await this.client
+        .from('wallet_referrals')
+        .select(`
+          user_id,
+          total_referrals,
+          wallet_users!inner (
+            id,
+            wallet_address,
+            name,
+            avatar,
+            email,
+            role,
+            is_active,
+            referrer_code,
+            rzc_balance,
+            created_at,
+            updated_at
+          )
+        `)
+        .eq('referrer_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Transform the data to flatten the structure
+      const transformedData = downlineData?.map((item: any) => ({
+        ...item.wallet_users,
+        total_referrals: item.total_referrals,
+        rzc_earned: item.wallet_users.rzc_balance - 100 // Subtract signup bonus to show earned amount
+      })) || [];
+
+      console.log(`✅ Found ${transformedData.length} downline members`);
+      return { success: true, data: transformedData };
+    } catch (error: any) {
+      console.error('❌ Get downline error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // NEWSLETTER SUBSCRIPTION METHODS
+  // ============================================================================
+
+  /**
+   * Subscribe email to newsletter
+   */
+  async subscribeToNewsletter(
+    email: string,
+    metadata?: {
+      source?: string;
+      ipAddress?: string;
+      userAgent?: string;
+      [key: string]: any;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: any;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { 
+        success: false, 
+        message: 'Database not configured',
+        error: 'Supabase not configured' 
+      };
+    }
+
+    try {
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return {
+          success: false,
+          message: 'Invalid email format',
+          error: 'Invalid email format'
+        };
+      }
+
+      console.log('📧 Subscribing to newsletter:', email);
+
+      // Check if email already exists
+      const { data: existing, error: checkError } = await this.client
+        .from('wallet_newsletter_subscriptions')
+        .select('id, status')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
+
+      // If already subscribed and active
+      if (existing && existing.status === 'active') {
+        return {
+          success: true,
+          message: 'You are already subscribed to our newsletter!',
+          data: existing
+        };
+      }
+
+      // If previously unsubscribed, reactivate
+      if (existing && existing.status === 'unsubscribed') {
+        const { data: updated, error: updateError } = await this.client
+          .from('wallet_newsletter_subscriptions')
+          .update({
+            status: 'active',
+            subscribed_at: new Date().toISOString(),
+            unsubscribed_at: null,
+            metadata: metadata || {}
+          })
+          .eq('id', existing.id)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+
+        console.log('✅ Newsletter subscription reactivated');
+        return {
+          success: true,
+          message: 'Welcome back! You have been resubscribed to our newsletter.',
+          data: updated
+        };
+      }
+
+      // New subscription
+      const { data, error } = await this.client
+        .from('wallet_newsletter_subscriptions')
+        .insert({
+          email: email.toLowerCase().trim(),
+          status: 'active',
+          source: metadata?.source || 'landing_page',
+          ip_address: metadata?.ipAddress || null,
+          user_agent: metadata?.userAgent || null,
+          metadata: metadata || {}
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ Newsletter subscription created:', data.id);
+      return {
+        success: true,
+        message: 'Thank you for subscribing! Check your inbox for updates.',
+        data
+      };
+
+    } catch (error: any) {
+      console.error('❌ Newsletter subscription failed:', error);
+      return {
+        success: false,
+        message: 'Failed to subscribe. Please try again.',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get newsletter subscription count (admin only)
+   */
+  async getNewsletterStats(): Promise<{
+    success: boolean;
+    data?: {
+      total: number;
+      active: number;
+      unsubscribed: number;
+    };
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('wallet_newsletter_subscriptions')
+        .select('status');
+
+      if (error) throw error;
+
+      const stats = {
+        total: data.length,
+        active: data.filter(s => s.status === 'active').length,
+        unsubscribed: data.filter(s => s.status === 'unsubscribed').length
+      };
+
+      return { success: true, data: stats };
+    } catch (error: any) {
+      console.error('❌ Failed to get newsletter stats:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 // ============================================================================

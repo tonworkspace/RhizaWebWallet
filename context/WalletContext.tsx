@@ -4,6 +4,7 @@ import { tonWalletService } from '../services/tonWalletService';
 import { NetworkType, getNetworkConfig } from '../constants';
 import { supabaseService } from '../services/supabaseService';
 import { transactionSyncService } from '../services/transactionSync';
+import { notificationService } from '../services/notificationService';
 
 interface UserProfile {
   id: string;
@@ -39,7 +40,6 @@ interface WalletState {
   jettons: any[];
   theme: 'dark' | 'light';
   network: NetworkType;
-  sessionTimeRemaining: number | null;
   userProfile: UserProfile | null;
   referralData: ReferralData | null;
   toggleTheme: () => void;
@@ -47,14 +47,12 @@ interface WalletState {
   refreshData: () => Promise<void>;
   login: (mnemonic: string[], password?: string) => Promise<boolean>;
   logout: () => void;
-  resetSessionTimer: () => void;
 }
 
 const WalletContext = createContext<WalletState | undefined>(undefined);
 
-// Session timeout configuration (15 minutes in milliseconds)
-const SESSION_TIMEOUT = 15 * 60 * 1000;
-const WARNING_TIME = 2 * 60 * 1000; // Show warning 2 minutes before timeout
+// Session channel for multi-tab sync
+const SESSION_CHANNEL = 'rhiza_session_sync';
 
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [address, setAddress] = useState<string | null>(null);
@@ -62,7 +60,6 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [jettons, setJettons] = useState<any[]>([]);
-  const [sessionTimeRemaining, setSessionTimeRemaining] = useState<number | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
   const [network, setNetwork] = useState<NetworkType>(() => {
@@ -74,10 +71,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return (saved as 'dark' | 'light') || 'dark';
   });
 
-  const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActivityRef = useRef<number>(Date.now());
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionChannelRef = useRef<BroadcastChannel | null>(null);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -103,84 +98,27 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Reset session timer on user activity
-  const resetSessionTimer = useCallback(() => {
-    if (!isLoggedIn) return;
-
-    lastActivityRef.current = Date.now();
-    setSessionTimeRemaining(null);
-
-    // Clear existing timers
-    if (sessionTimerRef.current) {
-      clearTimeout(sessionTimerRef.current);
-    }
-    if (countdownTimerRef.current) {
-      clearInterval(countdownTimerRef.current);
-    }
-
-    // Set new timeout
-    sessionTimerRef.current = setTimeout(() => {
-      // Auto-logout after timeout
-      console.log('Session timeout - logging out');
-      logout();
-    }, SESSION_TIMEOUT);
-
-    // Start countdown when warning time is reached
-    const warningTimeout = setTimeout(() => {
-      setSessionTimeRemaining(WARNING_TIME / 1000); // Convert to seconds
-      
-      // Update countdown every second
-      countdownTimerRef.current = setInterval(() => {
-        setSessionTimeRemaining((prev) => {
-          if (prev === null || prev <= 1) {
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }, SESSION_TIMEOUT - WARNING_TIME);
-
-    return () => {
-      clearTimeout(warningTimeout);
-    };
-  }, [isLoggedIn]);
-
-  // Track user activity
+  // Multi-tab session synchronization
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (typeof BroadcastChannel === 'undefined') return;
 
-    const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
-    
-    const handleActivity = () => {
-      const now = Date.now();
-      const timeSinceLastActivity = now - lastActivityRef.current;
-      
-      // Only reset if more than 1 second has passed (debounce)
-      if (timeSinceLastActivity > 1000) {
-        resetSessionTimer();
+    const channel = new BroadcastChannel(SESSION_CHANNEL);
+    sessionChannelRef.current = channel;
+
+    channel.onmessage = (event) => {
+      if (event.data.type === 'logout') {
+        console.log('🔄 Logout broadcast received from another tab');
+        logout();
       }
+      // Note: Removed 'login' broadcast handling to prevent reload loops
+      // Each tab will auto-login independently on page load
     };
-
-    events.forEach(event => {
-      window.addEventListener(event, handleActivity);
-    });
-
-    // Initialize timer
-    resetSessionTimer();
 
     return () => {
-      events.forEach(event => {
-        window.removeEventListener(event, handleActivity);
-      });
-      
-      if (sessionTimerRef.current) {
-        clearTimeout(sessionTimerRef.current);
-      }
-      if (countdownTimerRef.current) {
-        clearInterval(countdownTimerRef.current);
-      }
+      channel.close();
+      sessionChannelRef.current = null;
     };
-  }, [isLoggedIn, resetSessionTimer]);
+  }, []);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -234,6 +172,19 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.log('✅ Referral data loaded:', referralResult.data.referral_code);
           }
           
+          // Log session activity
+          await notificationService.logActivity(
+            res.address,
+            'login',
+            'User logged in',
+            {
+              network,
+              timestamp: Date.now(),
+              device: navigator.userAgent,
+              platform: navigator.platform
+            }
+          );
+          
           // Track login event
           await supabaseService.trackEvent('wallet_login', {
             wallet_address: res.address,
@@ -286,24 +237,35 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const logout = () => {
+    // Log session activity before logout
+    if (address && supabaseService.isConfigured()) {
+      notificationService.logActivity(
+        address,
+        'logout',
+        'User logged out',
+        {
+          timestamp: Date.now(),
+          device: navigator.userAgent
+        }
+      ).catch(err => console.error('Failed to log logout activity:', err));
+    }
+    
     tonWalletService.logout();
     setAddress(null);
     setBalance('0.00');
     setIsLoggedIn(false);
     setJettons([]);
-    setSessionTimeRemaining(null);
     setUserProfile(null);
     setReferralData(null);
     
     // Clear timers
-    if (sessionTimerRef.current) {
-      clearTimeout(sessionTimerRef.current);
-    }
-    if (countdownTimerRef.current) {
-      clearInterval(countdownTimerRef.current);
-    }
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
+    }
+    
+    // Broadcast logout to other tabs
+    if (sessionChannelRef.current) {
+      sessionChannelRef.current.postMessage({ type: 'logout' });
     }
   };
 
@@ -312,15 +274,18 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Set network on tonWalletService
       tonWalletService.setNetwork(network);
       
-      // Check if there's a stored session
+      // Check if there's a stored session - auto-login for persistent sessions
       if (tonWalletService.hasStoredSession()) {
-        // For now, we'll skip auto-login if session is encrypted
-        // User will need to login manually with password
-        if (!tonWalletService.isSessionEncrypted()) {
-          const savedMnemonic = await tonWalletService.getStoredSession('');
-          if (savedMnemonic) {
-            await login(savedMnemonic);
-          }
+        console.log('🔐 Found stored session, attempting auto-login...');
+        
+        // Try to restore session (works for both encrypted and unencrypted)
+        const savedMnemonic = await tonWalletService.getStoredSession('');
+        if (savedMnemonic) {
+          console.log('✅ Session restored, logging in...');
+          await login(savedMnemonic);
+        } else {
+          console.log('⚠️ Session restore failed, clearing session');
+          tonWalletService.logout();
         }
       }
       setIsLoading(false);
@@ -337,15 +302,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       jettons, 
       theme,
       network,
-      sessionTimeRemaining,
       userProfile,
       referralData,
       toggleTheme,
       switchNetwork,
       refreshData, 
       login, 
-      logout,
-      resetSessionTimer
+      logout
     }}>
       {children}
     </WalletContext.Provider>

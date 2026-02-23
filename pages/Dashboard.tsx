@@ -71,10 +71,68 @@ const Dashboard: React.FC = () => {
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showNetworkInfo, setShowNetworkInfo] = useState(false);
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'BTC' | 'TON' | 'USDT' | 'EUR'>('USD');
+
+  // Calculate combined portfolio value (TON + RZC)
+  const rzcBalance = (userProfile as any)?.rzc_balance || 0;
+  const rzcPrice = 0.10; // 1 RZC = $0.10
+  const rzcUsdValue = rzcBalance * rzcPrice;
+  const combinedPortfolioValue = totalUsdValue + rzcUsdValue;
+
+  // Currency conversion rates (mock data - should be fetched from API)
+  const conversionRates = {
+    USD: 1,
+    BTC: 0.000015, // 1 USD = 0.000015 BTC (approx $66,666 per BTC)
+    TON: 0.408, // 1 USD = 0.408 TON (approx $2.45 per TON)
+    USDT: 1, // 1 USD = 1 USDT (stablecoin)
+    EUR: 0.92, // 1 USD = 0.92 EUR
+  };
+
+  // Currency symbols
+  const currencySymbols = {
+    USD: '$',
+    BTC: '₿',
+    TON: 'TON',
+    USDT: '$',
+    EUR: '€',
+  };
+
+  // Convert portfolio value to selected currency
+  const convertedValue = combinedPortfolioValue * conversionRates[selectedCurrency];
+  
+  // Format based on currency
+  const formatValue = (value: number, currency: string) => {
+    if (currency === 'BTC') {
+      return value.toFixed(8); // BTC uses 8 decimals
+    } else if (currency === 'TON') {
+      return value.toFixed(4); // TON uses 4 decimals
+    } else {
+      return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  };
+
+  // Currency display options
+  const currencies: Array<'USD' | 'BTC' | 'TON' | 'USDT' | 'EUR'> = ['USD', 'BTC', 'TON', 'USDT', 'EUR'];
+  const [showCurrencyMenu, setShowCurrencyMenu] = useState(false);
 
   useEffect(() => {
     refreshData();
   }, []);
+
+  // Close currency menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showCurrencyMenu) {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.currency-selector')) {
+          setShowCurrencyMenu(false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showCurrencyMenu]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -88,30 +146,6 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0">
-      
-      {/* Profile Greeting - Compact */}
-      {userProfile && (
-        <div className="flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-r from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 rounded-xl sm:rounded-2xl">
-          <div className="text-2xl sm:text-3xl">{userProfile.avatar}</div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] sm:text-xs text-gray-500">Welcome back,</p>
-            <h1 className="text-base sm:text-lg font-bold text-white truncate">{userProfile.name}</h1>
-            {referralData && (
-              <p className="text-[9px] sm:text-[10px] text-[#00FF88] font-mono mt-0.5">
-                {referralData.rank} • {referralData.total_referrals} Refs
-              </p>
-            )}
-          </div>
-          {/* RZC Balance Badge - Compact */}
-          <div className="text-right">
-            <p className="text-[8px] sm:text-[9px] text-gray-500 uppercase tracking-wider font-bold">RZC</p>
-            <p className="text-lg sm:text-xl font-black text-[#00FF88]">
-              {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
-            </p>
-          </div>
-        </div>
-      )}
-      
       {/* Network Switcher - Compact */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -199,7 +233,7 @@ const Dashboard: React.FC = () => {
                 <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 dark:text-gray-500">
                     <ShieldCheck size={12} className="text-primary flex-shrink-0" />
-                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">TON Wallet</span>
+                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">Total Portfolio</span>
                   </div>
                   
                   {balanceLoading ? (
@@ -208,8 +242,9 @@ const Dashboard: React.FC = () => {
                     <h2 className="text-3xl sm:text-4xl font-black tracking-tight-custom text-slate-900 dark:text-white">
                       {balanceVisible ? (
                         <>
-                          {tonBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} 
-                          <span className="text-base sm:text-lg font-bold text-slate-400 dark:text-gray-600"> TON</span>
+                          {selectedCurrency === 'USD' || selectedCurrency === 'USDT' || selectedCurrency === 'EUR' ? currencySymbols[selectedCurrency] : ''}
+                          {formatValue(convertedValue, selectedCurrency)}
+                          <span className="text-base sm:text-lg font-bold text-slate-400 dark:text-gray-600"> {selectedCurrency === 'BTC' || selectedCurrency === 'TON' ? selectedCurrency : ''}</span>
                         </>
                       ) : (
                         <span className="text-slate-400 dark:text-gray-600">••••••</span>
@@ -220,30 +255,73 @@ const Dashboard: React.FC = () => {
                   {balanceLoading ? (
                     <LoadingSkeleton width={120} height={14} />
                   ) : (
-                    <div className="flex items-center gap-1.5 sm:gap-2">
-                      <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs ${
-                        change24h >= 0 ? 'text-emerald-500' : 'text-red-500'
-                      }`}>
-                        <TrendingUp size={10} className={change24h < 0 ? 'rotate-180' : ''} />
-                        <span>
-                          {balanceVisible ? (
-                            change24h === 0 ? 'No change' : `${change24h >= 0 ? '+' : ''}${Math.abs(change24h).toFixed(2)} (${changePercent24h}%)`
-                          ) : (
-                            '•••••'
-                          )}
-                        </span>
+                    <>
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs transition-colors duration-300 ${
+                          change24h >= 0 ? 'text-emerald-500' : 'text-red-500'
+                        }`}>
+                          <TrendingUp size={10} className={`transition-transform duration-300 ${change24h < 0 ? 'rotate-180' : ''}`} />
+                          <span>
+                            {balanceVisible ? (
+                              change24h === 0 ? 'No change' : `${change24h >= 0 ? '+' : ''}$${Math.abs(change24h).toFixed(2)} (${changePercent24h >= 0 ? '+' : ''}${changePercent24h.toFixed(2)}%)`
+                            ) : (
+                              '•••••'
+                            )}
+                          </span>
+                        </div>
+                        <span className="text-[8px] text-slate-400 dark:text-gray-600 font-medium">24h</span>
                       </div>
-                    </div>
-                  )}
-                  
-                  {!balanceLoading && balanceVisible && totalUsdValue > 0 && (
-                    <p className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 font-medium">
-                      ≈ ${totalUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
+                      {balanceVisible && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-slate-500 dark:text-gray-500 font-medium">
+                            {tonBalance.toFixed(4)} TON
+                          </span>
+                          <span className="text-[10px] text-slate-400 dark:text-gray-600">•</span>
+                          <span className="text-[10px] text-[#00FF88] font-medium">
+                            {rzcBalance.toLocaleString()} RZC
+                          </span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 
                 <div className="flex gap-1.5 sm:gap-2">
+                  {/* Currency Selector */}
+                  <div className="relative currency-selector">
+                    <button 
+                      onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
+                      className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center"
+                      aria-label="Select currency"
+                    >
+                      {selectedCurrency}
+                    </button>
+                    
+                    {showCurrencyMenu && (
+                      <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
+                        {currencies.map((currency) => (
+                          <button
+                            key={currency}
+                            onClick={() => {
+                              setSelectedCurrency(currency);
+                              setShowCurrencyMenu(false);
+                            }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-2 ${
+                              selectedCurrency === currency
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'
+                            }`}
+                          >
+                            <span>{currency}</span>
+                            {selectedCurrency === currency && (
+                              <span className="text-primary">✓</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
                   <button 
                     onClick={() => setBalanceVisible(!balanceVisible)}
                     className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90"

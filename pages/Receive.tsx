@@ -13,6 +13,7 @@ import {
   Zap
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import { QRCodeSVG } from 'qrcode.react';
 
 const Receive: React.FC = () => {
   const navigate = useNavigate();
@@ -37,6 +38,28 @@ const Receive: React.FC = () => {
     }
   };
 
+  const handleDownloadQR = () => {
+    if (!address) return;
+    
+    // Get the QR code SVG element
+    const svg = document.querySelector('.qr-code-container svg');
+    if (!svg) return;
+
+    // Convert SVG to data URL
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    // Create download link
+    const downloadLink = document.createElement('a');
+    downloadLink.href = svgUrl;
+    downloadLink.download = `rhizacore-wallet-${address.slice(0, 8)}.svg`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(svgUrl);
+  };
+
   return (
     <div className="max-w-xl mx-auto space-y-6 sm:space-y-8 page-enter pb-8 sm:pb-12 px-3 sm:px-4 md:px-0">
       <div className="flex items-center gap-3 sm:gap-4">
@@ -54,21 +77,28 @@ const Receive: React.FC = () => {
            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-[0.3em]">TON Network • Mainnet</p>
         </div>
 
-        {/* Professional QR Concept */}
+        {/* Real QR Code */}
         <div className="relative group">
            <div className="absolute -inset-4 bg-[#00FF88]/10 rounded-[2.5rem] blur-2xl group-hover:bg-[#00FF88]/20 transition-all duration-700" />
-           <div className="w-56 h-56 sm:w-64 sm:h-64 bg-white p-5 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] relative shadow-2xl overflow-hidden flex items-center justify-center">
-              {/* This would be a real QR generator in production */}
-              <div className="w-full h-full border-[8px] sm:border-[10px] border-black flex flex-wrap gap-1 p-2 opacity-90">
-                 {Array.from({length: 100}).map((_, i) => (
-                   <div key={i} className={`w-[8%] h-[8%] ${Math.random() > 0.5 ? 'bg-black' : 'bg-transparent'}`} />
-                 ))}
-              </div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-white rounded-xl sm:rounded-2xl flex items-center justify-center shadow-xl border-2 border-black">
-                   <Zap size={28} className="sm:w-8 sm:h-8 text-black fill-current" />
+           <div className="qr-code-container w-56 h-56 sm:w-64 sm:h-64 bg-white p-4 sm:p-5 rounded-[2rem] sm:rounded-[2.5rem] relative shadow-2xl overflow-hidden flex items-center justify-center">
+              {address ? (
+                <QRCodeSVG
+                  value={address}
+                  size={window.innerWidth < 640 ? 192 : 224}
+                  level="H"
+                  includeMargin={false}
+                  imageSettings={{
+                    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E",
+                    height: 48,
+                    width: 48,
+                    excavate: true,
+                  }}
+                />
+              ) : (
+                <div className="flex items-center justify-center text-gray-400">
+                  <QrCode size={64} />
                 </div>
-              </div>
+              )}
            </div>
         </div>
 
@@ -85,7 +115,7 @@ const Receive: React.FC = () => {
              <button onClick={handleShare} className="flex-1 py-3 sm:py-4 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95">
                <Share2 size={14} className="sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Share Link</span><span className="sm:hidden">Share</span>
              </button>
-             <button className="flex-1 py-3 sm:py-4 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95">
+             <button onClick={handleDownloadQR} className="flex-1 py-3 sm:py-4 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95">
                <Download size={14} className="sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Save QR</span><span className="sm:hidden">Save</span>
              </button>
           </div>

@@ -58,7 +58,7 @@ interface NFT {
 }
 
 const Assets: React.FC = () => {
-  const { address, network, balance: tonBalance } = useWallet();
+  const { address, network, balance: tonBalance, userProfile } = useWallet();
   const [activeTab, setActiveTab] = useState<'tokens' | 'nfts'>('tokens');
   const [jettons, setJettons] = useState<Jetton[]>([]);
   const [nfts, setNFTs] = useState<NFT[]>([]);
@@ -181,7 +181,9 @@ const Assets: React.FC = () => {
   // Calculate total portfolio value
   const tonBalanceNum = parseFloat(tonBalance) || 0;
   const tonPrice = 2.45; // TODO: Get from price API
-  const totalValue = tonBalanceNum * tonPrice;
+  const rzcBalance = (userProfile as any)?.rzc_balance || 0;
+  const rzcPrice = 0.10; // 1 RZC = $0.10
+  const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * rzcPrice);
 
   const getNFTImage = (nft: NFT) => {
     // Try previews first
@@ -305,6 +307,34 @@ const Assets: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* RZC Balance (Community Token) */}
+                {userProfile && (
+                  <div className="py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl bg-gradient-to-br from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 group-hover:scale-105 transition-transform">
+                        ⚡
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-white">RhizaCore Token</h4>
+                          <span className="text-[10px] text-[#00FF88]">✓</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-gray-500 font-bold tracking-tight">
+                          {((userProfile as any).rzc_balance || 0).toLocaleString()} <span className="text-slate-400 dark:text-gray-700">RZC</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-black text-sm text-[#00FF88]">
+                        ${(((userProfile as any).rzc_balance || 0) * 0.10).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
+                        Community
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Jettons */}
                 {filteredJettons.length === 0 && !isLoading ? (

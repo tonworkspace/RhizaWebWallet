@@ -32,10 +32,13 @@ import {
   Repeat,
   Image
 } from 'lucide-react';
-import { RHIZA_TOKENOMICS, RHIZA_UTILITIES, RHIZA_BUSINESS_MODEL, RHIZA_OPPORTUNITIES } from '../constants';
+import { RHIZA_TOKENOMICS, RHIZA_UTILITIES, RHIZA_BUSINESS_MODEL, RHIZA_OPPORTUNITIES, SOCIAL_LINKS } from '../constants';
 import { useWallet } from '../context/WalletContext';
+import { useToast } from '../context/ToastContext';
 import TokenomicsChart from '../components/TokenomicsChart';
 import TokenomicsCalculator from '../components/TokenomicsCalculator';
+import { supabaseService } from '../services/supabaseService';
+import { notificationService } from '../services/notificationService';
 
 const FeatureCard: React.FC<{ icon: any, title: string, description: string }> = ({ icon: Icon, title, description }) => (
   <div className="glass p-8 rounded-[2rem] border-black/5 dark:border-white/5 group hover:border-primary/20 transition-all duration-500 hover:-translate-y-1">
@@ -75,7 +78,10 @@ const Landing: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState('');
-  const { theme, toggleTheme } = useWallet();
+  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterLoading, setNewsletterLoading] = useState(false);
+  const { theme, toggleTheme, isLoggedIn, userProfile, referralData } = useWallet();
+  const { showToast } = useToast();
 
   // Scroll detection for navbar styling
   React.useEffect(() => {
@@ -129,6 +135,55 @@ const Landing: React.FC = () => {
       });
     }
     setMobileMenuOpen(false);
+  };
+
+  const handleNewsletterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!newsletterEmail.trim()) {
+      showToast('Please enter your email address', 'error');
+      return;
+    }
+
+    setNewsletterLoading(true);
+
+    try {
+      // Subscribe to newsletter
+      const result = await supabaseService.subscribeToNewsletter(
+        newsletterEmail,
+        {
+          source: 'landing_page',
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString()
+        }
+      );
+
+      if (result.success) {
+        showToast(result.message, 'success');
+        setNewsletterEmail(''); // Clear input on success
+
+        // Track newsletter subscription activity
+        if (isLoggedIn && userProfile) {
+          await notificationService.logActivity(
+            userProfile.wallet_address,
+            'feature_used',
+            'Subscribed to newsletter',
+            {
+              email: newsletterEmail,
+              source: 'landing_page',
+              timestamp: new Date().toISOString()
+            }
+          );
+        }
+      } else {
+        showToast(result.message || 'Failed to subscribe', 'error');
+      }
+    } catch (error: any) {
+      console.error('Newsletter subscription error:', error);
+      showToast('An error occurred. Please try again.', 'error');
+    } finally {
+      setNewsletterLoading(false);
+    }
   };
 
   return (
@@ -254,6 +309,47 @@ const Landing: React.FC = () => {
 
       {/* Hero Section */}
       <section className="px-6 lg:px-24 pt-16 lg:pt-32 pb-24 relative overflow-hidden">
+        {/* Profile Greeting for Logged-in Users */}
+        {isLoggedIn && userProfile && (
+          <div className="max-w-7xl mx-auto mb-8">
+            <div className="flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-r from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 rounded-xl sm:rounded-2xl">
+              <div className="text-2xl sm:text-3xl">{userProfile.avatar}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] sm:text-xs text-gray-500">Welcome back,</p>
+                <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">{userProfile.name}</h1>
+                {referralData && (
+                  <p className="text-[9px] sm:text-[10px] text-[#00FF88] font-mono mt-0.5">
+                    {referralData.rank} • {referralData.total_referrals} Refs
+                  </p>
+                )}
+              </div>
+              {/* RZC Balance Badge - Compact */}
+              <div className="text-right">
+                <div className="flex items-center gap-1.5 justify-end mb-0.5">
+                  <p className="text-[8px] sm:text-[9px] text-gray-500 uppercase tracking-wider font-bold">RZC</p>
+                  <div className="px-1.5 py-0.5 bg-[#00FF88]/10 border border-[#00FF88]/20 rounded text-[8px] font-black text-[#00FF88]">
+                    $0.10
+                  </div>
+                </div>
+                <p className="text-lg sm:text-xl font-black text-[#00FF88]">
+                  {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
+                </p>
+                <p className="text-[8px] sm:text-[9px] text-gray-600 font-bold">
+                  ≈ ${(((userProfile as any).rzc_balance || 0) * 0.10).toFixed(2)}
+                </p>
+              </div>
+              {/* Quick Access to Wallet */}
+              <Link 
+                to="/wallet/dashboard"
+                className="hidden sm:flex items-center gap-2 px-4 py-2 bg-primary text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all"
+              >
+                <Zap size={14} />
+                Wallet
+              </Link>
+            </div>
+          </div>
+        )}
+        
         <div className="max-w-7xl mx-auto text-center lg:text-left grid lg:grid-cols-2 gap-16 items-center">
           <div className="space-y-10">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-primary text-[10px] font-black uppercase tracking-widest transition-colors">
@@ -601,16 +697,28 @@ const Landing: React.FC = () => {
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-gray-400 flex items-center gap-2">
                   <Mail size={14} /> Join the Intelligence
                 </h4>
-                <div className="flex max-w-sm relative group">
+                <form onSubmit={handleNewsletterSubmit} className="flex max-w-sm relative group">
                   <input 
                     type="email" 
+                    value={newsletterEmail}
+                    onChange={(e) => setNewsletterEmail(e.target.value)}
                     placeholder="Enter terminal email..." 
-                    className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-5 py-3 text-xs outline-none focus:border-primary/50 transition-all font-mono"
+                    disabled={newsletterLoading}
+                    className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-5 py-3 text-xs outline-none focus:border-primary/50 transition-all font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                    required
                   />
-                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-primary text-black rounded-lg hover:scale-105 active:scale-95 transition-all">
-                    <ArrowRight size={14} />
+                  <button 
+                    type="submit"
+                    disabled={newsletterLoading}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-primary text-black rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {newsletterLoading ? (
+                      <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <ArrowRight size={14} />
+                    )}
                   </button>
-                </div>
+                </form>
               </div>
 
               {/* Status Badge */}
@@ -677,16 +785,29 @@ const Landing: React.FC = () => {
               © 2024 RhizaCore Labs • Powering the future of TON commerce
             </div>
             
-            <div className="flex items-center gap-6">
-              <a href="#" className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-gray-400 hover:text-primary hover:border-primary/30 transition-all">
-                <Twitter size={18} />
-              </a>
-              <a href="#" className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-gray-400 hover:text-primary hover:border-primary/30 transition-all">
-                <MessageCircle size={18} />
-              </a>
-              <a href="#" className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-gray-400 hover:text-primary hover:border-primary/30 transition-all">
-                <Github size={18} />
-              </a>
+            {/* Official Social Links */}
+            <div className="flex items-center gap-4">
+              {SOCIAL_LINKS.map((social) => (
+                <a 
+                  key={social.name}
+                  href={social.url} 
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-gray-400 hover:text-primary hover:border-primary/30 hover:bg-primary/5 transition-all group"
+                  title={social.label}
+                >
+                  {social.icon === 'telegram' && (
+                    <svg className="w-[18px] h-[18px] group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.941z"/>
+                    </svg>
+                  )}
+                  {social.icon === 'facebook' && (
+                    <svg className="w-[18px] h-[18px] group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                  )}
+                </a>
+              ))}
             </div>
 
             <div className="flex items-center gap-4 text-[10px] font-black text-slate-500 dark:text-gray-400 uppercase tracking-widest">

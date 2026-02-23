@@ -5,12 +5,25 @@ import { encryptMnemonic, decryptMnemonic } from '../utils/encryption';
 import { NetworkType, getNetworkConfig, getApiEndpoint, getApiKey } from '../constants';
 
 const sessionManager = {
-  saveSession: async (mnemonic: string[], password: string) => {
+  saveSession: async (mnemonic: string[], password?: string) => {
     try {
-      const encrypted = await encryptMnemonic(mnemonic, password);
-      localStorage.setItem('rhiza_session', encrypted);
-      // Store a flag that session is encrypted
-      localStorage.setItem('rhiza_session_encrypted', 'true');
+      if (password) {
+        // Encrypt with password (for extra security)
+        const encrypted = await encryptMnemonic(mnemonic, password);
+        localStorage.setItem('rhiza_session', encrypted);
+        localStorage.setItem('rhiza_session_encrypted', 'true');
+      } else {
+        // Store encrypted with device-specific key (Trust Wallet style)
+        // Use a combination of browser fingerprint as encryption key
+        const deviceKey = await generateDeviceKey();
+        const encrypted = await encryptMnemonic(mnemonic, deviceKey);
+        localStorage.setItem('rhiza_session', encrypted);
+        localStorage.setItem('rhiza_session_encrypted', 'device');
+      }
+      
+      // Store session timestamp
+      localStorage.setItem('rhiza_session_created', Date.now().toString());
+      
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -19,13 +32,19 @@ const sessionManager = {
   restoreSession: async (password: string) => {
     try {
       const encrypted = localStorage.getItem('rhiza_session');
-      const isEncrypted = localStorage.getItem('rhiza_session_encrypted') === 'true';
+      const encryptionType = localStorage.getItem('rhiza_session_encrypted');
       
       if (!encrypted) return null;
       
-      if (isEncrypted) {
-        // Decrypt with password
+      if (encryptionType === 'true') {
+        // Password-encrypted session
+        if (!password) return null;
         const mnemonic = await decryptMnemonic(encrypted, password);
+        return mnemonic;
+      } else if (encryptionType === 'device') {
+        // Device-encrypted session (auto-login)
+        const deviceKey = await generateDeviceKey();
+        const mnemonic = await decryptMnemonic(encrypted, deviceKey);
         return mnemonic;
       } else {
         // Legacy unencrypted session (for backward compatibility)
@@ -39,15 +58,43 @@ const sessionManager = {
   clearSession: () => {
     localStorage.removeItem('rhiza_session');
     localStorage.removeItem('rhiza_session_encrypted');
-    localStorage.removeItem('rhiza_session_timeout');
+    localStorage.removeItem('rhiza_session_created');
   },
   hasSession: () => {
     return !!localStorage.getItem('rhiza_session');
   },
   isEncrypted: () => {
-    return localStorage.getItem('rhiza_session_encrypted') === 'true';
+    const type = localStorage.getItem('rhiza_session_encrypted');
+    return type === 'true' || type === 'device';
+  },
+  getSessionAge: () => {
+    const created = localStorage.getItem('rhiza_session_created');
+    if (!created) return null;
+    return Date.now() - parseInt(created);
   }
 };
+
+// Generate device-specific encryption key
+async function generateDeviceKey(): Promise<string> {
+  // Create a fingerprint from browser characteristics
+  const fingerprint = [
+    navigator.userAgent,
+    navigator.language,
+    new Date().getTimezoneOffset(),
+    screen.colorDepth,
+    screen.width + 'x' + screen.height,
+    'rhizacore_v1' // App-specific salt
+  ].join('|');
+  
+  // Hash the fingerprint to create a consistent key
+  const encoder = new TextEncoder();
+  const data = encoder.encode(fingerprint);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  return hashHex;
+}
 
 export class TonWalletService {
   private client: TonClient;
@@ -108,12 +155,11 @@ export class TonWalletService {
       
       console.log(`✅ Wallet initialized: ${this.wallet.address.toString()}`);
       
-      // Save session with encryption if password provided
-      if (password) {
-        const result = await sessionManager.saveSession(mnemonic, password);
-        if (!result.success) {
-          return { success: false, error: 'Failed to save encrypted session' };
-        }
+      // Always save session (with device encryption by default, or password if provided)
+      const result = await sessionManager.saveSession(mnemonic, password);
+      if (!result.success) {
+        console.warn('⚠️ Failed to save session:', result.error);
+        // Don't fail the login, just warn
       }
       
       return { success: true, address: this.wallet.address.toString() };
@@ -275,6 +321,148 @@ export class TonWalletService {
     } catch (e) {
       console.error('❌ NFTs fetch failed:', e);
       return { success: false, error: String(e), nfts: [] };
+    }
+  }
+
+  async sendTransaction(recipientAddress: string, amount: string, comment?: string) {
+    if (!this.contract || !this.keyPair) {
+      console.error('❌ Wallet not initialized');
+      return { success: false, error: 'Wallet not initialized' };
+    }
+
+    try {
+      console.log(`💸 Preparing transaction...`);
+      console.log(`   To: ${recipientAddress}`);
+      console.log(`   Amount: ${amount} TON`);
+      console.log(`   Comment: ${comment || 'none'}`);
+      console.log(`   Network: ${this.currentNetwork}`);
+
+      // Validate recipient address
+      let recipientAddr: Address;
+      try {
+        recipientAddr = Address.parse(recipientAddress);
+      } catch (e) {
+        return { success: false, error: 'Invalid recipient address' };
+      }
+
+      // Validate amount
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        return { success: false, error: 'Invalid amount' };
+      }
+
+      // Check balance
+      const balanceResult = await this.getBalance();
+      if (!balanceResult.success) {
+        return { success: false, error: 'Failed to check balance' };
+      }
+
+      const currentBalance = parseFloat(balanceResult.balance);
+      const estimatedFee = 0.01; // Estimated gas fee in TON
+      
+      if (currentBalance < amountNum + estimatedFee) {
+        return { 
+          success: false, 
+          error: `Insufficient balance. You have ${currentBalance} TON but need ${amountNum + estimatedFee} TON (including fees)` 
+        };
+      }
+
+      // Get seqno (sequence number for the transaction)
+      const seqno = await this.contract.getSeqno();
+      console.log(`📝 Current seqno: ${seqno}`);
+
+      // Create transfer message
+      const transfer = this.contract.createTransfer({
+        seqno,
+        secretKey: this.keyPair.secretKey,
+        messages: [
+          internal({
+            to: recipientAddr,
+            value: toNano(amount),
+            body: comment || '', // Optional comment
+            bounce: false, // Don't bounce if recipient doesn't exist
+          })
+        ]
+      });
+
+      console.log(`📤 Sending transaction to ${this.currentNetwork}...`);
+
+      // Send the transaction
+      await this.contract.send(transfer);
+
+      console.log(`✅ Transaction sent successfully!`);
+      console.log(`   Seqno: ${seqno}`);
+      console.log(`   Waiting for confirmation...`);
+
+      // Wait for transaction confirmation (check if seqno increased)
+      let currentSeqno = seqno;
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds timeout
+
+      while (currentSeqno === seqno && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        try {
+          currentSeqno = await this.contract.getSeqno();
+          attempts++;
+        } catch (e) {
+          console.warn('⚠️ Failed to check seqno, retrying...');
+        }
+      }
+
+      if (currentSeqno > seqno) {
+        console.log(`✅ Transaction confirmed! New seqno: ${currentSeqno}`);
+        
+        // Generate transaction hash (approximate)
+        const txHash = `${this.wallet.address.toString()}_${seqno}`;
+        
+        return { 
+          success: true, 
+          txHash,
+          seqno,
+          message: 'Transaction sent and confirmed'
+        };
+      } else {
+        console.warn('⚠️ Transaction sent but confirmation timeout');
+        return { 
+          success: true, 
+          txHash: `${this.wallet.address.toString()}_${seqno}`,
+          seqno,
+          message: 'Transaction sent (confirmation pending)'
+        };
+      }
+
+    } catch (e) {
+      console.error('❌ Transaction failed:', e);
+      return { 
+        success: false, 
+        error: e instanceof Error ? e.message : String(e)
+      };
+    }
+  }
+
+  async estimateTransactionFee(recipientAddress: string, amount: string, comment?: string) {
+    try {
+      // Validate inputs
+      Address.parse(recipientAddress);
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        return { success: false, error: 'Invalid amount' };
+      }
+
+      // For TON, typical transaction fee is around 0.005-0.01 TON
+      // This is an estimate - actual fee depends on network congestion
+      const estimatedFee = '0.01';
+      
+      return { 
+        success: true, 
+        fee: estimatedFee,
+        total: (amountNum + parseFloat(estimatedFee)).toFixed(4)
+      };
+    } catch (e) {
+      return { 
+        success: false, 
+        error: e instanceof Error ? e.message : String(e)
+      };
     }
   }
 

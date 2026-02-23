@@ -3,44 +3,51 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Check, ArrowRight, Shield } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
-import { authService } from '../services/authService';
+import { supabaseService } from '../services/supabaseService';
+import { useToast } from '../context/ToastContext';
 
 const AVATARS = ['🌱', '💎', '🦁', '⚡', '👑', '🦅', '🌊', '🧿'];
 
 const ProfileSetup: React.FC = () => {
   const navigate = useNavigate();
-  const { updateProfile, profile } = useWallet();
+  const { userProfile, address } = useWallet();
+  const { showToast } = useToast();
   const [name, setName] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0]);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleFinish = async () => {
+    if (!address) {
+      showToast('No wallet address found', 'error');
+      navigate('/onboarding');
+      return;
+    }
+
+    setIsLoading(true);
     const finalName = name.trim() || 'Rhiza Sovereign';
     const finalAvatar = selectedAvatar;
     
-    // Update local profile
-    updateProfile({ 
-      name: finalName, 
-      avatar: finalAvatar 
-    });
-
-    // Update Supabase profile if user is authenticated
     try {
-      const { user } = await authService.getCurrentUser();
-      if (user) {
-        const walletUser = await authService.getWalletUser(user.id);
-        if (walletUser) {
-          await authService.updateWalletUser(walletUser.id, {
-            name: finalName,
-            avatar: finalAvatar
-          });
-        }
+      // Update profile in Supabase
+      const result = await supabaseService.updateProfile(address, {
+        name: finalName,
+        avatar: finalAvatar
+      });
+
+      if (result.success) {
+        showToast('Profile updated successfully!', 'success');
+        navigate('/wallet/dashboard');
+      } else {
+        showToast('Profile update failed, but you can update it later in settings', 'info');
+        navigate('/wallet/dashboard');
       }
     } catch (error) {
-      console.error('Failed to update Supabase profile:', error);
-      // Continue anyway - local profile is updated
+      console.error('Error updating profile:', error);
+      showToast('Profile update failed, but you can update it later in settings', 'info');
+      navigate('/wallet/dashboard');
+    } finally {
+      setIsLoading(false);
     }
-
-    navigate('/wallet/dashboard');
   };
 
   return (
@@ -87,9 +94,23 @@ const ProfileSetup: React.FC = () => {
 
           <button 
             onClick={handleFinish}
-            className="w-full p-6 bg-[#00FF88] text-black rounded-2xl flex items-center justify-center gap-4 text-sm font-black uppercase tracking-widest transition-all hover:scale-[1.03] shadow-2xl"
+            disabled={isLoading}
+            className={`w-full p-6 rounded-2xl flex items-center justify-center gap-4 text-sm font-black uppercase tracking-widest transition-all shadow-2xl ${
+              isLoading 
+                ? 'bg-gray-600 cursor-not-allowed' 
+                : 'bg-[#00FF88] text-black hover:scale-[1.03]'
+            }`}
           >
-            Enter The Terminal <ArrowRight size={20} />
+            {isLoading ? (
+              <>
+                <div className="w-5 h-5 border-3 border-black border-t-transparent rounded-full animate-spin" />
+                Setting Up...
+              </>
+            ) : (
+              <>
+                Enter The Terminal <ArrowRight size={20} />
+              </>
+            )}
           </button>
         </div>
 

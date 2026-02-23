@@ -272,3 +272,25 @@ export const MOCK_PORTFOLIO_HISTORY: PortfolioData[] = [
   { time: '20:00', value: 11800 },
   { time: '24:00', value: 12500 },
 ];
+
+// Official RhizaCore Social Links
+export const SOCIAL_LINKS = [
+  {
+    name: 'Telegram News',
+    url: 'https://t.me/RhizaCoreNews',
+    icon: 'telegram',
+    label: 'News Channel'
+  },
+  {
+    name: 'Telegram Discussion',
+    url: 'https://t.me/RhizaCore',
+    icon: 'telegram',
+    label: 'Community'
+  },
+  {
+    name: 'Facebook',
+    url: 'https://facebook.com/RhizaCore',
+    icon: 'facebook',
+    label: 'Facebook'
+  }
+];
