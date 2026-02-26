@@ -1,39 +1,205 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { PlusCircle, Key, Zap, ShieldCheck, ArrowLeft, CheckCircle2, Lock, Users, LogIn } from 'lucide-react';
+import { PlusCircle, Key, Zap, ShieldCheck, ArrowLeft, CheckCircle2, Lock, Users, LogIn, ArrowRight, X, Sparkles, Wallet, Gift, TrendingUp } from 'lucide-react';
 import { WalletManager } from '../utils/walletManager';
 
 const Onboarding: React.FC = () => {
   const navigate = useNavigate();
-  const [hasWallets, setHasWallets] = React.useState(false);
+  const [hasWallets, setHasWallets] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
 
   useEffect(() => {
     // Check if user has existing wallets
     const walletCount = WalletManager.getWalletCount();
     setHasWallets(walletCount > 0);
+
+    // Check if this is first visit
+    const hasVisited = localStorage.getItem('rhiza_has_visited');
+    if (!hasVisited && walletCount === 0) {
+      setShowWelcome(true);
+      localStorage.setItem('rhiza_has_visited', 'true');
+    }
   }, []);
 
+  const welcomeSteps = [
+    {
+      icon: Wallet,
+      title: "Welcome to RhizaCore",
+      description: "Your gateway to decentralized finance on the TON blockchain. Create your wallet in under 2 minutes.",
+      color: "from-[#00FF88]/20 to-[#00FF88]/5",
+      iconBg: "bg-[#00FF88]/20",
+      iconColor: "text-[#00FF88]"
+    },
+    {
+      icon: Gift,
+      title: "Get 50 RZC Welcome Bonus",
+      description: "Start your journey with 50 RZC tokens instantly credited to your new wallet. No strings attached!",
+      color: "from-yellow-500/20 to-yellow-500/5",
+      iconBg: "bg-yellow-500/20",
+      iconColor: "text-yellow-400"
+    },
+    {
+      icon: Users,
+      title: "Earn 25 RZC Per Referral",
+      description: "Share your referral link and earn 25 RZC for every friend who joins. Plus milestone bonuses up to 5,000 RZC!",
+      color: "from-purple-500/20 to-purple-500/5",
+      iconBg: "bg-purple-500/20",
+      iconColor: "text-purple-400"
+    },
+    {
+      icon: ShieldCheck,
+      title: "Your Keys, Your Control",
+      description: "Non-custodial wallet with military-grade encryption. Only you have access to your funds. Always.",
+      color: "from-blue-500/20 to-blue-500/5",
+      iconBg: "bg-blue-500/20",
+      iconColor: "text-blue-400"
+    }
+  ];
+
+  const handleNextStep = () => {
+    if (currentStep < welcomeSteps.length - 1) {
+      setCurrentStep(currentStep + 1);
+    } else {
+      setShowWelcome(false);
+    }
+  };
+
+  const handleSkip = () => {
+    setShowWelcome(false);
+  };
+
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col p-6 animate-in fade-in duration-700">
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#00FF88]/5 blur-[120px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#00CCFF]/5 blur-[120px] rounded-full" />
-      </div>
+    <>
+      {/* First-Time Visitor Welcome Modal */}
+      {showWelcome && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-500">
+          <div className="relative w-full max-w-2xl">
+            {/* Skip Button */}
+            <button
+              onClick={handleSkip}
+              className="absolute -top-12 right-0 text-gray-400 hover:text-white transition-colors flex items-center gap-2 text-sm font-bold"
+            >
+              <span>Skip</span>
+              <X size={16} />
+            </button>
 
-      {/* Back Button */}
-      <div className="relative z-10 w-full max-w-6xl mx-auto mb-8">
-        <Link 
-          to="/" 
-          className="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors group"
-        >
-          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-          <span className="font-black text-sm uppercase tracking-wider">Back to Home</span>
-        </Link>
-      </div>
+            {/* Welcome Card */}
+            <div className={`relative bg-gradient-to-br ${welcomeSteps[currentStep].color} border border-white/10 rounded-3xl p-8 md:p-12 animate-in slide-in-from-bottom-4 duration-500`}>
+              {/* Decorative Elements */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 blur-3xl rounded-full" />
+              <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 blur-3xl rounded-full" />
 
-      <div className="relative z-10 w-full max-w-6xl mx-auto flex-1 flex items-center">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 w-full items-center">
+              {/* Content */}
+              <div className="relative z-10 space-y-8">
+                {/* Icon */}
+                <div className={`w-20 h-20 ${welcomeSteps[currentStep].iconBg} rounded-2xl flex items-center justify-center mx-auto shadow-2xl`}>
+                  {React.createElement(welcomeSteps[currentStep].icon, {
+                    size: 40,
+                    className: welcomeSteps[currentStep].iconColor
+                  })}
+                </div>
+
+                {/* Text Content */}
+                <div className="text-center space-y-4">
+                  <h2 className="text-3xl md:text-4xl font-black text-white leading-tight">
+                    {welcomeSteps[currentStep].title}
+                  </h2>
+                  <p className="text-lg text-gray-300 font-medium leading-relaxed max-w-xl mx-auto">
+                    {welcomeSteps[currentStep].description}
+                  </p>
+                </div>
+
+                {/* Progress Dots */}
+                <div className="flex items-center justify-center gap-2">
+                  {welcomeSteps.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentStep(index)}
+                      className={`h-2 rounded-full transition-all ${
+                        index === currentStep
+                          ? 'w-8 bg-[#00FF88]'
+                          : 'w-2 bg-white/20 hover:bg-white/40'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-center gap-4">
+                  {currentStep > 0 && (
+                    <button
+                      onClick={() => setCurrentStep(currentStep - 1)}
+                      className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl font-black text-sm transition-all"
+                    >
+                      Back
+                    </button>
+                  )}
+                  <button
+                    onClick={handleNextStep}
+                    className="px-8 py-3 bg-[#00FF88] hover:bg-[#00e67a] text-black rounded-xl font-black text-sm transition-all flex items-center gap-2 shadow-xl shadow-[#00FF88]/20"
+                  >
+                    {currentStep === welcomeSteps.length - 1 ? (
+                      <>
+                        Get Started
+                        <Sparkles size={16} />
+                      </>
+                    ) : (
+                      <>
+                        Next
+                        <ArrowRight size={16} />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Step Counter */}
+                <div className="text-center">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Step {currentStep + 1} of {welcomeSteps.length}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Decorative Glow */}
+            <div className={`absolute inset-0 ${welcomeSteps[currentStep].iconBg} blur-3xl opacity-20 rounded-3xl -z-10`} />
+          </div>
+        </div>
+      )}
+
+      {/* Main Onboarding Page */}
+      <div className="fixed inset-0 bg-[#050505] flex flex-col overflow-y-auto animate-in fade-in duration-700">
+        {/* Floating "New Here?" Button for returning visitors */}
+        {!showWelcome && !hasWallets && (
+          <button
+            onClick={() => setShowWelcome(true)}
+            className="fixed bottom-6 right-6 z-40 px-4 py-3 bg-[#00FF88] hover:bg-[#00e67a] text-black rounded-full font-black text-sm shadow-2xl shadow-[#00FF88]/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 animate-in slide-in-from-bottom-4 duration-700"
+          >
+            <Sparkles size={16} />
+            <span>New Here? Take a Tour</span>
+          </button>
+        )}
+        
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#00FF88]/5 blur-[120px] rounded-full" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#00CCFF]/5 blur-[120px] rounded-full" />
+        </div>
+
+        {/* Back Button */}
+        <div className="relative z-10 w-full max-w-6xl mx-auto p-6 pt-8">
+          <Link 
+            to="/" 
+            className="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors group"
+          >
+            <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+            <span className="font-black text-sm uppercase tracking-wider">Back to Home</span>
+          </Link>
+        </div>
+
+        <div className="relative z-10 w-full max-w-6xl mx-auto flex-1 flex items-center p-6 pb-24">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 w-full items-center">
           {/* Left Side - Information */}
           <div className="space-y-8 order-2 lg:order-1">
             <div className="space-y-4">
@@ -181,6 +347,7 @@ const Onboarding: React.FC = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

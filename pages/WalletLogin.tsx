@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { 
   ChevronLeft, 
@@ -16,6 +17,7 @@ import { WalletManager, WalletMetadata } from '../utils/walletManager';
 import { useToast } from '../context/ToastContext';
 
 const WalletLogin: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { login } = useWallet();
   const { showToast } = useToast();
@@ -151,10 +153,10 @@ const WalletLogin: React.FC = () => {
 
         <div className="space-y-4">
           <h1 className="text-4xl font-black text-white tracking-tight-custom">
-            Welcome Back
+            {t('auth.welcomeBack')}
           </h1>
           <p className="text-gray-400 text-lg font-medium leading-relaxed">
-            Select your wallet and enter your password to unlock.
+            {t('auth.enterPassword')}
           </p>
         </div>
 
@@ -206,7 +208,7 @@ const WalletLogin: React.FC = () => {
         {/* Password Input */}
         <div className="space-y-3">
           <label className="text-sm font-black text-white uppercase tracking-wider">
-            Password
+            {t('auth.password')}
           </label>
           <div className="relative">
             <input
@@ -218,7 +220,7 @@ const WalletLogin: React.FC = () => {
               }}
               onKeyDown={handleKeyDown}
               className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
-              placeholder="Enter your password"
+              placeholder={t('auth.password')}
               autoFocus
             />
             <button
@@ -248,11 +250,11 @@ const WalletLogin: React.FC = () => {
             {isLoading ? (
               <>
                 <RefreshCw className="animate-spin" size={20} />
-                Unlocking...
+                {t('common.loading')}
               </>
             ) : (
               <>
-                Unlock Wallet <ArrowRight size={20} />
+                {t('auth.login')} <ArrowRight size={20} />
               </>
             )}
           </button>

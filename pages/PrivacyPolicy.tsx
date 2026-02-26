@@ -325,8 +325,8 @@ const PrivacyPolicy: React.FC = () => {
                 Questions about this privacy policy? Contact us:
               </p>
               <ul className="space-y-2 text-slate-600 dark:text-gray-300">
-                <li>• <strong>Email:</strong> privacy@rhizacore.com</li>
-                <li>• <strong>Discord:</strong> discord.gg/rhizacore</li>
+                <li>• <strong>Email:</strong> privacy@rhizacore.xyz</li>
+                <li>• <strong>Discord:</strong> t.me/rhizacore</li>
                 <li>• <strong>Twitter:</strong> @RhizaCore</li>
               </ul>
             </div>

@@ -18,6 +18,9 @@ export interface UserProfile {
   is_active: boolean;
   referrer_code?: string | null;
   rzc_balance: number;
+  is_premium?: boolean; // Premium members earn 5 RZC per squad claim
+  last_squad_claim_at?: string | null; // Last squad mining claim timestamp
+  total_squad_rewards?: number; // Total RZC earned from squad mining
   created_at: string;
   updated_at: string;
 }
@@ -1206,7 +1209,8 @@ class SupabaseService {
       };
     } catch (error: any) {
       console.error('❌ Award RZC error:', error);
-      return { success: false, error: error.message };
+      const errorMessage = error?.message || error?.error_description || error?.hint || JSON.stringify(error);
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -1338,56 +1342,66 @@ class SupabaseService {
    * Get downline (users referred by this user) with their stats
    */
   async getDownline(userId: string): Promise<{
-    success: boolean;
-    data?: Array<UserProfile & { total_referrals?: number; rzc_earned?: number }>;
-    error?: string;
-  }> {
-    if (!this.client) {
-      return { success: false, error: 'Supabase not configured' };
+      success: boolean;
+      data?: Array<UserProfile & { total_referrals?: number; rzc_earned?: number }>;
+      error?: string;
+    }> {
+      if (!this.client) {
+        return { success: false, error: 'Supabase not configured' };
+      }
+
+      try {
+        console.log('🔍 Fetching downline for user:', userId);
+
+        // Get all referral records where this user is the referrer
+        const { data: referralData, error: refError } = await this.client
+          .from('wallet_referrals')
+          .select('user_id, total_referrals, created_at')
+          .eq('referrer_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (refError) throw refError;
+
+        if (!referralData || referralData.length === 0) {
+          console.log('ℹ️ No downline members found');
+          return { success: true, data: [] };
+        }
+
+        console.log(`📊 Found ${referralData.length} referral records`);
+
+        // Get user details for each downline member
+        const userIds = referralData.map(r => r.user_id);
+        const { data: userData, error: userError } = await this.client
+          .from('wallet_users')
+          .select('*')
+          .in('id', userIds);
+
+        if (userError) throw userError;
+
+        console.log(`📊 Found ${userData?.length || 0} user records`);
+
+        // Combine the data
+        const transformedData = referralData.map((ref: any) => {
+          const user = userData?.find((u: any) => u.id === ref.user_id);
+          if (!user) {
+            console.warn(`⚠️ User not found for referral record:`, ref.user_id);
+            return null;
+          }
+          return {
+            ...user,
+            total_referrals: ref.total_referrals,
+            rzc_earned: (user?.rzc_balance || 0) - 100 // Subtract signup bonus
+          };
+        }).filter(item => item !== null); // Remove any null entries
+
+        console.log(`✅ Found ${transformedData.length} downline members`);
+        return { success: true, data: transformedData };
+      } catch (error: any) {
+        console.error('❌ Get downline error:', error);
+        return { success: false, error: error.message };
+      }
     }
 
-    try {
-      console.log('🔍 Fetching downline for user:', userId);
-
-      // Get all users who have this user as their referrer
-      const { data: downlineData, error } = await this.client
-        .from('wallet_referrals')
-        .select(`
-          user_id,
-          total_referrals,
-          wallet_users!inner (
-            id,
-            wallet_address,
-            name,
-            avatar,
-            email,
-            role,
-            is_active,
-            referrer_code,
-            rzc_balance,
-            created_at,
-            updated_at
-          )
-        `)
-        .eq('referrer_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Transform the data to flatten the structure
-      const transformedData = downlineData?.map((item: any) => ({
-        ...item.wallet_users,
-        total_referrals: item.total_referrals,
-        rzc_earned: item.wallet_users.rzc_balance - 100 // Subtract signup bonus to show earned amount
-      })) || [];
-
-      console.log(`✅ Found ${transformedData.length} downline members`);
-      return { success: true, data: transformedData };
-    } catch (error: any) {
-      console.error('❌ Get downline error:', error);
-      return { success: false, error: error.message };
-    }
-  }
 
   // ============================================================================
   // NEWSLETTER SUBSCRIPTION METHODS

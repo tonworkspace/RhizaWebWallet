@@ -32,11 +32,12 @@ import {
   Repeat,
   Image
 } from 'lucide-react';
-import { RHIZA_TOKENOMICS, RHIZA_UTILITIES, RHIZA_BUSINESS_MODEL, RHIZA_OPPORTUNITIES, SOCIAL_LINKS } from '../constants';
+import { RHIZA_TOKENOMICS, RHIZA_UTILITIES, RHIZA_BUSINESS_MODEL, RHIZA_OPPORTUNITIES, SOCIAL_LINKS, TELEGRAM_MINI_APP_URL } from '../constants';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
 import TokenomicsChart from '../components/TokenomicsChart';
 import TokenomicsCalculator from '../components/TokenomicsCalculator';
+import RoadmapTimeline from '../components/RoadmapTimeline';
 import { supabaseService } from '../services/supabaseService';
 import { notificationService } from '../services/notificationService';
 
@@ -89,7 +90,7 @@ const Landing: React.FC = () => {
       setScrolled(window.scrollY > 50);
       
       // Detect active section
-      const sections = ['about', 'utility', 'business', 'tokenomics'];
+      const sections = ['about', 'utility', 'business', 'tokenomics', 'roadmap'];
       const current = sections.find(section => {
         const element = document.getElementById(section);
         if (element) {
@@ -209,7 +210,8 @@ const Landing: React.FC = () => {
             { id: 'about', label: 'VISION' },
             { id: 'utility', label: 'USAGE' },
             { id: 'business', label: 'MODEL' },
-            { id: 'tokenomics', label: 'ECONOMY' }
+            { id: 'tokenomics', label: 'ECONOMY' },
+            { id: 'roadmap', label: 'ROADMAP' }
           ].map((item) => (
             <button
               key={item.id}
@@ -274,7 +276,8 @@ const Landing: React.FC = () => {
           { id: 'about', label: 'How it Works' },
           { id: 'utility', label: 'The Marketplace' },
           { id: 'business', label: 'Business Model' },
-          { id: 'tokenomics', label: 'Token Economy' }
+          { id: 'tokenomics', label: 'Token Economy' },
+          { id: 'roadmap', label: '2026 Roadmap' }
         ].map((item, idx) => (
           <button
             key={item.id}
@@ -308,49 +311,51 @@ const Landing: React.FC = () => {
       </div>
 
       {/* Hero Section */}
-      <section className="px-6 lg:px-24 pt-16 lg:pt-32 pb-24 relative overflow-hidden">
+      <section className="px-6 lg:px-24 min-h-[calc(100vh-80px)] flex items-center relative overflow-hidden">
         {/* Profile Greeting for Logged-in Users */}
         {isLoggedIn && userProfile && (
-          <div className="max-w-7xl mx-auto mb-8">
-            <div className="flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-r from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 rounded-xl sm:rounded-2xl">
-              <div className="text-2xl sm:text-3xl">{userProfile.avatar}</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] sm:text-xs text-gray-500">Welcome back,</p>
-                <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">{userProfile.name}</h1>
-                {referralData && (
-                  <p className="text-[9px] sm:text-[10px] text-[#00FF88] font-mono mt-0.5">
-                    {referralData.rank} • {referralData.total_referrals} Refs
-                  </p>
-                )}
-              </div>
-              {/* RZC Balance Badge - Compact */}
-              <div className="text-right">
-                <div className="flex items-center gap-1.5 justify-end mb-0.5">
-                  <p className="text-[8px] sm:text-[9px] text-gray-500 uppercase tracking-wider font-bold">RZC</p>
-                  <div className="px-1.5 py-0.5 bg-[#00FF88]/10 border border-[#00FF88]/20 rounded text-[8px] font-black text-[#00FF88]">
-                    $0.10
-                  </div>
+          <div className="absolute top-8 left-0 right-0 z-10 px-6 lg:px-24">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 p-3 sm:p-4 bg-gradient-to-r from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 rounded-xl sm:rounded-2xl backdrop-blur-xl">
+                <div className="text-2xl sm:text-3xl">{userProfile.avatar}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] sm:text-xs text-gray-500">Welcome back,</p>
+                  <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">{userProfile.name}</h1>
+                  {referralData && (
+                    <p className="text-[9px] sm:text-[10px] text-[#00FF88] font-mono mt-0.5">
+                      {referralData.rank} • {referralData.total_referrals} Refs
+                    </p>
+                  )}
                 </div>
-                <p className="text-lg sm:text-xl font-black text-[#00FF88]">
-                  {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
-                </p>
-                <p className="text-[8px] sm:text-[9px] text-gray-600 font-bold">
-                  ≈ ${(((userProfile as any).rzc_balance || 0) * 0.10).toFixed(2)}
-                </p>
+                {/* RZC Balance Badge - Compact */}
+                <div className="text-right">
+                  <div className="flex items-center gap-1.5 justify-end mb-0.5">
+                    <p className="text-[8px] sm:text-[9px] text-gray-500 uppercase tracking-wider font-bold">RZC</p>
+                    <div className="px-1.5 py-0.5 bg-[#00FF88]/10 border border-[#00FF88]/20 rounded text-[8px] font-black text-[#00FF88]">
+                      $0.10
+                    </div>
+                  </div>
+                  <p className="text-lg sm:text-xl font-black text-[#00FF88]">
+                    {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
+                  </p>
+                  <p className="text-[8px] sm:text-[9px] text-gray-600 font-bold">
+                    ≈ ${(((userProfile as any).rzc_balance || 0) * 0.10).toFixed(2)}
+                  </p>
+                </div>
+                {/* Quick Access to Wallet */}
+                <Link 
+                  to="/wallet/dashboard"
+                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-primary text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all"
+                >
+                  <Zap size={14} />
+                  Wallet
+                </Link>
               </div>
-              {/* Quick Access to Wallet */}
-              <Link 
-                to="/wallet/dashboard"
-                className="hidden sm:flex items-center gap-2 px-4 py-2 bg-primary text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all"
-              >
-                <Zap size={14} />
-                Wallet
-              </Link>
             </div>
           </div>
         )}
         
-        <div className="max-w-7xl mx-auto text-center lg:text-left grid lg:grid-cols-2 gap-16 items-center">
+        <div className="max-w-7xl mx-auto w-full text-center lg:text-left grid lg:grid-cols-2 gap-16 items-center py-16">
           <div className="space-y-10">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-primary text-[10px] font-black uppercase tracking-widest transition-colors">
               <UserCheck size={14} /> Built for Everyone
@@ -369,6 +374,15 @@ const Landing: React.FC = () => {
               <Link to="/onboarding" className="w-full sm:w-auto px-12 py-5 bg-primary text-black font-black text-xs uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-lg">
                 Start Your Journey
               </Link>
+              <a 
+                href={TELEGRAM_MINI_APP_URL} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto px-10 py-5 bg-[#0088CC] text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-lg flex items-center justify-center gap-2"
+              >
+                <MessageCircle size={16} />
+                Open Telegram App
+              </a>
               <Link to="/whitepaper" className="w-full sm:w-auto px-10 py-5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-slate-900 dark:text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-black/10 dark:hover:bg-white/10 transition-all">
                 Read Whitepaper
               </Link>
@@ -627,6 +641,37 @@ const Landing: React.FC = () => {
         </div>
       </section>
 
+      {/* Roadmap Section */}
+      <section id="roadmap" className="px-6 lg:px-24 py-24 bg-slate-900/5 dark:bg-white/[0.02] border-y border-slate-200 dark:border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16 space-y-4">
+            <div className="inline-flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.4em]">
+              <Rocket size={14} /> THE PLAN
+            </div>
+            <h2 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white tracking-tight">
+              2026 Open Roadmap
+            </h2>
+            <p className="text-slate-600 dark:text-gray-300 max-w-2xl mx-auto text-base lg:text-lg font-medium">
+              Our transparent development timeline showing where we've been and where we're heading.
+            </p>
+            <p className="text-xs text-slate-500 dark:text-gray-400 max-w-xl mx-auto italic">
+              Technical: Phased rollout with milestone-based delivery and community governance integration.
+            </p>
+          </div>
+
+          <RoadmapTimeline />
+
+          <div className="mt-16 text-center">
+            <div className="inline-flex items-center gap-3 px-6 py-3 bg-primary/10 border border-primary/20 rounded-2xl">
+              <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+              <span className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                Phase 2 Active • Bridge Protocol Live
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Final Professional Business CTA */}
       <section className="px-6 lg:px-24 py-40">
         <div className="max-w-6xl mx-auto glass p-10 lg:p-20 rounded-[3rem] lg:rounded-[5rem] border-slate-200 dark:border-white/10 shadow-3xl overflow-hidden relative">
@@ -782,7 +827,7 @@ const Landing: React.FC = () => {
           {/* Bottom Bar */}
           <div className="pt-12 border-t border-slate-200 dark:border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-[10px] font-black text-slate-500 dark:text-gray-400 uppercase tracking-[0.3em] text-center md:text-left">
-              © 2024 RhizaCore Labs • Powering the future of TON commerce
+              © 2025-2026 RhizaCore Labs • Powering the future of TON commerce
             </div>
             
             {/* Official Social Links */}
@@ -796,6 +841,11 @@ const Landing: React.FC = () => {
                   className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-gray-400 hover:text-primary hover:border-primary/30 hover:bg-primary/5 transition-all group"
                   title={social.label}
                 >
+                  {social.icon === 'twitter' && (
+                    <svg className="w-[18px] h-[18px] group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                  )}
                   {social.icon === 'telegram' && (
                     <svg className="w-[18px] h-[18px] group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.941z"/>

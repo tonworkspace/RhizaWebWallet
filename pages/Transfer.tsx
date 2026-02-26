@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { 
   ArrowLeft, 
   Send, 
@@ -19,6 +20,7 @@ import { useToast } from '../context/ToastContext';
 
 const Transfer: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { balance, jettons, address, refreshData } = useWallet();
   const { showToast } = useToast();
   const [recipient, setRecipient] = useState('');
@@ -157,7 +159,7 @@ const Transfer: React.FC = () => {
         <button onClick={() => navigate('/wallet/dashboard')} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 active:scale-95">
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-xl sm:text-2xl font-black text-white">Send Assets</h1>
+        <h1 className="text-xl sm:text-2xl font-black text-white">{t('transfer.title')}</h1>
       </div>
 
       {step === 'form' && (
@@ -178,7 +180,7 @@ const Transfer: React.FC = () => {
             </div>
 
             <div className="space-y-2.5 sm:space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">Recipient Address</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">{t('transfer.recipientAddress')}</label>
               <input 
                 type="text"
                 value={recipient}
@@ -190,7 +192,7 @@ const Transfer: React.FC = () => {
 
             <div className="space-y-2.5 sm:space-y-3">
               <div className="flex items-center justify-between ml-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Amount</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">{t('transfer.amount')}</label>
                 <div className="flex gap-2">
                   <button 
                     onClick={handleMax} 
@@ -224,7 +226,7 @@ const Transfer: React.FC = () => {
             </div>
 
             <div className="space-y-2.5 sm:space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">Comment (Optional)</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">{t('transfer.memo')}</label>
               <input 
                 type="text"
                 value={comment}
@@ -240,16 +242,16 @@ const Transfer: React.FC = () => {
                 <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-300">Transaction Summary</h4>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-400 font-bold">Amount:</span>
+                    <span className="text-gray-400 font-bold">{t('wallet.amount')}:</span>
                     <span className="text-white font-mono">{sendAmount.toFixed(4)} TON</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-400 font-bold">Network Fee:</span>
+                    <span className="text-gray-400 font-bold">{t('wallet.fee')}:</span>
                     <span className="text-white font-mono">~{estimatedFee.toFixed(4)} TON</span>
                   </div>
                   <div className="border-t border-blue-500/20 pt-2 mt-2">
                     <div className="flex justify-between items-center font-bold">
-                      <span className="text-blue-300">Total Required:</span>
+                      <span className="text-blue-300">{t('transfer.total')}:</span>
                       <span className="text-white font-mono">{totalRequired.toFixed(4)} TON</span>
                     </div>
                   </div>
@@ -279,7 +281,7 @@ const Transfer: React.FC = () => {
               <div className="bg-red-500/10 border border-red-500/20 rounded-xl sm:rounded-2xl p-4 flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-bold text-red-400 mb-1">Insufficient Balance</p>
+                  <p className="text-sm font-bold text-red-400 mb-1">{t('errors.insufficientBalance')}</p>
                   <p className="text-xs text-red-300/80">
                     You need {totalRequired.toFixed(4)} TON (including fees) but only have {currentBalance.toFixed(4)} TON.
                   </p>
@@ -310,26 +312,26 @@ const Transfer: React.FC = () => {
 
               <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6 border-t border-white/5">
                 <div className="flex justify-between items-center text-sm">
-                   <span className="text-gray-500 font-bold">To</span>
+                   <span className="text-gray-500 font-bold">{t('wallet.recipient')}</span>
                    <span className="text-white font-mono text-xs truncate max-w-[150px] sm:max-w-[200px]">{recipient}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                   <span className="text-gray-500 font-bold">Amount</span>
+                   <span className="text-gray-500 font-bold">{t('wallet.amount')}</span>
                    <span className="text-white font-bold">{sendAmount.toFixed(4)} TON</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                   <span className="text-gray-500 font-bold">Network Fee</span>
+                   <span className="text-gray-500 font-bold">{t('wallet.fee')}</span>
                    <span className="text-[#00FF88] font-bold">~{estimatedFee.toFixed(4)} TON</span>
                 </div>
                 <div className="border-t border-white/5 pt-3 mt-3">
                   <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400 font-bold">Total Cost</span>
+                    <span className="text-gray-400 font-bold">{t('wallet.total')}</span>
                     <span className="text-white font-bold">{totalRequired.toFixed(4)} TON</span>
                   </div>
                 </div>
                 {comment && (
                   <div className="flex justify-between items-center text-sm pt-2 border-t border-white/5">
-                     <span className="text-gray-500 font-bold">Comment</span>
+                     <span className="text-gray-500 font-bold">{t('wallet.memo')}</span>
                      <span className="text-white italic text-xs truncate max-w-[150px] sm:max-w-[200px]">"{comment}"</span>
                   </div>
                 )}
@@ -367,7 +369,7 @@ const Transfer: React.FC = () => {
                   <Zap size={32} className="text-[#00FF88] animate-pulse" />
                </div>
                <div className="text-center space-y-2">
-                 <h2 className="text-2xl font-black text-white">Broadcasting...</h2>
+                 <h2 className="text-2xl font-black text-white">{t('common.loading')}</h2>
                  <p className="text-gray-500 text-sm">Your transaction is being verified by TON validators.</p>
                </div>
              </>
@@ -377,7 +379,7 @@ const Transfer: React.FC = () => {
                   <CheckCircle2 size={64} />
                </div>
                <div className="text-center space-y-4 max-w-md">
-                 <h2 className="text-4xl font-black text-white">Success</h2>
+                 <h2 className="text-4xl font-black text-white">{t('common.success')}</h2>
                  <p className="text-gray-400 text-sm">Asset dispersion complete. The recipient will see the balance shortly.</p>
                  {txHash && (
                    <div className="p-4 bg-white/5 rounded-xl">
@@ -399,7 +401,7 @@ const Transfer: React.FC = () => {
                   <XCircle size={64} />
                </div>
                <div className="text-center space-y-4 max-w-md">
-                 <h2 className="text-2xl font-black text-white">Transmission Failed</h2>
+                 <h2 className="text-2xl font-black text-white">{t('transfer.failed')}</h2>
                  <p className="text-gray-500 text-sm">{errorMessage || 'Network congestion or insufficient gas fees.'}</p>
                </div>
                <button 

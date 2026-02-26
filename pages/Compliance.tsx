@@ -140,8 +140,8 @@ const Compliance: React.FC = () => {
                 Questions about compliance? Contact our team:
               </p>
               <ul className="space-y-2 text-slate-600 dark:text-gray-300">
-                <li>• <strong>Email:</strong> compliance@rhizacore.com</li>
-                <li>• <strong>Legal:</strong> legal@rhizacore.com</li>
+                <li>• <strong>Email:</strong> compliance@rhizacore.xyz</li>
+                <li>• <strong>Legal:</strong> legal@rhizacore.xyz</li>
               </ul>
             </div>
           </section>

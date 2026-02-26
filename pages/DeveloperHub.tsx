@@ -194,7 +194,7 @@ $payment = $rhiza->payments->create([
         </section>
 
         {/* Smart Contracts */}
-        <section className="mb-16">
+        <section className="hidden mb-16">
           <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-8">Smart Contracts</h2>
           <div className="grid md:grid-cols-2 gap-6">
             <div className="p-6 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-2xl">
@@ -234,7 +234,7 @@ $payment = $rhiza->payments->create([
         </section>
 
         {/* Community */}
-        <section className="mb-16">
+        <section className="hidden mb-16">
           <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-8">Join the Community</h2>
           <div className="grid md:grid-cols-3 gap-6">
             {[

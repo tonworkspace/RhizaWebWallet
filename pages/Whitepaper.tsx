@@ -171,7 +171,7 @@ const Whitepaper: React.FC = () => {
       title: 'What\'s Next?',
       icon: Rocket,
       simpleText: 'Phase 1: Launch wallet and basic shopping. Phase 2: Add more stores and countries. Phase 3: Let you earn interest on savings. Phase 4: Mobile apps for iPhone and Android. Phase 5: Debit cards so you can spend $RZC anywhere.',
-      technicalText: 'Q1 2024: Mainnet launch, merchant SDK release. Q2: Cross-chain bridges (ETH, BSC). Q3: Mobile native apps, fiat on-ramp integration. Q4: Debit card program, institutional custody. 2025: Layer-2 scaling solution, AI-powered fraud detection.',
+      technicalText: 'Q1 2026: Mainnet launch, merchant SDK release. Q2: Cross-chain bridges (ETH, BSC). Q3: Mobile native apps, fiat on-ramp integration. Q4: Debit card program, institutional custody. 2027: Layer-2 scaling solution, AI-powered fraud detection.',
       keyPoints: [
         'Q1: Mainnet launch',
         'Q2: Cross-chain bridges',
@@ -284,10 +284,7 @@ const Whitepaper: React.FC = () => {
               <CheckCircle2 size={16} className="text-primary" /> Version 2.0
             </span>
             <span className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-primary" /> Updated Feb 2024
-            </span>
-            <span className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-primary" /> Audited by CertiK
+              <CheckCircle2 size={16} className="text-primary" /> Updated Feb 2026
             </span>
           </div>
         </div>
@@ -299,7 +296,7 @@ const Whitepaper: React.FC = () => {
               RhizaCore Technical Whitepaper
             </h1>
             <p className="text-base text-slate-600 dark:text-gray-400 max-w-2xl mx-auto">
-              Version 2.0 • Updated February 2024 • Audited by CertiK
+              Version 2.0 • Updated February 2026 • Audited by CertiK
             </p>
           </div>
         )}

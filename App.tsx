@@ -1,6 +1,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import './i18n/config';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import Assets from './pages/Assets';
@@ -37,6 +38,7 @@ import StakingEngine from './pages/StakingEngine';
 import Marketplace from './pages/Marketplace';
 import Launchpad from './pages/Launchpad';
 import ReferralPortal from './pages/ReferralPortal';
+import More from './pages/More';
 import { Layout } from './components/Layout';
 import { WalletProvider, useWallet } from './context/WalletContext';
 import { ToastProvider } from './context/ToastContext';
@@ -132,6 +134,7 @@ const AppContent: React.FC = () => {
       '/wallet/history': 'Transaction History',
       '/wallet/referral': 'Referral',
       '/wallet/settings': 'Settings',
+      '/wallet/more': 'More',
       '/wallet/transfer': 'Transfer',
       '/wallet/receive': 'Receive',
       '/wallet/ai-assistant': 'AI Assistant',
@@ -191,6 +194,7 @@ const AppContent: React.FC = () => {
         <Route path="/wallet/ai-assistant" element={<ProtectedRoute><AIAssistant /></ProtectedRoute>} />
         <Route path="/wallet/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
+        <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
         
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

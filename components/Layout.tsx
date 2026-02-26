@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { 
   LayoutDashboard, 
   Wallet, 
@@ -11,7 +12,8 @@ import {
   Sun,
   Moon,
   User,
-  ExternalLink
+  ExternalLink,
+  MoreHorizontal
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import NotificationCenter from './NotificationCenter';
@@ -57,6 +59,7 @@ const MobileNavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label
 );
 
 export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
+  const { t } = useTranslation();
   const { address, balance, theme, toggleTheme, userProfile, referralData } = useWallet();
   if (!isWalletMode) return <>{children}</>;
 
@@ -94,10 +97,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
         </div>
 
         <nav className="flex flex-col gap-1">
-          <SidebarItem to="/wallet/dashboard" icon={LayoutDashboard} label="Home" />
-          <SidebarItem to="/wallet/assets" icon={Wallet} label="Assets" />
-          <SidebarItem to="/wallet/history" icon={History} label="Activity" />
-          <SidebarItem to="/wallet/referral" icon={Users} label="Referral" />
+          <SidebarItem to="/wallet/dashboard" icon={LayoutDashboard} label={t('nav.dashboard')} />
+          <SidebarItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
+          <SidebarItem to="/wallet/history" icon={History} label={t('nav.history')} />
+          <SidebarItem to="/wallet/referral" icon={Users} label={t('nav.referral')} />
         </nav>
 
         <div className="mt-auto space-y-4">
@@ -108,7 +111,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             <span className="font-semibold text-sm tracking-tight">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
           </button>
-          <SidebarItem to="/wallet/settings" icon={Settings} label="Settings" />
+          <SidebarItem to="/wallet/settings" icon={Settings} label={t('nav.settings')} />
           
           {/* Social Links */}
           <div className="space-y-2 pt-2">
@@ -124,6 +127,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                 className="flex items-center gap-3 px-4 py-2.5 rounded-2xl transition-all duration-300 text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 group"
               >
                 <div className="w-7 h-7 rounded-lg bg-black/5 dark:bg-white/5 group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                  {social.icon === 'twitter' && (
+                    <svg className="w-3.5 h-3.5 text-slate-500 dark:text-gray-500 group-hover:text-primary transition-colors" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                  )}
                   {social.icon === 'telegram' && (
                     <svg className="w-3.5 h-3.5 text-slate-500 dark:text-gray-500 group-hover:text-primary transition-colors" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.941z"/>
@@ -252,12 +260,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
         </div>
 
         {/* Persistent Bottom Nav - Optimized for iOS/Android Gestures */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-2xl border-t border-slate-200 dark:border-white/5 flex items-center justify-around px-4 z-50 pb-[var(--safe-area-inset-bottom)] shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
-          <MobileNavItem to="/wallet/dashboard" icon={LayoutDashboard} label="Home" />
-          <MobileNavItem to="/wallet/assets" icon={Wallet} label="Assets" />
-          <MobileNavItem to="/wallet/history" icon={History} label="History" />
-          <MobileNavItem to="/wallet/referral" icon={Users} label="Invites" />
-          <MobileNavItem to="/wallet/settings" icon={Settings} label="Config" />
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-2xl border-t border-slate-200 dark:border-white/5 flex items-center justify-around px-2 z-50 pb-[var(--safe-area-inset-bottom)] shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
+          <MobileNavItem to="/wallet/dashboard" icon={LayoutDashboard} label={t('nav.dashboard')} />
+          <MobileNavItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
+          <MobileNavItem to="/wallet/history" icon={History} label={t('nav.history')} />
+          <MobileNavItem to="/wallet/referral" icon={Users} label={t('nav.referral')} />
+          <MobileNavItem to="/wallet/more" icon={MoreHorizontal} label={t('nav.more')} />
         </nav>
       </main>
     </div>

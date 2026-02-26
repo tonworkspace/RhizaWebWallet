@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   PlusCircle, 
   Search, 
@@ -58,7 +59,8 @@ interface NFT {
 }
 
 const Assets: React.FC = () => {
-  const { address, network, balance: tonBalance, userProfile } = useWallet();
+  const { t } = useTranslation();
+  const { address, network, balance: tonBalance, userProfile, refreshData } = useWallet();
   const [activeTab, setActiveTab] = useState<'tokens' | 'nfts'>('tokens');
   const [jettons, setJettons] = useState<Jetton[]>([]);
   const [nfts, setNFTs] = useState<NFT[]>([]);
@@ -67,9 +69,14 @@ const Assets: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [nftError, setNftError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     fetchJettons();
+    // Refresh wallet balance when component mounts
+    if (refreshData) {
+      refreshData();
+    }
   }, [address, network]);
 
   useEffect(() => {
@@ -134,12 +141,22 @@ const Assets: React.FC = () => {
     }
   };
 
-  const handleRefresh = () => {
-    if (activeTab === 'tokens') {
-      fetchJettons();
-    } else {
-      fetchNFTs();
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    
+    // Refresh wallet balance
+    if (refreshData) {
+      await refreshData();
     }
+    
+    // Refresh tokens or NFTs based on active tab
+    if (activeTab === 'tokens') {
+      await fetchJettons();
+    } else {
+      await fetchNFTs();
+    }
+    
+    setIsRefreshing(false);
   };
 
   const formatBalance = (balance: string, decimals: number) => {
@@ -179,11 +196,29 @@ const Assets: React.FC = () => {
   );
 
   // Calculate total portfolio value
-  const tonBalanceNum = parseFloat(tonBalance) || 0;
+  // Parse TON balance - handle both string and number formats
+  const tonBalanceNum = (() => {
+    if (typeof tonBalance === 'number') return tonBalance;
+    if (typeof tonBalance === 'string') {
+      // Remove any non-numeric characters except decimal point
+      const cleaned = tonBalance.replace(/[^\d.]/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  })();
+  
   const tonPrice = 2.45; // TODO: Get from price API
   const rzcBalance = (userProfile as any)?.rzc_balance || 0;
   const rzcPrice = 0.10; // 1 RZC = $0.10
   const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * rzcPrice);
+
+  console.log('🔍 Assets Debug:', { 
+    tonBalance, 
+    tonBalanceType: typeof tonBalance,
+    tonBalanceNum, 
+    totalValue 
+  });
 
   const getNFTImage = (nft: NFT) => {
     // Try previews first
@@ -199,19 +234,19 @@ const Assets: React.FC = () => {
     <div className="max-w-xl mx-auto space-y-5 sm:space-y-6 page-enter px-3 sm:px-4 md:px-0">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">Portfolio Assets</h1>
+          <h1 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">{t('assets.title')}</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-gray-500 font-medium mt-0.5 sm:mt-1">
-            Total Value: ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {t('assets.totalValue')}: ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
         <div className="flex gap-2">
           <button 
             onClick={handleRefresh}
-            disabled={isLoading}
+            disabled={isRefreshing}
             className="p-2.5 sm:p-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl text-slate-500 dark:text-gray-500 hover:text-primary transition-all disabled:opacity-50 active:scale-95"
             title="Refresh"
           >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -226,7 +261,7 @@ const Assets: React.FC = () => {
               : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
           }`}
         >
-          <Coins size={14} /> Tokens
+          <Coins size={14} /> {t('assets.tokens')}
         </button>
         <button 
           onClick={() => setActiveTab('nfts')}
@@ -236,7 +271,7 @@ const Assets: React.FC = () => {
               : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
           }`}
         >
-          <LayoutGrid size={14} /> NFTs
+          <LayoutGrid size={14} /> {t('assets.nfts')}
         </button>
       </div>
 
@@ -246,7 +281,7 @@ const Assets: React.FC = () => {
           <Search size={14} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-700 group-focus-within:text-primary transition-colors" />
           <input 
             type="text" 
-            placeholder={activeTab === 'tokens' ? 'Search tokens...' : 'Search NFTs...'}
+            placeholder={activeTab === 'tokens' ? t('history.search') : t('history.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-10 sm:pl-11 pr-3 sm:pr-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-800"
@@ -295,12 +330,16 @@ const Assets: React.FC = () => {
                       </div>
                       <p className="text-[10px] text-slate-500 dark:text-gray-500 font-bold tracking-tight">
                         {tonBalanceNum.toFixed(4)} <span className="text-slate-400 dark:text-gray-700">TON</span>
+                        {/* Debug: show raw balance */}
+                        {process.env.NODE_ENV === 'development' && (
+                          <span className="text-[8px] text-red-500 ml-2">Raw: {String(tonBalance)}</span>
+                        )}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="font-black text-sm text-slate-900 dark:text-white">
-                      ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${(tonBalanceNum * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                     <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
                       Native

@@ -196,18 +196,18 @@ const Help: React.FC = () => {
               </p>
               <div className="flex flex-wrap gap-4">
                 <a 
-                  href="mailto:support@rhizacore.com"
+                  href="mailto:help@rhizacore.xyz"
                   className="px-6 py-3 bg-primary text-black rounded-xl font-black text-sm uppercase tracking-widest hover:scale-105 transition-all"
                 >
                   Email Support
                 </a>
                 <a 
-                  href="https://discord.gg/rhizacore"
+                  href="https://t.me/rhizacore"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-6 py-3 bg-white dark:bg-black border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl font-black text-sm uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2"
                 >
-                  Join Discord <ExternalLink size={14} />
+                  Join Forum <ExternalLink size={14} />
                 </a>
               </div>
             </div>

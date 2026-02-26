@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { 
   Send, 
@@ -22,6 +23,7 @@ import { useBalance } from '../hooks/useBalance';
 import { useTransactions } from '../hooks/useTransactions';
 import TransactionItem from '../components/TransactionItem';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import LanguageSelector from '../components/LanguageSelector';
 
 interface ActionButtonProps {
   icon: any;
@@ -36,11 +38,11 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, primary 
     className={`
       flex flex-col items-center gap-1.5 sm:gap-2 p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl transition-all duration-300 flex-1
       ${primary 
-        ? 'bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-primary dark:hover:bg-primary shadow-xl active:scale-95 transition-colors' 
-        : 'bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-white/10 active:scale-95'}
+        ? 'bg-primary dark:bg-white text-black dark:text-black hover:bg-[#00dd77] dark:hover:bg-primary shadow-xl active:scale-95 transition-colors' 
+        : 'bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10 active:scale-95'}
     `}
   >
-    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center ${primary ? 'bg-white/10 dark:bg-black/5' : 'bg-slate-100 dark:bg-white/5'}`}>
+    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center ${primary ? 'bg-black/10 dark:bg-black/5' : 'bg-slate-200 dark:bg-white/5'}`}>
       <Icon size={18} strokeWidth={2.5} />
     </div>
     <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
@@ -49,6 +51,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, primary 
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { balance, address, refreshData, network, switchNetwork, userProfile, referralData } = useWallet();
   const networkConfig = getNetworkConfig(network);
   const { 
@@ -155,43 +158,46 @@ const Dashboard: React.FC = () => {
           </span>
           <button
             onClick={() => setShowNetworkInfo(!showNetworkInfo)}
-            className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+            className="p-1 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors"
             aria-label="Network info"
           >
-            <Info size={12} className="text-slate-400 dark:text-gray-500" />
+            <Info size={12} className="text-slate-500 dark:text-gray-500" />
           </button>
         </div>
-        <button
-          onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
-          className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-gray-400 hover:bg-white/10 hover:text-primary transition-all active:scale-95"
-        >
-          Switch
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSelector compact />
+          <button
+            onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
+            className="px-3 py-1.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10 hover:text-primary transition-all active:scale-95"
+          >
+            {t('dashboard.switch')}
+          </button>
+        </div>
       </div>
 
       {/* Network Info Panel - Compact */}
       {showNetworkInfo && (
-        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
           <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-gray-400">Network Details</h4>
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-gray-400">{t('dashboard.networkDetails')}</h4>
             <button
               onClick={() => setShowNetworkInfo(false)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-gray-300 text-sm"
+              className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-gray-300 text-sm"
             >
               ✕
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2.5 text-xs">
             <div>
-              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">Network</p>
+              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.network')}</p>
               <p className="text-slate-900 dark:text-white font-bold text-xs">{networkConfig.NAME}</p>
             </div>
             <div>
-              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">Chain ID</p>
+              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.chainId')}</p>
               <p className="text-slate-900 dark:text-white font-bold text-xs">{networkConfig.CHAIN_ID}</p>
             </div>
             <div className="col-span-2">
-              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">Explorer</p>
+              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.explorer')}</p>
               <a
                 href={networkConfig.EXPLORER_URL}
                 target="_blank"
@@ -209,20 +215,20 @@ const Dashboard: React.FC = () => {
       {/* Portfolio Terminal Card - Compact */}
       <div className="relative group">
         <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-slate-200 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden p-5 sm:p-6 shadow-sm">
+        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-slate-200 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden p-5 sm:p-6 shadow-lg">
           
           {balanceError ? (
             <div className="p-4 sm:p-5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl sm:rounded-2xl">
               <div className="flex items-start gap-2.5 sm:gap-3">
                 <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
                 <div>
-                  <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">Failed to load balance</h4>
+                  <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">{t('dashboard.failedToLoadBalance')}</h4>
                   <p className="text-xs text-red-700 dark:text-red-400 mb-2.5">{balanceError}</p>
                   <button 
                     onClick={handleRefresh}
                     className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95"
                   >
-                    Retry
+                    {t('common.retry')}
                   </button>
                 </div>
               </div>
@@ -233,7 +239,7 @@ const Dashboard: React.FC = () => {
                 <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 dark:text-gray-500">
                     <ShieldCheck size={12} className="text-primary flex-shrink-0" />
-                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">Total Portfolio</span>
+                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">{t('dashboard.totalPortfolio')}</span>
                   </div>
                   
                   {balanceLoading ? (
@@ -291,14 +297,14 @@ const Dashboard: React.FC = () => {
                   <div className="relative currency-selector">
                     <button 
                       onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
-                      className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center"
+                      className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-700 dark:text-slate-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center"
                       aria-label="Select currency"
                     >
                       {selectedCurrency}
                     </button>
                     
                     {showCurrencyMenu && (
-                      <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
                         {currencies.map((currency) => (
                           <button
                             key={currency}
@@ -309,7 +315,7 @@ const Dashboard: React.FC = () => {
                             className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-2 ${
                               selectedCurrency === currency
                                 ? 'bg-primary/10 text-primary'
-                                : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'
+                                : 'text-slate-800 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5'
                             }`}
                           >
                             <span>{currency}</span>
@@ -324,16 +330,16 @@ const Dashboard: React.FC = () => {
                   
                   <button 
                     onClick={() => setBalanceVisible(!balanceVisible)}
-                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90"
-                    aria-label={balanceVisible ? 'Hide balance' : 'Show balance'}
+                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-600 dark:text-slate-400 active:scale-90"
+                    aria-label={balanceVisible ? t('dashboard.hideBalance') : t('dashboard.showBalance')}
                   >
                     {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
                   </button>
                   <button 
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-400 active:scale-90 disabled:opacity-50"
-                    aria-label="Refresh balance"
+                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-600 dark:text-slate-400 active:scale-90 disabled:opacity-50"
+                    aria-label={t('dashboard.refreshBalance')}
                   >
                     <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
                   </button>
@@ -369,18 +375,18 @@ const Dashboard: React.FC = () => {
       <div className="flex gap-2 sm:gap-2.5">
         <ActionButton 
           icon={Send} 
-          label="Pay" 
+          label={t('dashboard.pay')} 
           primary 
           onClick={() => navigate('/wallet/transfer')} 
         />
         <ActionButton 
           icon={Download} 
-          label="Receive" 
+          label={t('dashboard.receive')} 
           onClick={() => navigate('/wallet/receive')} 
         />
         <ActionButton 
           icon={ShoppingBag} 
-          label="Shop" 
+          label={t('dashboard.shop')} 
           onClick={() => navigate('/marketplace')} 
         />
       </div>
@@ -390,13 +396,13 @@ const Dashboard: React.FC = () => {
         <div className="flex items-center justify-between">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-gray-500 flex items-center gap-1.5">
             <History size={12} />
-            Recent Activity
+            {t('dashboard.recentActivity')}
           </h3>
           <button 
             onClick={() => navigate('/wallet/history')}
             className="text-[9px] font-black text-primary tracking-widest hover:underline active:scale-95"
           >
-            VIEW ALL
+            {t('common.viewAll')}
           </button>
         </div>
 
@@ -405,13 +411,13 @@ const Dashboard: React.FC = () => {
             <div className="flex items-start gap-2.5 sm:gap-3">
               <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
               <div>
-                <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">Failed to load transactions</h4>
+                <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">{t('dashboard.failedToLoadTransactions')}</h4>
                 <p className="text-xs text-red-700 dark:text-red-400 mb-2.5">{txError}</p>
                 <button 
                   onClick={refreshTransactions}
                   className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95"
                 >
-                  Retry
+                  {t('common.retry')}
                 </button>
               </div>
             </div>
@@ -425,15 +431,15 @@ const Dashboard: React.FC = () => {
         ) : transactions.length === 0 ? (
           <div className="p-6 sm:p-8 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl text-center">
             <History size={28} className="mx-auto mb-2.5 text-slate-300 dark:text-gray-700" />
-            <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">No transactions yet</h4>
+            <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">{t('dashboard.noTransactions')}</h4>
             <p className="text-xs text-slate-500 dark:text-gray-400 mb-3">
-              Your transaction history will appear here
+              {t('dashboard.noTransactionsDesc')}
             </p>
             <button 
               onClick={() => navigate('/wallet/transfer')}
               className="px-5 py-2 bg-primary text-black rounded-xl text-[10px] font-black uppercase hover:scale-105 transition-all active:scale-95"
             >
-              Make First Transaction
+              {t('dashboard.makeFirstTransaction')}
             </button>
           </div>
         ) : (
@@ -452,15 +458,15 @@ const Dashboard: React.FC = () => {
       {/* Marketplace Banner - Compact */}
       <div 
         onClick={() => navigate('/marketplace')}
-        className="p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br from-secondary/5 to-transparent border border-secondary/10 flex items-center justify-between group cursor-pointer active:scale-[0.98] transition-all hover:border-secondary/30"
+        className="p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br from-secondary/10 to-transparent border border-secondary/20 flex items-center justify-between group cursor-pointer active:scale-[0.98] transition-all hover:border-secondary/40 shadow-sm"
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary flex-shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-secondary/20 flex items-center justify-center text-secondary flex-shrink-0">
             <ShoppingBag size={18} />
           </div>
           <div className="min-w-0">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">Rhiza Marketplace</h4>
-            <p className="text-[10px] text-slate-500 dark:text-gray-400 font-medium truncate">Explore products on TON</p>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{t('dashboard.marketplaceBanner')}</h4>
+            <p className="text-[10px] text-slate-600 dark:text-gray-400 font-medium truncate">{t('dashboard.marketplaceBannerDesc')}</p>
           </div>
         </div>
         <ExternalLink size={14} className="text-secondary group-hover:translate-x-1 transition-transform flex-shrink-0" />

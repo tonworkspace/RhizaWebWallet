@@ -155,10 +155,36 @@ const CreateWallet: React.FC = () => {
         if (profileResult.success && profileResult.data) {
           console.log('✅ User profile created:', profileResult.data.id);
           
-          // Award signup bonus (100 RZC)
+          // Award signup bonus (50 RZC)
+          console.log('💰 Attempting to award signup bonus...');
           const signupBonus = await rzcRewardService.awardSignupBonus(profileResult.data.id);
           if (signupBonus.success) {
             console.log(`🎁 Signup bonus awarded: ${signupBonus.amount} RZC`);
+            
+            // Send welcome notification to new user
+            try {
+              const { notificationService } = await import('../services/notificationService');
+              await notificationService.createNotification(
+                walletAddress,
+                'reward_claimed',
+                'Welcome to Rhiza! 🎉',
+                `Your wallet has been created successfully! You received ${signupBonus.amount} RZC as a welcome bonus.`,
+                {
+                  data: {
+                    bonus_amount: signupBonus.amount,
+                    wallet_address: walletAddress,
+                    bonus_type: 'signup'
+                  },
+                  priority: 'high'
+                }
+              );
+              console.log('📬 Welcome notification sent to new user');
+            } catch (notifError) {
+              console.warn('⚠️ Failed to send welcome notification:', notifError);
+            }
+          } else {
+            console.error('❌ Signup bonus failed:', signupBonus.error);
+            // Continue anyway - user can contact support
           }
           
           // Generate referral code for this new user
@@ -178,7 +204,8 @@ const CreateWallet: React.FC = () => {
               await supabaseService.incrementReferralCount(referrerId);
               await supabaseService.updateReferralRank(referrerId);
               
-              // Award RZC tokens to referrer (50 RZC + potential milestone bonus)
+              // Award RZC tokens to referrer (25 RZC + potential milestone bonus)
+              console.log('💰 Attempting to award referral bonus...');
               const referralBonus = await rzcRewardService.awardReferralBonus(
                 referrerId,
                 profileResult.data.id,
@@ -190,6 +217,44 @@ const CreateWallet: React.FC = () => {
                 if (referralBonus.milestoneReached) {
                   console.log(`🎉 Milestone bonus: ${referralBonus.milestoneBonus} RZC`);
                 }
+                
+                // Send notification to referrer about new signup
+                try {
+                  const { notificationService } = await import('../services/notificationService');
+                  const referrerProfile = await supabaseService.getUserProfile(referrerId);
+                  
+                  if (referrerProfile.success && referrerProfile.data) {
+                    const totalBonus = (referralBonus.amount || 25) + (referralBonus.milestoneBonus || 0);
+                    const message = referralBonus.milestoneReached
+                      ? `Someone just joined using your referral link! You earned ${referralBonus.amount} RZC. Plus ${referralBonus.milestoneBonus} RZC milestone bonus! 🎉`
+                      : `Someone just joined using your referral link! You earned ${referralBonus.amount} RZC.`;
+                    
+                    await notificationService.createNotification(
+                      referrerProfile.data.wallet_address,
+                      'referral_joined',
+                      'New Referral Signup! 🎉',
+                      message,
+                      {
+                        data: {
+                          referral_code: referralCode,
+                          new_user_address: walletAddress,
+                          bonus_amount: referralBonus.amount || 25,
+                          milestone_bonus: referralBonus.milestoneBonus || 0,
+                          milestone_reached: referralBonus.milestoneReached || false,
+                          total_bonus: totalBonus
+                        },
+                        priority: 'high'
+                      }
+                    );
+                    console.log('📬 Notification sent to referrer');
+                  }
+                } catch (notifError) {
+                  console.warn('⚠️ Failed to send notification:', notifError);
+                  // Don't fail the signup if notification fails
+                }
+              } else {
+                console.error('❌ Referral bonus failed:', referralBonus.error);
+                // Continue anyway - referrer can contact support
               }
               
               console.log('✅ Referrer stats updated');

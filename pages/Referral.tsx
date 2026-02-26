@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Users, 
   Gift, 
@@ -14,11 +15,16 @@ import {
   Star,
   ArrowUp,
   ArrowDown,
-  Activity
+  Activity,
+  RefreshCw,
+  Clock,
+  Loader
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { supabaseService } from '../services/supabaseService';
 import { useToast } from '../context/ToastContext';
+import ClaimMissingRewards from '../components/ClaimMissingRewards';
+import squadMiningService, { SquadMiningStats } from '../services/squadMiningService';
 
 // Helper function to calculate time ago
 const getTimeAgo = (date: Date): string => {
@@ -37,6 +43,7 @@ const getTimeAgo = (date: Date): string => {
 };
 
 const Referral: React.FC = () => {
+  const { t } = useTranslation();
   const { userProfile, referralData } = useWallet();
   const { showToast } = useToast();
   const [copied, setCopied] = useState(false);
@@ -44,39 +51,130 @@ const Referral: React.FC = () => {
   const [upline, setUpline] = useState<any | null>(null);
   const [downline, setDownline] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Squad Mining State
+  const [squadStats, setSquadStats] = useState<SquadMiningStats | null>(null);
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [claimMessage, setClaimMessage] = useState<string>('');
+  const [timeUntilClaim, setTimeUntilClaim] = useState<{
+    hours: number;
+    minutes: number;
+    canClaim: boolean;
+  }>({ hours: 0, minutes: 0, canClaim: true });
 
   useEffect(() => {
     loadReferralNetwork();
-  }, [referralData, userProfile]);
+    loadSquadMiningData();
+  }, [userProfile?.id]); // Only depend on user ID
 
   const loadReferralNetwork = async () => {
     if (!userProfile?.id) {
+      console.log('⚠️ No user profile ID available');
       setLoading(false);
       return;
     }
 
-    // Load upline (who referred me)
-    const uplineResult = await supabaseService.getUpline(userProfile.id);
-    if (uplineResult.success && uplineResult.data) {
-      setUpline(uplineResult.data);
-    }
+    console.log('🔄 Loading referral network for user:', userProfile.id);
+    setLoading(true);
 
-    // Load downline (who I referred)
-    const downlineResult = await supabaseService.getDownline(userProfile.id);
-    if (downlineResult.success && downlineResult.data) {
-      setDownline(downlineResult.data);
-    }
-
-    // Also load referred users by code (for backward compatibility)
-    if (referralData?.referral_code) {
-      const result = await supabaseService.getReferredUsers(referralData.referral_code);
-      if (result.success && result.data) {
-        setReferredUsers(result.data);
+    try {
+      // Load upline (who referred me)
+      const uplineResult = await supabaseService.getUpline(userProfile.id);
+      console.log('📊 Upline result:', uplineResult);
+      if (uplineResult.success && uplineResult.data) {
+        setUpline(uplineResult.data);
+      } else {
+        setUpline(null);
       }
+
+      // Load downline (who I referred)
+      const downlineResult = await supabaseService.getDownline(userProfile.id);
+      console.log('📊 Downline result:', downlineResult);
+      if (downlineResult.success && downlineResult.data) {
+        console.log('✅ Setting downline with', downlineResult.data.length, 'members');
+        setDownline(downlineResult.data);
+      } else {
+        console.log('⚠️ No downline data or error:', downlineResult.error);
+        setDownline([]);
+      }
+
+      // Also load referred users by code (for backward compatibility)
+      if (referralData?.referral_code) {
+        const result = await supabaseService.getReferredUsers(referralData.referral_code);
+        console.log('📊 Referred users result:', result);
+        if (result.success && result.data) {
+          setReferredUsers(result.data);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error loading referral network:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSquadMiningData = async () => {
+    if (!userProfile?.id) return;
+
+    try {
+      const stats = await squadMiningService.getSquadMiningStats(userProfile.id);
+      setSquadStats(stats);
+    } catch (error) {
+      console.error('❌ Error loading squad mining data:', error);
+    }
+  };
+
+  const updateTimeUntilClaim = () => {
+    if (!squadStats?.last_claim_at) {
+      setTimeUntilClaim({ hours: 0, minutes: 0, canClaim: true });
+      return;
     }
 
-    setLoading(false);
+    const result = squadMiningService.calculateTimeUntilNextClaim(squadStats.last_claim_at);
+    setTimeUntilClaim({
+      hours: result.hoursRemaining,
+      minutes: result.minutesRemaining,
+      canClaim: result.canClaim
+    });
   };
+
+  const claimSquadRewards = async () => {
+    if (!userProfile?.id || !squadStats?.can_claim || isClaiming) return;
+
+    setIsClaiming(true);
+    setClaimMessage('');
+
+    try {
+      const transactionId = squadMiningService.generateTransactionId(userProfile.id);
+      const result = await squadMiningService.claimSquadRewards(userProfile.id, transactionId);
+
+      if (result.success) {
+        setClaimMessage(`Successfully claimed ${result.reward_amount?.toLocaleString()} RZC from ${result.squad_size} squad members!`);
+        showToast(`Claimed ${result.reward_amount?.toLocaleString()} RZC!`, 'success');
+        
+        // Reload data
+        await loadSquadMiningData();
+        await loadReferralNetwork();
+      } else {
+        setClaimMessage(result.error || 'Failed to claim rewards');
+        showToast(result.error || 'Failed to claim rewards', 'error');
+      }
+    } catch (error) {
+      console.error('Error claiming squad rewards:', error);
+      setClaimMessage('Failed to claim rewards. Please try again.');
+      showToast('Failed to claim rewards', 'error');
+    } finally {
+      setIsClaiming(false);
+      setTimeout(() => setClaimMessage(''), 5000);
+    }
+  };
+
+  // Update timer every minute
+  useEffect(() => {
+    updateTimeUntilClaim();
+    const interval = setInterval(updateTimeUntilClaim, 60000);
+    return () => clearInterval(interval);
+  }, [squadStats?.last_claim_at]);
 
   const referralLink = referralData?.referral_code 
     ? `${window.location.origin}/#/join?ref=${referralData.referral_code}`
@@ -96,14 +194,24 @@ const Referral: React.FC = () => {
       {/* Enhanced Header with Rank Badge */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-black text-white">Referral Network</h1>
-          <p className="text-[10px] text-gray-500 font-medium">Build your team and earn rewards</p>
+          <h1 className="text-2xl font-black text-white">{t('referral.title')}</h1>
+          <p className="text-[10px] text-gray-500 font-medium">{t('referral.inviteFriends')}</p>
         </div>
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-[#00FF88]/20 to-[#00CCFF]/20 border border-[#00FF88]/30 rounded-full">
-          <Crown size={12} className="text-[#00FF88]" />
-          <span className="text-[#00FF88] text-[10px] font-black uppercase tracking-wider">
-            {referralData?.rank || 'Core Node'}
-          </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadReferralNetwork}
+            disabled={loading}
+            className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all disabled:opacity-50"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={`text-gray-400 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-[#00FF88]/20 to-[#00CCFF]/20 border border-[#00FF88]/30 rounded-full">
+            <Crown size={12} className="text-[#00FF88]" />
+            <span className="text-[#00FF88] text-[10px] font-black uppercase tracking-wider">
+              {referralData?.rank || 'Core Node'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -117,7 +225,7 @@ const Referral: React.FC = () => {
               <div className="w-8 h-8 rounded-lg bg-[#00FF88]/20 flex items-center justify-center">
                 <Gift size={16} className="text-[#00FF88]" />
               </div>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Total RZC Earned</span>
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{t('referral.totalEarnings')}</span>
             </div>
             <h2 className="text-3xl font-black text-[#00FF88] mb-1">
               {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
@@ -132,7 +240,7 @@ const Referral: React.FC = () => {
         <div className="p-3 rounded-xl bg-white/5 border border-white/10">
           <div className="flex items-center gap-1.5 mb-1">
             <Users size={12} className="text-blue-400" />
-            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Referrals</span>
+            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">{t('referral.totalReferrals')}</span>
           </div>
           <p className="text-2xl font-black text-white">{loading ? '...' : referralData?.total_referrals || 0}</p>
         </div>
@@ -167,14 +275,14 @@ const Referral: React.FC = () => {
             <Share2 size={16} className="text-[#00FF88]" />
           </div>
           <div>
-            <h3 className="text-sm font-black text-white">Your Referral Link</h3>
-            <p className="text-[9px] text-gray-500">Share to earn 50 RZC per signup</p>
+            <h3 className="text-sm font-black text-white">{t('referral.yourCode')}</h3>
+            <p className="text-[9px] text-gray-500">{t('referral.shareLink')}</p>
           </div>
         </div>
         
         <div className="flex items-center gap-2 p-3 bg-black/40 rounded-xl border border-white/10">
-          <span className="text-[11px] font-mono text-gray-300 truncate flex-1">
-            {loading ? 'Loading...' : referralLink}
+          <span className="text-[8px] font-mono text-gray-300 truncate flex-1">
+            {loading ? t('common.loading') : referralLink}
           </span>
           <button 
             onClick={handleCopy}
@@ -190,6 +298,100 @@ const Referral: React.FC = () => {
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? 'COPIED' : 'COPY'}
           </button>
+        </div>
+      </div>
+
+      {/* Claim Missing Rewards */}
+      {userProfile?.id && (
+        <ClaimMissingRewards 
+          userId={userProfile.id} 
+          onClaimed={loadReferralNetwork}
+        />
+      )}
+
+      {/* Squad Mining Claim Card */}
+      <div className="p-4 rounded-2xl bg-gradient-to-br from-[#00FF88]/10 via-[#00FF88]/5 to-transparent border border-[#00FF88]/20 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-[#00FF88]/10 blur-[40px] rounded-full" />
+        
+        <div className="relative z-10 space-y-3">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[#00FF88]/20 flex items-center justify-center">
+                <Zap size={16} className="text-[#00FF88]" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-white">Squad Mining</h3>
+                <p className="text-[9px] text-gray-500">Claim every 8 hours</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs">
+              <Clock size={12} className="text-blue-400" />
+              <span className="text-blue-400 font-mono">
+                {timeUntilClaim.canClaim ? 'Ready!' : `${timeUntilClaim.hours}h ${timeUntilClaim.minutes}m`}
+              </span>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="p-2 rounded-lg bg-black/20">
+              <span className="text-[9px] text-gray-500 block">Squad Size</span>
+              <span className="text-lg font-black text-white">{squadStats?.squad_size || 0}</span>
+            </div>
+            <div className="p-2 rounded-lg bg-black/20">
+              <span className="text-[9px] text-gray-500 block">Per Claim</span>
+              <span className="text-lg font-black text-[#00FF88]">{squadStats?.potential_reward || 0}</span>
+            </div>
+            <div className="p-2 rounded-lg bg-black/20">
+              <span className="text-[9px] text-gray-500 block">Total Earned</span>
+              <span className="text-lg font-black text-purple-400">{squadStats?.total_rewards_earned || 0}</span>
+            </div>
+          </div>
+
+          {/* Claim Button */}
+          <button
+            onClick={claimSquadRewards}
+            disabled={!timeUntilClaim.canClaim || isClaiming || (squadStats?.squad_size || 0) === 0}
+            className={`w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 transition-all ${
+              timeUntilClaim.canClaim && (squadStats?.squad_size || 0) > 0 && !isClaiming
+                ? 'bg-[#00FF88] text-black hover:bg-[#00FF88]/90'
+                : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {isClaiming ? (
+              <>
+                <Loader className="animate-spin" size={16} />
+                Claiming...
+              </>
+            ) : timeUntilClaim.canClaim ? (
+              <>
+                <Zap size={16} />
+                Claim {squadStats?.potential_reward?.toLocaleString() || '0'} RZC
+              </>
+            ) : (
+              <>
+                <Clock size={16} />
+                Next Claim in {timeUntilClaim.hours}h {timeUntilClaim.minutes}m
+              </>
+            )}
+          </button>
+
+          {/* Claim Message */}
+          {claimMessage && (
+            <div className={`text-xs p-2 rounded-lg text-center ${
+              claimMessage.includes('Successfully') 
+                ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+            }`}>
+              {claimMessage}
+            </div>
+          )}
+
+          {/* Info */}
+          <p className="text-[10px] text-gray-500 text-center italic">
+            Earn 2 RZC per member every 8 hours. Premium members earn 5 RZC each!
+          </p>
         </div>
       </div>
 
@@ -326,7 +528,7 @@ const Referral: React.FC = () => {
             { 
               icon: Gift, 
               title: "Signup Bonus", 
-              amount: "50 RZC", 
+              amount: "25 RZC", 
               desc: "Per referral signup",
               color: "from-[#00FF88]/20 to-[#00FF88]/5",
               border: "border-[#00FF88]/20",
@@ -336,7 +538,7 @@ const Referral: React.FC = () => {
             { 
               icon: Award, 
               title: "Milestone Bonus", 
-              amount: "Up to 10,000 RZC", 
+              amount: "Up to 5,000 RZC", 
               desc: "At 10, 50, 100 referrals",
               color: "from-yellow-500/20 to-yellow-500/5",
               border: "border-yellow-500/20",

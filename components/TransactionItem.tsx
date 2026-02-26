@@ -106,7 +106,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, onClick 
             </div>
             <div className="text-xs text-slate-500 dark:text-gray-400 font-medium truncate">
               {transaction.comment ? (
-                <span className="italic">"{transaction.comment}"</span>
+                <span className="italic text-[8px]">"{transaction.comment}"</span>
               ) : transaction.address ? (
                 formatAddress(transaction.address)
               ) : (

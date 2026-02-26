@@ -248,7 +248,7 @@ export const MOCK_TRANSACTIONS: Transaction[] = [
     type: 'receive',
     asset: 'RZC',
     amount: 500,
-    timestamp: '2024-05-20T10:30:00Z',
+    timestamp: '2026-02-20T10:30:00Z',
     status: 'confirmed',
     address: 'RhizaMarket_Store_01'
   },
@@ -257,7 +257,7 @@ export const MOCK_TRANSACTIONS: Transaction[] = [
     type: 'send',
     asset: 'RZC',
     amount: 120,
-    timestamp: '2024-05-19T14:45:00Z',
+    timestamp: '2026-02-19T14:45:00Z',
     status: 'confirmed',
     address: 'Coffee_Shop_TON'
   }
@@ -273,8 +273,17 @@ export const MOCK_PORTFOLIO_HISTORY: PortfolioData[] = [
   { time: '24:00', value: 12500 },
 ];
 
+// Telegram Mini App Link
+export const TELEGRAM_MINI_APP_URL = 'https://t.me/RhizaCore_bot/launch';
+
 // Official RhizaCore Social Links
 export const SOCIAL_LINKS = [
+  {
+    name: 'X (Twitter)',
+    url: 'https://x.com/rhizacore',
+    icon: 'twitter',
+    label: 'Follow on X'
+  },
   {
     name: 'Telegram News',
     url: 'https://t.me/RhizaCoreNews',

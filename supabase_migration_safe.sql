@@ -431,3 +431,65 @@ BEGIN
   RAISE NOTICE '';
   RAISE NOTICE '🎉 Your database is ready to use!';
 END $$;
+
+
+-- ============================================================================
+-- NEWSLETTER SUBSCRIPTIONS TABLE
+-- ============================================================================
+
+-- TABLE: wallet_newsletter_subscriptions
+CREATE TABLE IF NOT EXISTS wallet_newsletter_subscriptions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'unsubscribed')),
+  source TEXT DEFAULT 'landing_page',
+  ip_address TEXT,
+  user_agent TEXT,
+  metadata JSONB DEFAULT '{}',
+  subscribed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  unsubscribed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create index on email for fast lookups
+CREATE INDEX IF NOT EXISTS idx_newsletter_email ON wallet_newsletter_subscriptions(email);
+CREATE INDEX IF NOT EXISTS idx_newsletter_status ON wallet_newsletter_subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_newsletter_subscribed_at ON wallet_newsletter_subscriptions(subscribed_at DESC);
+
+-- Enable RLS
+ALTER TABLE wallet_newsletter_subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Allow anyone to subscribe (insert)
+CREATE POLICY "Anyone can subscribe to newsletter"
+  ON wallet_newsletter_subscriptions
+  FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+-- Policy: Only admins can view subscriptions
+CREATE POLICY "Only admins can view newsletter subscriptions"
+  ON wallet_newsletter_subscriptions
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM wallet_users
+      WHERE wallet_users.auth_user_id = auth.uid()
+      AND wallet_users.role = 'admin'
+    )
+  );
+
+-- Policy: Only admins can update subscriptions
+CREATE POLICY "Only admins can update newsletter subscriptions"
+  ON wallet_newsletter_subscriptions
+  FOR UPDATE
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM wallet_users
+      WHERE wallet_users.auth_user_id = auth.uid()
+      AND wallet_users.role = 'admin'
+    )
+  );
+
+COMMENT ON TABLE wallet_newsletter_subscriptions IS 'Stores newsletter email subscriptions from landing page';

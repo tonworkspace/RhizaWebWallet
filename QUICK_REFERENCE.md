@@ -1,253 +1,274 @@
-# 🚀 Quick Reference - Supabase Integration
+# Referral System Quick Reference 🚀
 
-**Status:** ✅ COMPLETE AND WORKING
+## 🎯 Start Here
+
+### Is the UI getting data?
+**YES** ✅ - The UI is properly configured. If you see issues, it's a data problem, not a UI problem.
+
+### Quick Test
+1. Open Referral page
+2. Press F12 (open console)
+3. Copy/paste contents of `test_referral_ui.js`
+4. Check results
 
 ---
 
-## 🎯 Start Development Server
+## 📁 Important Files
 
-```bash
-npm run dev
+| File | Purpose |
+|------|---------|
+| `IMMEDIATE_ACTION_ITEMS.md` | **START HERE** - Step-by-step checklist |
+| `diagnose_referral_system.sql` | Database diagnostic queries (FIXED ✅) |
+| `SQL_FIX_APPLIED.md` | Info about SQL fix |
+| `UI_VERIFICATION_SUMMARY.md` | UI data flow explanation |
+| `test_referral_ui.js` | Browser console test script |
+| `REFERRAL_SYSTEM_FIX.md` | Detailed technical analysis |
+| `REFERRAL_SYSTEM_TEST_GUIDE.md` | Complete testing procedures |
+
+---
+
+## 🔍 Quick Diagnostics
+
+### Check 1: Database Function Exists
+```sql
+SELECT routine_name FROM information_schema.routines
+WHERE routine_name = 'award_rzc_tokens';
 ```
+**Expected:** 1 row
 
-Then open: http://localhost:5173
+### Check 2: User Has Referral Code
+```sql
+SELECT referral_code, total_referrals 
+FROM wallet_referrals 
+WHERE user_id = 'YOUR_USER_ID';
+```
+**Expected:** 1 row with referral code
+
+### Check 3: Downline Exists
+```sql
+SELECT COUNT(*) FROM wallet_referrals 
+WHERE referrer_id = 'YOUR_USER_ID';
+```
+**Expected:** Count matches total_referrals
+
+### Check 4: Bonuses Were Awarded
+```sql
+SELECT type, amount, created_at 
+FROM wallet_rzc_transactions 
+WHERE user_id = 'YOUR_USER_ID'
+ORDER BY created_at DESC;
+```
+**Expected:** signup_bonus (100 RZC) and referral_bonus (50 RZC per referral)
 
 ---
 
-## 📊 Check Supabase Dashboard
+## 🐛 Common Issues
 
-URL: https://dksskhnnxfkpgjeiybjk.supabase.co
+### Issue: Downline empty but has referrals
+**Fix:** Already applied in `services/supabaseService.ts`
+**Verify:** Check browser console for errors
 
-**Tables to Check:**
-- `wallet_users` - User profiles
-- `wallet_referrals` - Referral codes
-- `wallet_transactions` - Transaction history
-- `wallet_analytics` - Event tracking
+### Issue: RZC balance is 0
+**Check:** Run Check 4 above
+**Fix:** Verify `award_rzc_tokens` function exists (Check 1)
+
+### Issue: Referral link shows "Loading..."
+**Check:** Run Check 2 above
+**Fix:** Referral code wasn't created during signup
+
+### Issue: Active rate shows 0%
+**Check:** `SELECT is_active FROM wallet_users;`
+**Fix:** `UPDATE wallet_users SET is_active = true WHERE is_active IS NULL;`
 
 ---
 
-## 🧪 Quick Tests
+## 🧪 Testing Flow
 
-### 1. Test Connection (Browser Console)
+### Test 1: Basic Signup (5 min)
+1. Create new wallet
+2. Check console: "Signup bonus awarded: 100 RZC"
+3. Note referral code
+
+### Test 2: Referral Signup (5 min)
+1. Open incognito window
+2. Visit `/#/join?ref=[CODE]`
+3. Create wallet
+4. Check console: "Referral bonus awarded: 50 RZC"
+
+### Test 3: Downline Display (2 min)
+1. Login as first user
+2. Go to Referral page
+3. Click refresh
+4. Verify second user appears in downline
+
+---
+
+## 📊 Expected Data Structure
+
+### userProfile
 ```javascript
-console.log('Configured:', supabaseService.isConfigured());
+{
+  id: "uuid",
+  wallet_address: "0:abc...",
+  name: "User Name",
+  avatar: "🌱",
+  rzc_balance: 150,  // 100 signup + 50 referral
+  is_active: true,
+  referrer_code: "ABC123" or null
+}
 ```
 
-### 2. Create Wallet
-- Go to `/create-wallet`
-- Watch console for success logs
-- Check Supabase dashboard for new profile
-
-### 3. Check Dashboard
-- Login with wallet
-- Should see profile greeting
-- Should see avatar and name
-
-### 4. Edit Profile
-- Go to Settings
-- Click "Edit Profile"
-- Change avatar and name
-- Save changes
-
-### 5. Check Referral Portal
-- Go to Referral Portal
-- Should see your referral code
-- Should see real statistics
-
----
-
-## 📝 Key Files
-
-### Services
-- `services/supabaseService.ts` - Main Supabase service
-- `services/transactionSync.ts` - Transaction sync service
-
-### Pages Updated
-- `pages/Dashboard.tsx` - Profile greeting
-- `pages/Settings.tsx` - Profile editing
-- `pages/ReferralPortal.tsx` - Real referral data
-
-### Context
-- `context/WalletContext.tsx` - Auto-sync integration
-
----
-
-## 🔧 Useful Commands
-
-### Build
-```bash
-npm run build
+### referralData
+```javascript
+{
+  user_id: "uuid",
+  referral_code: "ABC12345",
+  total_referrals: 1,
+  total_earned: 50,
+  rank: "Core Node",
+  level: 1,
+  referrer_id: "uuid" or null
+}
 ```
 
-### Preview Build
-```bash
-npm run preview
-```
-
-### Deploy
-```bash
-npm run deploy
-```
-
----
-
-## 📊 Supabase Service Methods
-
-### User Profile
-```typescript
-// Create/update profile
-await supabaseService.createOrUpdateProfile({
-  wallet_address: address,
-  name: 'My Name',
-  avatar: '🚀'
-});
-
-// Get profile
-const result = await supabaseService.getProfile(address);
-
-// Update profile
-await supabaseService.updateProfile(address, {
-  name: 'New Name',
-  avatar: '💎'
-});
-```
-
-### Transactions
-```typescript
-// Save transaction
-await supabaseService.saveTransaction({
-  user_id: userId,
-  wallet_address: address,
-  type: 'send',
-  amount: '1.5',
-  asset: 'TON',
-  tx_hash: hash,
-  status: 'confirmed'
-});
-
-// Get transactions
-const result = await supabaseService.getTransactions(address, 50);
-```
-
-### Referrals
-```typescript
-// Create referral code
-await supabaseService.createReferralCode(userId, address);
-
-// Get referral data
-const result = await supabaseService.getReferralData(userId);
-
-// Get referred users
-const result = await supabaseService.getReferredUsers(referralCode);
-```
-
-### Analytics
-```typescript
-// Track event
-await supabaseService.trackEvent('wallet_created', {
-  wallet_address: address,
-  network: 'testnet'
-});
-
-// Get analytics
-const result = await supabaseService.getAnalytics('wallet_created', 100);
-```
-
----
-
-## 🔄 Transaction Sync
-
-### Manual Sync
-```typescript
-await transactionSyncService.syncTransactions(address, userId);
-```
-
-### Auto-sync (Already Running)
-- Syncs every 30 seconds automatically
-- Started on login
-- Stopped on logout
-
----
-
-## 🎨 Using Data in Components
-
-### Get User Profile
-```typescript
-import { useWallet } from '../context/WalletContext';
-
-const { userProfile, referralData } = useWallet();
-
-// Use in JSX
-<div>{userProfile?.name}</div>
-<div>{userProfile?.avatar}</div>
-<div>{referralData?.referral_code}</div>
-```
-
-### Update Profile
-```typescript
-import { supabaseService } from '../services/supabaseService';
-
-const handleUpdate = async () => {
-  const result = await supabaseService.updateProfile(address, {
-    name: newName,
-    avatar: newAvatar
-  });
-  
-  if (result.success) {
-    showToast('Profile updated!', 'success');
+### downline
+```javascript
+[
+  {
+    id: "uuid",
+    name: "User Name",
+    avatar: "👤",
+    wallet_address: "0:def...",
+    rzc_balance: 100,
+    is_active: true,
+    total_referrals: 0,
+    created_at: "2024-01-02T00:00:00Z"
   }
-};
+]
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## 🎨 UI Data Mapping
 
-### Profile Not Loading
-1. Check console for errors
-2. Verify Supabase credentials in `.env`
-3. Check Supabase dashboard for profile
-
-### Transactions Not Syncing
-1. Check console for sync logs
-2. Verify wallet has transactions
-3. Check Supabase dashboard for transactions
-
-### Referral Code Not Showing
-1. Check if profile exists
-2. Check if referral data loaded
-3. Verify in Supabase dashboard
+| UI Element | Data Source | Field |
+|------------|-------------|-------|
+| Rank Badge | `referralData` | `rank` |
+| RZC Balance | `userProfile` | `rzc_balance` |
+| Total Referrals | `referralData` | `total_referrals` |
+| Active Rate | `downline` | Calculated from `is_active` |
+| Level | `referralData` | `level` |
+| Referral Link | `referralData` | `referral_code` |
+| Upline | `upline` | Full profile |
+| Downline List | `downline` | Array of profiles |
 
 ---
 
-## 📚 Documentation Files
+## 🔧 Quick Fixes
 
-- `SUPABASE_COMPLETE_SETUP.md` - Complete setup guide
-- `SETUP_COMPLETE_SUMMARY.md` - Summary of changes
-- `SUPABASE_INTEGRATION_STATUS.md` - Integration analysis
-- `WALLET_FUNCTIONALITY_ANALYSIS.md` - Feature analysis
-- `QUICK_REFERENCE.md` - This file
+### Manually Award Signup Bonus
+```sql
+SELECT award_rzc_tokens(
+  'USER_ID'::uuid,
+  100,
+  'signup_bonus',
+  'Welcome bonus',
+  jsonb_build_object('bonus_type', 'signup')
+);
+```
+
+### Manually Award Referral Bonus
+```sql
+SELECT award_rzc_tokens(
+  'REFERRER_ID'::uuid,
+  50,
+  'referral_bonus',
+  'Referral bonus',
+  jsonb_build_object('referred_user_id', 'NEW_USER_ID')
+);
+```
+
+### Set All Users Active
+```sql
+UPDATE wallet_users SET is_active = true WHERE is_active IS NULL;
+```
+
+### Add Missing Foreign Keys
+```sql
+ALTER TABLE wallet_referrals
+ADD CONSTRAINT fk_wallet_referrals_user
+FOREIGN KEY (user_id) REFERENCES wallet_users(id) ON DELETE CASCADE;
+
+ALTER TABLE wallet_referrals
+ADD CONSTRAINT fk_wallet_referrals_referrer
+FOREIGN KEY (referrer_id) REFERENCES wallet_users(id) ON DELETE SET NULL;
+```
 
 ---
 
-## ✅ What's Working
+## 📞 Support Checklist
 
-- ✅ User profile creation
-- ✅ User profile loading
-- ✅ User profile editing
-- ✅ Referral code generation
-- ✅ Referral tracking
-- ✅ Transaction sync
-- ✅ Analytics tracking
-- ✅ Real-time subscriptions (ready)
-- ✅ Dashboard integration
-- ✅ Settings integration
-- ✅ Referral portal integration
+When reporting issues, provide:
+
+1. **Browser Console Output**
+   - Any error messages
+   - Results from `test_referral_ui.js`
+
+2. **Database State**
+   - Results from diagnostic queries
+   - User ID and wallet address
+
+3. **Steps to Reproduce**
+   - Exact steps that caused the issue
+   - Expected vs actual behavior
+
+4. **Screenshots**
+   - Referral page showing the issue
+   - Browser console showing errors
 
 ---
 
-## 🎉 You're All Set!
+## ✅ Success Criteria
 
-Run `npm run dev` and start testing your fully integrated wallet!
+System is working when:
 
-**Everything is connected and working!** 🚀
+- [ ] New users receive 100 RZC signup bonus
+- [ ] Referrers receive 50 RZC per referral
+- [ ] Downline displays all referred users
+- [ ] Referral counts are accurate
+- [ ] Active rate calculates correctly
+- [ ] Referral link is copyable
+- [ ] No console errors
+
+---
+
+## 🚀 Quick Start
+
+1. **Read:** `IMMEDIATE_ACTION_ITEMS.md`
+2. **Run:** Database checks (5 min)
+3. **Test:** Create test users (10 min)
+4. **Verify:** Run `test_referral_ui.js`
+5. **Fix:** Apply any needed fixes
+6. **Celebrate:** 🎉
+
+---
+
+## 💡 Key Insights
+
+1. **UI is fine** - It's properly configured to receive data
+2. **Check data layer** - Issues are usually in database or API
+3. **Use diagnostic tools** - SQL queries and test scripts
+4. **Fix was applied** - `getDownline()` now uses separate queries
+5. **Test thoroughly** - Follow the test guide
+
+---
+
+## 📚 Learn More
+
+- **Data Flow:** See `REFERRAL_UI_DATA_FLOW.md`
+- **Testing:** See `REFERRAL_SYSTEM_TEST_GUIDE.md`
+- **Technical Details:** See `REFERRAL_SYSTEM_FIX.md`
+
+---
+
+**Remember:** The UI code is solid. Focus on verifying the data! 🎯

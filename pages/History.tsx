@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
@@ -38,6 +39,7 @@ interface Transaction {
 }
 
 const History: React.FC = () => {
+  const { t } = useTranslation();
   const { transactions, isLoading, error, refreshTransactions } = useTransactions();
   const { network } = useWallet();
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,7 +154,7 @@ const History: React.FC = () => {
     <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6 page-enter px-3 sm:px-4 md:px-0">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">Transaction History</h1>
+          <h1 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">{t('history.title')}</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-gray-500 font-medium mt-0.5 sm:mt-1">
             {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
           </p>
@@ -173,7 +175,7 @@ const History: React.FC = () => {
           <Search size={14} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-700 group-focus-within:text-primary transition-colors" />
           <input 
             type="text" 
-            placeholder="Search transactions..."
+            placeholder={t('history.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-10 sm:pl-11 pr-3 sm:pr-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-800"
@@ -188,7 +190,7 @@ const History: React.FC = () => {
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
             }`}
           >
-            All
+            {t('history.all')}
           </button>
           <button
             onClick={() => setFilterType('send')}
@@ -198,7 +200,7 @@ const History: React.FC = () => {
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
             }`}
           >
-            Sent
+            {t('history.sent')}
           </button>
           <button
             onClick={() => setFilterType('receive')}
@@ -208,7 +210,7 @@ const History: React.FC = () => {
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
             }`}
           >
-            Received
+            {t('history.received')}
           </button>
         </div>
       </div>

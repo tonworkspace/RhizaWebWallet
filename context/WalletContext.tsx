@@ -172,6 +172,22 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.log('✅ Referral data loaded:', referralResult.data.referral_code);
           }
           
+          // Auto-check and claim missing referral bonuses
+          try {
+            const { referralRewardChecker } = await import('../services/referralRewardChecker');
+            const claimResult = await referralRewardChecker.autoCheckAndClaim(profileResult.data.id);
+            if (claimResult.success && claimResult.claimed && claimResult.claimed > 0) {
+              console.log(`🎁 Auto-claimed ${claimResult.claimed} missing referral bonuses (${claimResult.amount} RZC)`);
+              // Reload profile to get updated balance
+              const updatedProfile = await supabaseService.getProfile(res.address);
+              if (updatedProfile.success && updatedProfile.data) {
+                setUserProfile(updatedProfile.data);
+              }
+            }
+          } catch (error) {
+            console.warn('⚠️ Auto-claim check failed:', error);
+          }
+          
           // Log session activity
           await notificationService.logActivity(
             res.address,
