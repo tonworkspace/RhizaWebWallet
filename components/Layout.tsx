@@ -13,10 +13,13 @@ import {
   Moon,
   User,
   ExternalLink,
-  MoreHorizontal
+  MoreHorizontal,
+  Globe,
+  Bell
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import NotificationCenter from './NotificationCenter';
+import LanguageSelector from './LanguageSelector';
 import { SOCIAL_LINKS } from '../constants';
 
 interface LayoutProps {
@@ -60,9 +63,33 @@ const MobileNavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label
 
 export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
   const { t } = useTranslation();
-  const { address, balance, theme, toggleTheme, userProfile, referralData } = useWallet();
-  if (!isWalletMode) return <>{children}</>;
+  const { address, balance, theme, toggleTheme, userProfile, referralData, network, switchNetwork } = useWallet();
+  const [showLanguageMenu, setShowLanguageMenu] = React.useState(false);
+  const [showNetworkMenu, setShowNetworkMenu] = React.useState(false);
+  const [showMobileMenu, setShowMobileMenu] = React.useState(false);
+  
+  // Close menus when clicking outside
+  React.useEffect(() => {
+    if (!isWalletMode) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.language-menu-container')) {
+        setShowLanguageMenu(false);
+      }
+      if (!target.closest('.network-menu-container')) {
+        setShowNetworkMenu(false);
+      }
+      if (!target.closest('.mobile-menu-container')) {
+        setShowMobileMenu(false);
+      }
+    };
 
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isWalletMode]);
+  
+  if (!isWalletMode) return <>{children}</>;
   const shortenAddress = (addr: string | null) => {
     if (!addr) return '...';
     return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
@@ -163,6 +190,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
       <main className="flex-1 lg:ml-72 relative min-h-screen pb-safe">
         {/* Header - Transparent Glass */}
         <header className="h-20 lg:h-16 flex items-center justify-between px-4 sm:px-6 sticky top-0 bg-white/60 dark:bg-[#020202]/60 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-white/5 transition-colors">
+          {/* Left: Logo - Mobile Only */}
           <div className="flex items-center gap-3 lg:hidden">
             <div className="w-8 h-8 bg-slate-900 dark:bg-white text-white dark:text-black rounded-lg flex items-center justify-center transition-colors">
               <Zap size={18} fill="currentColor" />
@@ -175,82 +203,215 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-4">
-            <div className="bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-3 py-1.5 rounded-xl flex items-center gap-2">
-              <div className="w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(0,255,136,0.5)]" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-gray-400">TON Mainnet</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* Right: All Controls in Profile Card */}
+          <div className="flex items-center gap-2 ml-auto">
             {/* Notification Center */}
             <NotificationCenter />
+
+            {/* Language Selector Dropdown - Positioned Absolutely */}
+            {showLanguageMenu && (
+              <div className="fixed top-20 right-4 z-[60]">
+                <LanguageSelector compact isOpen={showLanguageMenu} onSelect={() => setShowLanguageMenu(false)} />
+              </div>
+            )}
             
-            {/* User Profile with Balance */}
-            <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-2 sm:px-3 py-1.5 rounded-xl">
-              {/* Avatar */}
-              {isValidImageUrl(userProfile?.avatar) ? (
-                <img 
-                  src={userProfile.avatar} 
-                  alt={userProfile.name || 'User'} 
-                  className="w-7 h-7 rounded-full object-cover ring-2 ring-primary/20"
-                />
-              ) : userProfile?.avatar ? (
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center ring-2 ring-primary/20">
-                  <span className="text-sm">{userProfile.avatar}</span>
+            {/* Unified Profile Card with All Controls */}
+            <div className="relative mobile-menu-container">
+              <div className="flex items-center gap-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-sm overflow-hidden">
+                {/* Controls Group - Hidden on Mobile */}
+                <div className="hidden sm:flex items-center gap-0.5 px-2 py-1.5 border-r-2 border-gray-200 dark:border-white/10">
+                  {/* Network Switcher */}
+                  <div className="relative network-menu-container">
+                    <button
+                      onClick={() => setShowNetworkMenu(!showNetworkMenu)}
+                      className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all"
+                      title={network === 'mainnet' ? 'TON Mainnet' : 'TON Testnet'}
+                    >
+                      <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
+                    </button>
+
+                    {showNetworkMenu && (
+                      <div className="absolute top-full right-0 mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[160px] animate-in fade-in slide-in-from-top-2 duration-200">
+                        <button
+                          onClick={() => {
+                            switchNetwork('mainnet');
+                            setShowNetworkMenu(false);
+                          }}
+                          className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${
+                            network === 'mainnet'
+                              ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                              : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                          }`}
+                        >
+                          <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                          <span className="flex-1">Mainnet</span>
+                          {network === 'mainnet' && <span className="text-emerald-600 dark:text-emerald-400">✓</span>}
+                        </button>
+                        <button
+                          onClick={() => {
+                            switchNetwork('testnet');
+                            setShowNetworkMenu(false);
+                          }}
+                          className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${
+                            network === 'testnet'
+                              ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                              : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                          }`}
+                        >
+                          <div className={`w-2 h-2 rounded-full ${network === 'testnet' ? 'bg-amber-500' : 'bg-gray-400'}`} />
+                          <span className="flex-1">Testnet</span>
+                          {network === 'testnet' && <span className="text-amber-600 dark:text-amber-400">✓</span>}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Language Switcher */}
+                  <div className="language-menu-container">
+                    <button
+                      onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                      className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all"
+                      title="Change Language"
+                    >
+                      <Globe size={16} className="text-gray-700 dark:text-gray-400" />
+                    </button>
+                  </div>
+
+                  {/* Theme Toggle */}
+                  <button 
+                    onClick={toggleTheme} 
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all"
+                    title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  >
+                    {theme === 'dark' ? <Sun size={16} className="text-gray-700 dark:text-gray-400" /> : <Moon size={16} className="text-gray-700 dark:text-gray-400" />}
+                  </button>
                 </div>
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center ring-2 ring-primary/20">
-                  <User size={14} className="text-primary" strokeWidth={2.5} />
-                </div>
-              )}
-              
-              {/* User Info & Balance - Desktop */}
-              <div className="hidden lg:flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-tight">
-                    {userProfile?.name || 'User'}
-                  </span>
-                  {referralData && referralData.total_referrals > 0 && (
-                    <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                      {referralData.total_referrals} Refs
+
+                {/* User Profile & Balance - Clickable on Mobile */}
+                <button
+                  onClick={() => setShowMobileMenu(!showMobileMenu)}
+                  className="flex items-center gap-2 px-2 sm:px-3 py-1.5 sm:cursor-default active:scale-95 sm:active:scale-100 transition-transform"
+                >
+                {/* Avatar */}
+                {isValidImageUrl(userProfile?.avatar) ? (
+                  <img 
+                    src={userProfile.avatar} 
+                    alt={userProfile.name || 'User'} 
+                    className="w-7 h-7 rounded-full object-cover ring-2 ring-primary/20"
+                  />
+                ) : userProfile?.avatar ? (
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center ring-2 ring-primary/20">
+                    <span className="text-sm">{userProfile.avatar}</span>
+                  </div>
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center ring-2 ring-primary/20">
+                    <User size={14} className="text-primary" strokeWidth={2.5} />
+                  </div>
+                )}
+                
+                {/* User Info & Balance - Desktop */}
+                <div className="hidden lg:flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-tight">
+                      {userProfile?.name || 'User'}
                     </span>
-                  )}
+                    {referralData && referralData.total_referrals > 0 && (
+                      <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                        {referralData.total_referrals} Refs
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono text-slate-500 dark:text-gray-500">
+                      {shortenAddress(address)}
+                    </span>
+                    <span className="text-[9px] text-slate-400 dark:text-gray-600">•</span>
+                    <span className="text-[9px] font-bold text-primary">
+                      {formatBalance(balance)} TON
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-mono text-slate-500 dark:text-gray-500">
-                    {shortenAddress(address)}
-                  </span>
-                  <span className="text-[9px] text-slate-400 dark:text-gray-600">•</span>
-                  <span className="hidden text-[9px] font-bold text-primary">
+
+                {/* Balance Only - Mobile */}
+                <div className="flex lg:hidden flex-col gap-0.5">
+                  <span className="text-[10px] font-bold text-primary leading-tight">
                     {formatBalance(balance)} TON
                   </span>
+                  <span className="text-[9px] font-bold text-slate-600 dark:text-gray-400 leading-tight">
+                    {formatBalance(userProfile?.rzc_balance || 0)} RZC
+                  </span>
                 </div>
+                </button>
               </div>
 
-              {/* Balance Only - Mobile */}
-              <div className="flex lg:hidden flex-col gap-0.5">
-                <span className="text-[10px] font-bold text-primary leading-tight">
-                  {formatBalance(balance)} TON
-                </span>
-                <span className="text-[9px] font-bold text-slate-600 dark:text-gray-400 leading-tight">
-                  {formatBalance(userProfile?.rzc_balance || 0)} RZC
-                </span>
-              </div>
+              {/* Mobile Dropdown Menu */}
+              {showMobileMenu && (
+                <div className="sm:hidden absolute top-full right-0 mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px] animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Network Switcher */}
+                  <div className="border-b-2 border-gray-200 dark:border-white/10">
+                    <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">Network</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        switchNetwork('mainnet');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${
+                        network === 'mainnet'
+                          ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                          : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                      <span className="flex-1">Mainnet</span>
+                      {network === 'mainnet' && <span className="text-emerald-600 dark:text-emerald-400">✓</span>}
+                    </button>
+                    <button
+                      onClick={() => {
+                        switchNetwork('testnet');
+                        setShowMobileMenu(false);
+                      }}
+                      className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${
+                        network === 'testnet'
+                          ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                          : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      <div className={`w-2 h-2 rounded-full ${network === 'testnet' ? 'bg-amber-500' : 'bg-gray-400'}`} />
+                      <span className="flex-1">Testnet</span>
+                      {network === 'testnet' && <span className="text-amber-600 dark:text-amber-400">✓</span>}
+                    </button>
+                  </div>
+
+                  {/* Language Switcher */}
+                  <div className="border-b-2 border-gray-200 dark:border-white/10">
+                    <button
+                      onClick={() => {
+                        setShowMobileMenu(false);
+                        setShowLanguageMenu(true);
+                      }}
+                      className="w-full px-3 py-3 text-left text-xs font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                    >
+                      <Globe size={16} className="text-gray-700 dark:text-gray-400" />
+                      <span className="flex-1">Change Language</span>
+                    </button>
+                  </div>
+
+                  {/* Theme Toggle */}
+                  <button
+                    onClick={() => {
+                      toggleTheme();
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full px-3 py-3 text-left text-xs font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                  >
+                    {theme === 'dark' ? <Sun size={16} className="text-gray-700 dark:text-gray-400" /> : <Moon size={16} className="text-gray-700 dark:text-gray-400" />}
+                    <span className="flex-1">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+                  </button>
+                </div>
+              )}
             </div>
-
-            {/* RZC Balance Badge - Desktop Only
-            <div className="hidden lg:flex items-center gap-1.5 bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 px-3 py-1.5 rounded-xl">
-              <div className="w-1.5 h-1.5 bg-primary rounded-full" />
-              <span className="text-[10px] font-bold text-primary">
-                {formatBalance(userProfile?.rzc_balance || 0)} RZC
-              </span>
-            </div> */}
-
-            {/* Theme Toggle - Mobile Only */}
-            <button onClick={toggleTheme} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors text-slate-500 dark:text-gray-500 lg:hidden">
-               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
           </div>
         </header>
 
@@ -265,6 +426,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
           <MobileNavItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
           <MobileNavItem to="/wallet/history" icon={History} label={t('nav.history')} />
           <MobileNavItem to="/wallet/referral" icon={Users} label={t('nav.referral')} />
+          <MobileNavItem to="/wallet/mining" icon={Zap} label="Mining" />
           <MobileNavItem to="/wallet/more" icon={MoreHorizontal} label={t('nav.more')} />
         </nav>
       </main>

@@ -221,7 +221,7 @@ const CreateWallet: React.FC = () => {
                 // Send notification to referrer about new signup
                 try {
                   const { notificationService } = await import('../services/notificationService');
-                  const referrerProfile = await supabaseService.getUserProfile(referrerId);
+                  const referrerProfile = await supabaseService.getProfileById(referrerId);
                   
                   if (referrerProfile.success && referrerProfile.data) {
                     const totalBonus = (referralBonus.amount || 25) + (referralBonus.milestoneBonus || 0);
@@ -365,7 +365,7 @@ const CreateWallet: React.FC = () => {
         
         <button 
           onClick={() => step === 1 ? navigate('/onboarding') : setStep(step - 1)}
-          className="flex items-center gap-3 text-gray-500 hover:text-white transition-colors text-xs font-black uppercase tracking-widest"
+          className="flex items-center gap-3 text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white transition-colors text-xs font-black uppercase tracking-widest"
         >
           <ChevronLeft size={16} /> {step === 1 ? 'Back to Entry' : 'Previous Step'}
         </button>
@@ -383,13 +383,13 @@ const CreateWallet: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          <h1 className="text-4xl font-black text-white tracking-tight-custom">
+          <h1 className="text-4xl font-black text-gray-950 dark:text-white tracking-tight-custom">
             {step === 1 && 'Your Private Key Sequence'}
             {step === 2 && 'Set Encryption Password'}
             {step === 3 && 'Verify Your Backup'}
             {step === 4 && 'Finalizing Security'}
           </h1>
-          <p className="text-gray-400 text-lg font-medium leading-relaxed max-w-2xl">
+          <p className="text-gray-700 dark:text-gray-400 text-lg font-semibold leading-relaxed max-w-2xl">
             {step === 1 && 'These 24 words represent your digital vault key. Write them down in order on physical paper. Never store them digitally.'}
             {step === 2 && 'Create a strong password to encrypt your wallet. This adds an extra layer of security to your stored session.'}
             {step === 3 && 'To ensure you\'ve backed up your mnemonic correctly, please enter the words at the positions shown below.'}
@@ -400,11 +400,11 @@ const CreateWallet: React.FC = () => {
         {/* Step 1: Display Mnemonic */}
         {step === 1 && (
           <div className="space-y-10">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-10 luxury-card rounded-[3rem] shadow-3xl">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-10 bg-gradient-to-br from-gray-50 to-white dark:from-white/5 dark:to-transparent rounded-[3rem] shadow-xl dark:shadow-3xl border border-gray-200 dark:border-white/10">
               {mnemonic.map((word, idx) => (
-                <div key={idx} className="flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/5 group hover:border-[#00FF88]/30 transition-all">
-                  <span className="text-[9px] font-mono text-gray-700 w-4 font-bold">{idx + 1}</span>
-                  <span className="text-sm font-black text-white group-hover:text-[#00FF88] transition-colors">{word}</span>
+                <div key={idx} className="flex items-center gap-3 p-4 bg-white dark:bg-white/5 rounded-2xl border-2 border-gray-300 dark:border-white/10 group hover:border-[#00FF88] dark:hover:border-[#00FF88]/30 transition-all shadow-sm">
+                  <span className="text-[9px] font-mono text-gray-600 dark:text-gray-500 w-4 font-bold">{idx + 1}</span>
+                  <span className="text-sm font-black text-gray-950 dark:text-white group-hover:text-[#00FF88] transition-colors">{word}</span>
                 </div>
               ))}
             </div>
@@ -412,9 +412,9 @@ const CreateWallet: React.FC = () => {
             <div className="flex flex-col sm:flex-row gap-6">
               <button 
                 onClick={handleCopy}
-                className="flex-1 p-6 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-4 text-xs font-black uppercase tracking-widest text-white hover:bg-white/10 transition-all group"
+                className="flex-1 p-6 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl flex items-center justify-center gap-4 text-xs font-black uppercase tracking-widest text-gray-950 dark:text-white hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all group shadow-sm"
               >
-                {copied ? <Check size={18} className="text-[#00FF88]" /> : <Copy size={18} className="group-hover:text-[#00FF88]" />}
+                {copied ? <Check size={18} className="text-[#00FF88]" /> : <Copy size={18} className="text-gray-700 dark:text-gray-400 group-hover:text-[#00FF88]" />}
                 {copied ? 'Sequence Copied' : 'Secure Copy to Buffer'}
               </button>
               <button 
@@ -441,19 +441,19 @@ const CreateWallet: React.FC = () => {
           <div className="space-y-8 max-w-2xl">
             <div className="space-y-6">
               <div className="space-y-3">
-                <label className="text-sm font-black text-white uppercase tracking-wider">Create Password</label>
+                <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">Create Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
+                    className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
                     placeholder="Enter a strong password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400 hover:text-gray-950 dark:hover:text-white transition-colors"
                   >
                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
@@ -461,12 +461,12 @@ const CreateWallet: React.FC = () => {
               </div>
 
               <div className="space-y-3">
-                <label className="text-sm font-black text-white uppercase tracking-wider">Confirm Password</label>
+                <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">Confirm Password</label>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
+                  className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
                   placeholder="Re-enter your password"
                 />
               </div>
@@ -478,9 +478,9 @@ const CreateWallet: React.FC = () => {
                 </div>
               )}
 
-              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-2">
-                <h4 className="text-xs font-black text-white uppercase tracking-wider">Password Requirements:</h4>
-                <ul className="space-y-1 text-xs text-gray-400">
+              <div className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl space-y-2 shadow-sm">
+                <h4 className="text-xs font-black text-gray-950 dark:text-white uppercase tracking-wider">Password Requirements:</h4>
+                <ul className="space-y-1 text-xs text-gray-700 dark:text-gray-400 font-semibold">
                   <li className="flex items-center gap-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${password.length >= 8 ? 'bg-[#00FF88]' : 'bg-gray-600'}`} />
                     At least 8 characters
@@ -527,14 +527,14 @@ const CreateWallet: React.FC = () => {
         {/* Step 3: Verify Mnemonic */}
         {step === 3 && (
           <div className="space-y-8 max-w-2xl">
-            <div className="p-6 bg-white/5 border border-white/10 rounded-2xl space-y-6">
-              <p className="text-sm text-gray-300 font-medium">
+            <div className="p-6 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl space-y-6 shadow-sm">
+              <p className="text-sm text-gray-800 dark:text-gray-300 font-semibold">
                 Please enter the words at the following positions from your mnemonic phrase:
               </p>
               
               {verificationPositions.map((pos, idx) => (
                 <div key={pos} className="space-y-2">
-                  <label className="text-xs font-black text-white uppercase tracking-wider">
+                  <label className="text-xs font-black text-gray-950 dark:text-white uppercase tracking-wider">
                     Word #{pos + 1}
                   </label>
                   <input
@@ -546,7 +546,7 @@ const CreateWallet: React.FC = () => {
                       setVerificationInputs(newInputs);
                       setVerificationError('');
                     }}
-                    className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
+                    className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
                     placeholder={`Enter word #${pos + 1}`}
                     autoComplete="off"
                   />
@@ -590,13 +590,13 @@ const CreateWallet: React.FC = () => {
                 { title: "Password Security", desc: "I understand my password encrypts my wallet and I must remember it." },
                 { title: "Personal Responsibility", desc: "I acknowledge that I am solely responsible for my account's security." }
               ].map((item, i) => (
-                <div key={i} className="flex items-center gap-6 p-6 luxury-card rounded-[2rem] border-white/5">
+                <div key={i} className="flex items-center gap-6 p-6 bg-white dark:bg-white/5 rounded-[2rem] border-2 border-gray-300 dark:border-white/10 shadow-sm hover:border-[#00FF88] dark:hover:border-[#00FF88]/30 transition-all">
                    <div className="w-10 h-10 rounded-xl bg-[#00FF88]/10 flex items-center justify-center text-[#00FF88] shrink-0">
                      <Check size={20} />
                    </div>
                    <div>
-                     <h4 className="font-black text-sm text-white">{item.title}</h4>
-                     <p className="text-xs text-gray-500 font-medium">{item.desc}</p>
+                     <h4 className="font-black text-sm text-gray-950 dark:text-white">{item.title}</h4>
+                     <p className="text-xs text-gray-700 dark:text-gray-500 font-semibold">{item.desc}</p>
                    </div>
                 </div>
               ))}

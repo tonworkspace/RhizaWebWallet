@@ -42,6 +42,9 @@ interface WalletState {
   network: NetworkType;
   userProfile: UserProfile | null;
   referralData: ReferralData | null;
+  isActivated: boolean;
+  activatedAt: string | null;
+  activationFeePaid: number;
   toggleTheme: () => void;
   switchNetwork: (network: NetworkType) => Promise<void>;
   refreshData: () => Promise<void>;
@@ -62,6 +65,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [jettons, setJettons] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
+  const [isActivated, setIsActivated] = useState(false);
+  const [activatedAt, setActivatedAt] = useState<string | null>(null);
+  const [activationFeePaid, setActivationFeePaid] = useState(0);
   const [network, setNetwork] = useState<NetworkType>(() => {
     const saved = localStorage.getItem('rhiza_network');
     return (saved as NetworkType) || 'testnet';
@@ -138,6 +144,16 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (addr) {
         const jRes = await tonWalletService.getJettons(addr);
         if (jRes.success) setJettons(jRes.jettons);
+        
+        // Check activation status
+        if (supabaseService.isConfigured()) {
+          const activationData = await supabaseService.checkWalletActivation(addr);
+          if (activationData) {
+            setIsActivated(activationData.is_activated || false);
+            setActivatedAt(activationData.activated_at || null);
+            setActivationFeePaid(activationData.activation_fee_paid || 0);
+          }
+        }
         
         // Sync transactions if user profile exists
         if (userProfile?.id) {
@@ -320,6 +336,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       network,
       userProfile,
       referralData,
+      isActivated,
+      activatedAt,
+      activationFeePaid,
       toggleTheme,
       switchNetwork,
       refreshData, 

@@ -1,0 +1,258 @@
+;; RhizaCore Mining Node Smart Contract
+;; FunC Language for TON Blockchain
+
+#include "imports/stdlib.fc";
+
+;; Storage Structure
+;; storage#_ owner:MsgAddress
+;;           node_id:uint64
+;;           tier:uint8
+;;           price_point:Coins
+;;           mining_rate:uint32
+;;           revenue_share:uint8
+;;           activated_at:uint32
+;;           expires_at:uint32
+;;           total_mined:Coins
+;;           last_claim:uint32
+;;           status:uint8
+;;           = Storage;
+
+;; Status codes
+const int STATUS_PENDING = 0;
+const int STATUS_ACTIVE = 1;
+const int STATUS_INACTIVE = 2;
+const int STATUS_EXPIRED = 3;
+
+;; Tier codes
+const int TIER_STANDARD = 1;
+const int TIER_PREMIUM = 2;
+const int TIER_VIP = 3;
+
+;; Operation codes
+const int OP_ACTIVATE_NODE = 0x1;
+const int OP_CLAIM_REWARDS = 0x2;
+const int OP_DEACTIVATE_NODE = 0x3;
+const int OP_UPDATE_STATUS = 0x4;
+const int OP_TRANSFER_OWNERSHIP = 0x5;
+
+;; Error codes
+const int ERROR_UNAUTHORIZED = 100;
+const int ERROR_ALREADY_ACTIVATED = 101;
+const int ERROR_NOT_ACTIVE = 102;
+const int ERROR_INSUFFICIENT_PAYMENT = 103;
+const int ERROR_EXPIRED = 104;
+const int ERROR_INVALID_TIER = 105;
+
+;; Load storage data
+(slice, int, int, int, int, int, int, int, int, int, int) load_data() inline {
+    slice ds = get_data().begin_parse();
+    return (
+        ds~load_msg_addr(),     ;; owner
+        ds~load_uint(64),       ;; node_id
+        ds~load_uint(8),        ;; tier
+        ds~load_coins(),        ;; price_point
+        ds~load_uint(32),       ;; mining_rate
+        ds~load_uint(8),        ;; revenue_share
+        ds~load_uint(32),       ;; activated_at
+        ds~load_uint(32),       ;; expires_at
+        ds~load_coins(),        ;; total_mined
+        ds~load_uint(32),       ;; last_claim
+        ds~load_uint(8)         ;; status
+    );
+}
+
+;; Save storage data
+() save_data(slice owner, int node_id, int tier, int price_point, int mining_rate, 
+             int revenue_share, int activated_at, int expires_at, int total_mined, 
+             int last_claim, int status) impure inline {
+    set_data(
+        begin_cell()
+            .store_slice(owner)
+            .store_uint(node_id, 64)
+            .store_uint(tier, 8)
+            .store_coins(price_point)
+            .store_uint(mining_rate, 32)
+            .store_uint(revenue_share, 8)
+            .store_uint(activated_at, 32)
+            .store_uint(expires_at, 32)
+            .store_coins(total_mined)
+            .store_uint(last_claim, 32)
+            .store_uint(status, 8)
+            .end_cell()
+    );
+}
+
+;; Calculate mining rewards based on time elapsed
+int calculate_rewards(int mining_rate, int last_claim, int current_time) inline {
+    int days_elapsed = (current_time - last_claim) / 86400; ;; 86400 seconds in a day
+    return mining_rate * days_elapsed;
+}
+
+;; Activate node after payment
+() activate_node(slice sender_address, int msg_value) impure {
+    var (owner, node_id, tier, price_point, mining_rate, revenue_share, 
+         activated_at, expires_at, total_mined, last_claim, status) = load_data();
+    
+    ;; Check if sender is owner
+    throw_unless(ERROR_UNAUTHORIZED, equal_slices(sender_address, owner));
+    
+    ;; Check if already activated
+    throw_if(ERROR_ALREADY_ACTIVATED, status == STATUS_ACTIVE);
+    
+    ;; Check if payment is sufficient
+    throw_unless(ERROR_INSUFFICIENT_PAYMENT, msg_value >= price_point);
+    
+    ;; Activate node
+    int current_time = now();
+    activated_at = current_time;
+    last_claim = current_time;
+    status = STATUS_ACTIVE;
+    
+    ;; Set expiration (0 for lifetime nodes)
+    if (tier == TIER_VIP) {
+        expires_at = 0; ;; Lifetime for VIP
+    } else {
+        expires_at = current_time + 31536000; ;; 1 year for Standard/Premium
+    }
+    
+    save_data(owner, node_id, tier, price_point, mining_rate, revenue_share,
+              activated_at, expires_at, total_mined, last_claim, status);
+}
+
+;; Claim mining rewards
+() claim_rewards(slice sender_address) impure {
+    var (owner, node_id, tier, price_point, mining_rate, revenue_share,
+         activated_at, expires_at, total_mined, last_claim, status) = load_data();
+    
+    ;; Check if sender is owner
+    throw_unless(ERROR_UNAUTHORIZED, equal_slices(sender_address, owner));
+    
+    ;; Check if node is active
+    throw_unless(ERROR_NOT_ACTIVE, status == STATUS_ACTIVE);
+    
+    ;; Check if not expired
+    int current_time = now();
+    if (expires_at > 0) {
+        throw_if(ERROR_EXPIRED, current_time > expires_at);
+    }
+    
+    ;; Calculate rewards
+    int rewards = calculate_rewards(mining_rate, last_claim, current_time);
+    
+    ;; Update storage
+    total_mined += rewards;
+    last_claim = current_time;
+    
+    save_data(owner, node_id, tier, price_point, mining_rate, revenue_share,
+              activated_at, expires_at, total_mined, last_claim, status);
+    
+    ;; Send rewards to owner
+    var msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(owner)
+        .store_coins(rewards)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(0, 32)
+        .store_slice("Mining rewards claimed")
+        .end_cell();
+    send_raw_message(msg, 1);
+}
+
+;; Transfer node ownership
+() transfer_ownership(slice sender_address, slice new_owner) impure {
+    var (owner, node_id, tier, price_point, mining_rate, revenue_share,
+         activated_at, expires_at, total_mined, last_claim, status) = load_data();
+    
+    ;; Check if sender is current owner
+    throw_unless(ERROR_UNAUTHORIZED, equal_slices(sender_address, owner));
+    
+    ;; Update owner
+    save_data(new_owner, node_id, tier, price_point, mining_rate, revenue_share,
+              activated_at, expires_at, total_mined, last_claim, status);
+}
+
+;; Main message receiver
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) { ;; ignore empty messages
+        return ();
+    }
+    
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+    
+    if (flags & 1) { ;; ignore bounced messages
+        return ();
+    }
+    
+    slice sender_address = cs~load_msg_addr();
+    
+    int op = in_msg_body~load_uint(32);
+    
+    if (op == OP_ACTIVATE_NODE) {
+        activate_node(sender_address, msg_value);
+        return ();
+    }
+    
+    if (op == OP_CLAIM_REWARDS) {
+        claim_rewards(sender_address);
+        return ();
+    }
+    
+    if (op == OP_TRANSFER_OWNERSHIP) {
+        slice new_owner = in_msg_body~load_msg_addr();
+        transfer_ownership(sender_address, new_owner);
+        return ();
+    }
+    
+    throw(0xffff); ;; Unknown operation
+}
+
+;; Get methods for external queries
+int get_node_id() method_id {
+    var (_, node_id, _, _, _, _, _, _, _, _, _) = load_data();
+    return node_id;
+}
+
+int get_tier() method_id {
+    var (_, _, tier, _, _, _, _, _, _, _, _) = load_data();
+    return tier;
+}
+
+int get_mining_rate() method_id {
+    var (_, _, _, _, mining_rate, _, _, _, _, _, _) = load_data();
+    return mining_rate;
+}
+
+int get_total_mined() method_id {
+    var (_, _, _, _, _, _, _, _, total_mined, _, _) = load_data();
+    return total_mined;
+}
+
+int get_status() method_id {
+    var (_, _, _, _, _, _, _, _, _, _, status) = load_data();
+    return status;
+}
+
+slice get_owner() method_id {
+    var (owner, _, _, _, _, _, _, _, _, _, _) = load_data();
+    return owner;
+}
+
+int get_revenue_share() method_id {
+    var (_, _, _, _, _, revenue_share, _, _, _, _, _) = load_data();
+    return revenue_share;
+}
+
+(int, int, int) get_pending_rewards() method_id {
+    var (_, _, _, _, mining_rate, _, _, _, _, last_claim, status) = load_data();
+    
+    if (status != STATUS_ACTIVE) {
+        return (0, 0, 0);
+    }
+    
+    int current_time = now();
+    int rewards = calculate_rewards(mining_rate, last_claim, current_time);
+    int days_elapsed = (current_time - last_claim) / 86400;
+    
+    return (rewards, days_elapsed, current_time);
+}

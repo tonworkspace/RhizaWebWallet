@@ -1,0 +1,228 @@
+;; RhizaCore Shareholder NFT Certificate Contract
+;; FunC Language for TON Blockchain
+;; NFT Standard: TEP-62 (TON NFT Standard)
+
+#include "imports/stdlib.fc";
+
+;; Storage Structure
+;; storage#_ index:uint64
+;;           collection_address:MsgAddress
+;;           owner_address:MsgAddress
+;;           tier_name:^Cell
+;;           investment_amount:Coins
+;;           mining_rate:uint32
+;;           revenue_share:uint8
+;;           issue_date:uint32
+;;           node_id:uint64
+;;           metadata_uri:^Cell
+;;           = Storage;
+
+;; Operation codes
+const int OP_TRANSFER = 0x5fcc3d14;
+const int OP_GET_STATIC_DATA = 0x2fcb26a2;
+const int OP_REPORT_STATIC_DATA = 0x8b771735;
+const int OP_GET_ROYALTY_PARAMS = 0x693d3950;
+const int OP_REPORT_ROYALTY_PARAMS = 0xa8cb00ad;
+
+;; Error codes
+const int ERROR_UNAUTHORIZED = 100;
+const int ERROR_INVALID_TRANSFER = 101;
+
+;; Load storage
+(int, slice, slice, cell, int, int, int, int, int, cell) load_data() inline {
+    slice ds = get_data().begin_parse();
+    return (
+        ds~load_uint(64),       ;; index
+        ds~load_msg_addr(),     ;; collection_address
+        ds~load_msg_addr(),     ;; owner_address
+        ds~load_ref(),          ;; tier_name
+        ds~load_coins(),        ;; investment_amount
+        ds~load_uint(32),       ;; mining_rate
+        ds~load_uint(8),        ;; revenue_share
+        ds~load_uint(32),       ;; issue_date
+        ds~load_uint(64),       ;; node_id
+        ds~load_ref()           ;; metadata_uri
+    );
+}
+
+;; Save storage
+() save_data(int index, slice collection_address, slice owner_address, cell tier_name,
+             int investment_amount, int mining_rate, int revenue_share, int issue_date,
+             int node_id, cell metadata_uri) impure inline {
+    set_data(
+        begin_cell()
+            .store_uint(index, 64)
+            .store_slice(collection_address)
+            .store_slice(owner_address)
+            .store_ref(tier_name)
+            .store_coins(investment_amount)
+            .store_uint(mining_rate, 32)
+            .store_uint(revenue_share, 8)
+            .store_uint(issue_date, 32)
+            .store_uint(node_id, 64)
+            .store_ref(metadata_uri)
+            .end_cell()
+    );
+}
+
+;; Transfer NFT ownership
+() transfer_ownership(int query_id, slice sender_address, slice new_owner, 
+                      slice response_destination, int forward_amount, slice forward_payload) impure {
+    var (index, collection_address, owner_address, tier_name, investment_amount,
+         mining_rate, revenue_share, issue_date, node_id, metadata_uri) = load_data();
+    
+    ;; Check if sender is current owner
+    throw_unless(ERROR_UNAUTHORIZED, equal_slices(sender_address, owner_address));
+    
+    ;; Update owner
+    save_data(index, collection_address, new_owner, tier_name, investment_amount,
+              mining_rate, revenue_share, issue_date, node_id, metadata_uri);
+    
+    ;; Send excess back to sender
+    var msg = begin_cell()
+        .store_uint(0x10, 6)
+        .store_slice(sender_address)
+        .store_coins(0)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .end_cell();
+    send_raw_message(msg, 64);
+    
+    ;; Notify new owner
+    if (forward_amount > 0) {
+        var forward_msg = begin_cell()
+            .store_uint(0x10, 6)
+            .store_slice(new_owner)
+            .store_coins(forward_amount)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_uint(0x05138d91, 32) ;; ownership_assigned
+            .store_uint(query_id, 64)
+            .store_slice(owner_address)
+            .store_slice(forward_payload)
+            .end_cell();
+        send_raw_message(forward_msg, 1);
+    }
+}
+
+;; Main message receiver
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) {
+        return ();
+    }
+    
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+    
+    if (flags & 1) {
+        return ();
+    }
+    
+    slice sender_address = cs~load_msg_addr();
+    
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+    
+    if (op == OP_TRANSFER) {
+        slice new_owner = in_msg_body~load_msg_addr();
+        slice response_destination = in_msg_body~load_msg_addr();
+        int custom_payload = in_msg_body~load_int(1);
+        int forward_amount = in_msg_body~load_coins();
+        
+        slice forward_payload = in_msg_body;
+        
+        transfer_ownership(query_id, sender_address, new_owner, response_destination,
+                          forward_amount, forward_payload);
+        return ();
+    }
+    
+    if (op == OP_GET_STATIC_DATA) {
+        var (index, collection_address, _, _, _, _, _, _, _, _) = load_data();
+        
+        var msg = begin_cell()
+            .store_uint(0x18, 6)
+            .store_slice(sender_address)
+            .store_coins(0)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_uint(OP_REPORT_STATIC_DATA, 32)
+            .store_uint(query_id, 64)
+            .store_uint(index, 256)
+            .store_slice(collection_address)
+            .end_cell();
+        send_raw_message(msg, 64);
+        return ();
+    }
+    
+    throw(0xffff);
+}
+
+;; Get methods
+int get_index() method_id {
+    var (index, _, _, _, _, _, _, _, _, _) = load_data();
+    return index;
+}
+
+slice get_owner() method_id {
+    var (_, _, owner_address, _, _, _, _, _, _, _) = load_data();
+    return owner_address;
+}
+
+slice get_collection_address() method_id {
+    var (_, collection_address, _, _, _, _, _, _, _, _) = load_data();
+    return collection_address;
+}
+
+(int, cell, slice) get_nft_data() method_id {
+    var (index, collection_address, owner_address, _, _, _, _, _, _, metadata_uri) = load_data();
+    
+    return (
+        -1,                     ;; init (always initialized)
+        index,                  ;; index
+        collection_address,     ;; collection_address
+        owner_address,          ;; owner_address
+        metadata_uri            ;; individual_content
+    );
+}
+
+;; Get shareholder details
+(cell, int, int, int, int, int) get_shareholder_details() method_id {
+    var (_, _, _, tier_name, investment_amount, mining_rate, revenue_share,
+         issue_date, node_id, _) = load_data();
+    
+    return (
+        tier_name,
+        investment_amount,
+        mining_rate,
+        revenue_share,
+        issue_date,
+        node_id
+    );
+}
+
+;; Get tier name
+cell get_tier_name() method_id {
+    var (_, _, _, tier_name, _, _, _, _, _, _) = load_data();
+    return tier_name;
+}
+
+;; Get investment amount
+int get_investment_amount() method_id {
+    var (_, _, _, _, investment_amount, _, _, _, _, _) = load_data();
+    return investment_amount;
+}
+
+;; Get revenue share percentage
+int get_revenue_share() method_id {
+    var (_, _, _, _, _, _, revenue_share, _, _, _) = load_data();
+    return revenue_share;
+}
+
+;; Get mining rate
+int get_mining_rate() method_id {
+    var (_, _, _, _, _, mining_rate, _, _, _, _) = load_data();
+    return mining_rate;
+}
+
+;; Get node ID
+int get_node_id() method_id {
+    var (_, _, _, _, _, _, _, _, node_id, _) = load_data();
+    return node_id;
+}

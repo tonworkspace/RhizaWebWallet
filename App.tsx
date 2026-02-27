@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './i18n/config';
 import Landing from './pages/Landing';
@@ -18,6 +18,8 @@ import Receive from './pages/Receive';
 import AIAssistant from './pages/AIAssistant';
 import Notifications from './pages/Notifications';
 import Activity from './pages/Activity';
+
+import MiningNodes from './pages/MiningNodes';
 import AdminRegister from './pages/AdminRegister';
 import AdminSetup from './pages/AdminSetup';
 import AdminDashboard from './pages/AdminDashboard';
@@ -43,6 +45,8 @@ import { Layout } from './components/Layout';
 import { WalletProvider, useWallet } from './context/WalletContext';
 import { ToastProvider } from './context/ToastContext';
 import { notificationService } from './services/notificationService';
+import WalletLockOverlay from './components/WalletLockOverlay';
+import { supabaseService } from './services/supabaseService';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, isLoading } = useWallet();
@@ -70,6 +74,40 @@ const AppContent: React.FC = () => {
   const { address, userProfile, isLoggedIn } = useWallet();
   const isWalletMode = location.pathname.startsWith('/wallet') || location.pathname.startsWith('/admin');
   const previousPathRef = useRef<string>('');
+  
+  // Global wallet activation state
+  const [walletActivated, setWalletActivated] = useState(true);
+  const [isLoadingActivation, setIsLoadingActivation] = useState(true);
+
+  // Check wallet activation status globally
+  useEffect(() => {
+    const checkActivationStatus = async () => {
+      // Only check if user is logged in and on a wallet route
+      if (!address || !isLoggedIn || !isWalletMode) {
+        setIsLoadingActivation(false);
+        setWalletActivated(true);
+        return;
+      }
+
+      try {
+        const data = await supabaseService.checkWalletActivation(address);
+
+        if (data) {
+          const isActivated = data.is_activated || false;
+          setWalletActivated(isActivated);
+        } else {
+          setWalletActivated(true); // Default to activated if wallet not found
+        }
+      } catch (err) {
+        console.error('Activation check error:', err);
+        setWalletActivated(true); // Default to activated on error
+      } finally {
+        setIsLoadingActivation(false);
+      }
+    };
+
+    checkActivationStatus();
+  }, [address, isLoggedIn, isWalletMode]);
 
   // Track page navigation
   useEffect(() => {
@@ -140,6 +178,7 @@ const AppContent: React.FC = () => {
       '/wallet/ai-assistant': 'AI Assistant',
       '/wallet/notifications': 'Notifications',
       '/wallet/activity': 'Activity Log',
+      '/mining-nodes': 'Mining Nodes',
       '/admin': 'Admin Dashboard',
       '/admin-register': 'Admin Registration',
       '/admin-setup': 'Admin Setup'
@@ -148,9 +187,18 @@ const AppContent: React.FC = () => {
     return routes[path] || path.split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown Page';
   };
 
+  const allowedPagesWhenLocked = ['/wallet/mining', '/wallet/receive'];
+  const isOnAllowedPage = allowedPagesWhenLocked.includes(location.pathname);
+
   return (
-    <Layout isWalletMode={isWalletMode}>
-      <Routes>
+    <>
+      {/* Wallet Lock Overlay - Shows when not activated (except on Mining Nodes and Receive pages) */}
+      {!isLoadingActivation && !walletActivated && isLoggedIn && isWalletMode && !isOnAllowedPage && (
+        <WalletLockOverlay />
+      )}
+
+      <Layout isWalletMode={isWalletMode}>
+        <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/whitepaper" element={<Whitepaper />} />
         <Route path="/help" element={<Help />} />
@@ -195,10 +243,12 @@ const AppContent: React.FC = () => {
         <Route path="/wallet/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
         <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
+        <Route path="/wallet/mining" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
         
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </Layout>
+      </Layout>
+    </>
   );
 };
 

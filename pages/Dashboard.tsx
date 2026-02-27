@@ -15,7 +15,9 @@ import {
   EyeOff,
   History,
   AlertCircle,
-  Info
+  Info,
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { MOCK_PORTFOLIO_HISTORY, getNetworkConfig, getExplorerUrl } from '../constants';
 import { useWallet } from '../context/WalletContext';
@@ -24,6 +26,8 @@ import { useTransactions } from '../hooks/useTransactions';
 import TransactionItem from '../components/TransactionItem';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import LanguageSelector from '../components/LanguageSelector';
+import ClaimActivationBonus from '../components/ClaimActivationBonus';
+import { supabaseService } from '../services/supabaseService';
 
 interface ActionButtonProps {
   icon: any;
@@ -36,13 +40,13 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, primary 
   <button 
     onClick={onClick}
     className={`
-      flex flex-col items-center gap-1.5 sm:gap-2 p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl transition-all duration-300 flex-1
+      flex flex-col items-center gap-1.5 sm:gap-2 p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl transition-all duration-300 flex-1 shadow-sm
       ${primary 
-        ? 'bg-primary dark:bg-white text-black dark:text-black hover:bg-[#00dd77] dark:hover:bg-primary shadow-xl active:scale-95 transition-colors' 
-        : 'bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10 active:scale-95'}
+        ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black hover:bg-emerald-700 dark:hover:bg-[#00dd77] shadow-xl active:scale-95 transition-colors' 
+        : 'bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/5 text-gray-950 dark:text-white hover:bg-gray-50 dark:hover:bg-white/10 active:scale-95'}
     `}
   >
-    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center ${primary ? 'bg-black/10 dark:bg-black/5' : 'bg-slate-200 dark:bg-white/5'}`}>
+    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center ${primary ? 'bg-white/20 dark:bg-black/5' : 'bg-gray-100 dark:bg-white/5'}`}>
       <Icon size={18} strokeWidth={2.5} />
     </div>
     <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
@@ -52,7 +56,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, primary 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData } = useWallet();
+  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData, isActivated, activatedAt } = useWallet();
   const networkConfig = getNetworkConfig(network);
   const { 
     tonBalance, 
@@ -148,27 +152,61 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0">
+    <>
+      {/* Main Dashboard Content */}
+      <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0">
+      
+      {/* Activation Status Badge */}
+      {isActivated && activatedAt && (
+        <div className="p-3 bg-gradient-to-r from-emerald-50 to-cyan-50 dark:from-emerald-500/10 dark:to-cyan-500/10 border-2 border-emerald-200 dark:border-emerald-500/20 rounded-xl shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600 dark:bg-emerald-500 flex items-center justify-center flex-shrink-0">
+              <ShieldCheck size={18} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-emerald-900 dark:text-emerald-300">
+                  Wallet Activated
+                </h4>
+                <span className="px-2 py-0.5 bg-emerald-600 dark:bg-emerald-500 text-white text-[8px] font-black uppercase tracking-wider rounded-full">
+                  Active
+                </span>
+              </div>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5">
+                Activated on {new Date(activatedAt).toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Claim Missing Activation Bonus */}
+      <ClaimActivationBonus />
+      
       {/* Network Switcher - Compact */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between hidden">
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
-          <span className="text-[10px] font-bold text-slate-500 dark:text-gray-500 uppercase tracking-wider">
+          <span className="text-[10px] font-bold text-gray-600 dark:text-gray-500 uppercase tracking-wider">
             {networkConfig.NAME}
           </span>
           <button
             onClick={() => setShowNetworkInfo(!showNetworkInfo)}
-            className="p-1 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+            className="p-1 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
             aria-label="Network info"
           >
-            <Info size={12} className="text-slate-500 dark:text-gray-500" />
+            <Info size={12} className="text-gray-600 dark:text-gray-500" />
           </button>
         </div>
         <div className="flex items-center gap-2">
           <LanguageSelector compact />
           <button
             onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
-            className="px-3 py-1.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10 hover:text-primary transition-all active:scale-95"
+            className="px-3 py-1.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-emerald-600 dark:hover:text-primary transition-all active:scale-95 shadow-sm"
           >
             {t('dashboard.switch')}
           </button>
@@ -177,32 +215,32 @@ const Dashboard: React.FC = () => {
 
       {/* Network Info Panel - Compact */}
       {showNetworkInfo && (
-        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
+        <div className="p-3 sm:p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
           <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-gray-400">{t('dashboard.networkDetails')}</h4>
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-700 dark:text-gray-400">{t('dashboard.networkDetails')}</h4>
             <button
               onClick={() => setShowNetworkInfo(false)}
-              className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-gray-300 text-sm"
+              className="text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-gray-300 text-sm font-bold"
             >
               ✕
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2.5 text-xs">
             <div>
-              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.network')}</p>
-              <p className="text-slate-900 dark:text-white font-bold text-xs">{networkConfig.NAME}</p>
+              <p className="text-gray-600 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.network')}</p>
+              <p className="text-gray-950 dark:text-white font-bold text-xs">{networkConfig.NAME}</p>
             </div>
             <div>
-              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.chainId')}</p>
-              <p className="text-slate-900 dark:text-white font-bold text-xs">{networkConfig.CHAIN_ID}</p>
+              <p className="text-gray-600 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.chainId')}</p>
+              <p className="text-gray-950 dark:text-white font-bold text-xs">{networkConfig.CHAIN_ID}</p>
             </div>
             <div className="col-span-2">
-              <p className="text-slate-500 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.explorer')}</p>
+              <p className="text-gray-600 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.explorer')}</p>
               <a
                 href={networkConfig.EXPLORER_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary hover:underline font-mono text-[10px] flex items-center gap-1 break-all"
+                className="text-emerald-600 dark:text-primary hover:underline font-mono text-[10px] flex items-center gap-1 break-all font-semibold"
               >
                 {networkConfig.EXPLORER_URL.replace('https://', '')}
                 <ExternalLink size={10} className="flex-shrink-0" />
@@ -214,19 +252,19 @@ const Dashboard: React.FC = () => {
       
       {/* Portfolio Terminal Card - Compact */}
       <div className="relative group">
-        <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-slate-200 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden p-5 sm:p-6 shadow-lg">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-200/50 to-cyan-200/50 dark:from-primary/20 dark:to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
+        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden p-5 sm:p-6 shadow-lg">
           
           {balanceError ? (
-            <div className="p-4 sm:p-5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl sm:rounded-2xl">
+            <div className="p-4 sm:p-5 bg-red-100 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/20 rounded-xl sm:rounded-2xl shadow-sm">
               <div className="flex items-start gap-2.5 sm:gap-3">
                 <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
                 <div>
                   <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">{t('dashboard.failedToLoadBalance')}</h4>
-                  <p className="text-xs text-red-700 dark:text-red-400 mb-2.5">{balanceError}</p>
+                  <p className="text-xs text-red-700 dark:text-red-400 mb-2.5 font-semibold">{balanceError}</p>
                   <button 
                     onClick={handleRefresh}
-                    className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95"
+                    className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95 shadow-sm"
                   >
                     {t('common.retry')}
                   </button>
@@ -237,23 +275,23 @@ const Dashboard: React.FC = () => {
             <>
               <div className="flex items-start justify-between">
                 <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400 dark:text-gray-500">
-                    <ShieldCheck size={12} className="text-primary flex-shrink-0" />
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
+                    <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
                     <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">{t('dashboard.totalPortfolio')}</span>
                   </div>
                   
                   {balanceLoading ? (
                     <LoadingSkeleton width={200} height={40} />
                   ) : (
-                    <h2 className="text-3xl sm:text-4xl font-black tracking-tight-custom text-slate-900 dark:text-white">
+                    <h2 className="text-3xl sm:text-4xl font-black tracking-tight-custom text-gray-950 dark:text-white">
                       {balanceVisible ? (
                         <>
                           {selectedCurrency === 'USD' || selectedCurrency === 'USDT' || selectedCurrency === 'EUR' ? currencySymbols[selectedCurrency] : ''}
                           {formatValue(convertedValue, selectedCurrency)}
-                          <span className="text-base sm:text-lg font-bold text-slate-400 dark:text-gray-600"> {selectedCurrency === 'BTC' || selectedCurrency === 'TON' ? selectedCurrency : ''}</span>
+                          <span className="text-base sm:text-lg font-bold text-gray-600 dark:text-gray-600"> {selectedCurrency === 'BTC' || selectedCurrency === 'TON' ? selectedCurrency : ''}</span>
                         </>
                       ) : (
-                        <span className="text-slate-400 dark:text-gray-600">••••••</span>
+                        <span className="text-gray-600 dark:text-gray-600">••••••</span>
                       )}
                     </h2>
                   )}
@@ -264,7 +302,7 @@ const Dashboard: React.FC = () => {
                     <>
                       <div className="flex items-center gap-1.5 sm:gap-2">
                         <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs transition-colors duration-300 ${
-                          change24h >= 0 ? 'text-emerald-500' : 'text-red-500'
+                          change24h >= 0 ? 'text-emerald-600 dark:text-emerald-500' : 'text-red-600 dark:text-red-500'
                         }`}>
                           <TrendingUp size={10} className={`transition-transform duration-300 ${change24h < 0 ? 'rotate-180' : ''}`} />
                           <span>
@@ -275,15 +313,15 @@ const Dashboard: React.FC = () => {
                             )}
                           </span>
                         </div>
-                        <span className="text-[8px] text-slate-400 dark:text-gray-600 font-medium">24h</span>
+                        <span className="text-[8px] text-gray-600 dark:text-gray-600 font-medium">24h</span>
                       </div>
                       {balanceVisible && (
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] text-slate-500 dark:text-gray-500 font-medium">
+                          <span className="text-[10px] text-gray-700 dark:text-gray-500 font-medium">
                             {tonBalance.toFixed(4)} TON
                           </span>
-                          <span className="text-[10px] text-slate-400 dark:text-gray-600">•</span>
-                          <span className="text-[10px] text-[#00FF88] font-medium">
+                          <span className="text-[10px] text-gray-600 dark:text-gray-600">•</span>
+                          <span className="text-[10px] text-emerald-700 dark:text-[#00FF88] font-medium">
                             {rzcBalance.toLocaleString()} RZC
                           </span>
                         </div>
@@ -293,18 +331,18 @@ const Dashboard: React.FC = () => {
                 </div>
                 
                 <div className="flex gap-1.5 sm:gap-2">
-                  {/* Currency Selector */}
-                  <div className="relative currency-selector">
+                  {/* Currency Selector - Hidden on Mobile */}
+                  <div className="relative currency-selector hidden sm:block">
                     <button 
                       onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
-                      className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-700 dark:text-slate-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center"
+                      className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center shadow-sm"
                       aria-label="Select currency"
                     >
                       {selectedCurrency}
                     </button>
                     
                     {showCurrencyMenu && (
-                      <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
                         {currencies.map((currency) => (
                           <button
                             key={currency}
@@ -314,13 +352,13 @@ const Dashboard: React.FC = () => {
                             }}
                             className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-2 ${
                               selectedCurrency === currency
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-slate-800 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5'
+                                ? 'bg-emerald-100 dark:bg-primary/10 text-emerald-700 dark:text-primary'
+                                : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                             }`}
                           >
                             <span>{currency}</span>
                             {selectedCurrency === currency && (
-                              <span className="text-primary">✓</span>
+                              <span className="text-emerald-600 dark:text-primary">✓</span>
                             )}
                           </button>
                         ))}
@@ -330,7 +368,7 @@ const Dashboard: React.FC = () => {
                   
                   <button 
                     onClick={() => setBalanceVisible(!balanceVisible)}
-                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-600 dark:text-slate-400 active:scale-90"
+                    className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 shadow-sm"
                     aria-label={balanceVisible ? t('dashboard.hideBalance') : t('dashboard.showBalance')}
                   >
                     {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -338,7 +376,7 @@ const Dashboard: React.FC = () => {
                   <button 
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-600 dark:text-slate-400 active:scale-90 disabled:opacity-50"
+                    className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 disabled:opacity-50 shadow-sm"
                     aria-label={t('dashboard.refreshBalance')}
                   >
                     <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
@@ -389,6 +427,51 @@ const Dashboard: React.FC = () => {
           label={t('dashboard.shop')} 
           onClick={() => navigate('/marketplace')} 
         />
+      </div>
+
+      {/* Mining Nodes CTA - Links to Mining Tab */}
+      <div className="relative group">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-2xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
+        <div 
+          onClick={() => navigate('/wallet/mining')}
+          className="relative p-5 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-500/10 dark:to-pink-500/10 border-2 border-purple-300 dark:border-purple-500/20 cursor-pointer active:scale-[0.98] transition-all hover:border-purple-400 dark:hover:border-purple-400/40 shadow-lg"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-lg">
+                  <Zap size={20} className="text-white" fill="white" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-purple-900 dark:text-purple-300 leading-tight">
+                    Mining Nodes
+                  </h3>
+                  <span className="text-[9px] font-black uppercase tracking-wider bg-pink-600 text-white px-2 py-0.5 rounded-full">
+                    New
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-purple-700 dark:text-purple-400 leading-relaxed mb-3 font-semibold">
+                Start earning daily RZC rewards. Choose from Standard, Premium, or VIP Shareholder tiers with up to 20% monthly revenue share.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-800 dark:text-purple-300 bg-white/50 dark:bg-white/10 px-2.5 py-1 rounded-lg">
+                  <TrendingUp size={12} />
+                  <span>10-3000 RZC/day</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-800 dark:text-purple-300 bg-white/50 dark:bg-white/10 px-2.5 py-1 rounded-lg">
+                  <ShieldCheck size={12} />
+                  <span>$100 - $10,000</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-800 dark:text-purple-300 bg-white/50 dark:bg-white/10 px-2.5 py-1 rounded-lg">
+                  <Sparkles size={12} />
+                  <span>NFT Certificates</span>
+                </div>
+              </div>
+            </div>
+            <ExternalLink size={16} className="text-purple-600 dark:text-purple-400 group-hover:translate-x-1 transition-transform flex-shrink-0 mt-1" />
+          </div>
+        </div>
       </div>
 
       {/* Transaction History - Compact */}
@@ -471,7 +554,8 @@ const Dashboard: React.FC = () => {
         </div>
         <ExternalLink size={14} className="text-secondary group-hover:translate-x-1 transition-transform flex-shrink-0" />
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 

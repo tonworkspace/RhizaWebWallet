@@ -200,19 +200,19 @@ const ImportWallet: React.FC = () => {
         
         <button 
           onClick={() => navigate('/onboarding')}
-          className="flex items-center gap-3 text-gray-500 hover:text-white transition-colors text-xs font-black uppercase tracking-widest"
+          className="flex items-center gap-3 text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white transition-colors text-xs font-black uppercase tracking-widest"
         >
           <ChevronLeft size={16} /> Back to Entry
         </button>
 
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div className="space-y-2">
-            <h1 className="text-4xl font-black text-white tracking-tight-custom">Initialize Access</h1>
-            <p className="text-gray-400 text-sm font-medium">Reconstitute your private keys using your 24-word sequence.</p>
+            <h1 className="text-4xl font-black text-gray-950 dark:text-white tracking-tight-custom">Initialize Access</h1>
+            <p className="text-gray-700 dark:text-gray-400 text-sm font-semibold">Reconstitute your private keys using your 24-word sequence.</p>
           </div>
           <button 
             onClick={handlePaste}
-            className="px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-300 hover:text-[#00FF88] transition-all flex items-center justify-center gap-2"
+            className="px-6 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 hover:text-[#00FF88] hover:border-[#00FF88] dark:hover:border-[#00FF88]/30 transition-all flex items-center justify-center gap-2 shadow-sm"
           >
             <Clipboard size={14} /> Paste Sequence
           </button>
@@ -228,14 +228,14 @@ const ImportWallet: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {words.map((word, idx) => (
             <div key={idx} className="relative group">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[9px] font-mono text-gray-600 pointer-events-none font-bold">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[9px] font-mono text-gray-600 dark:text-gray-600 pointer-events-none font-bold">
                 {idx + 1}
               </span>
               <input 
                 type="text"
                 value={word}
                 onChange={(e) => handleInputChange(idx, e.target.value)}
-                className="w-full bg-[#0a0a0a] border border-white/5 rounded-xl py-4 pl-9 pr-3 text-xs font-black text-white outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-800"
+                className="w-full bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl py-4 pl-9 pr-3 text-xs font-black text-gray-950 dark:text-white outline-none focus:border-[#00FF88] transition-all placeholder:text-gray-400 dark:placeholder:text-gray-800 shadow-sm"
                 placeholder="..."
               />
             </div>
@@ -244,11 +244,11 @@ const ImportWallet: React.FC = () => {
 
         {/* Password Input (Optional) */}
         <div className="space-y-3">
-          <label className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+          <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider flex items-center gap-2">
             <Lock size={14} className="text-[#00FF88]" />
             Encryption Password (Optional)
           </label>
-          <p className="text-xs text-gray-500 font-medium">
+          <p className="text-xs text-gray-700 dark:text-gray-500 font-semibold">
             If you set a password when creating this wallet, enter it here to decrypt your session.
           </p>
           <div className="relative">
@@ -259,13 +259,13 @@ const ImportWallet: React.FC = () => {
                 setPassword(e.target.value);
                 setError(null);
               }}
-              className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
+              className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
               placeholder="Enter password (if you set one)"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400 hover:text-gray-950 dark:hover:text-white transition-colors"
             >
               {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
@@ -276,16 +276,16 @@ const ImportWallet: React.FC = () => {
           <button 
             disabled={!isReady || isVerifying}
             onClick={handleVerify}
-            className={`w-full p-6 rounded-2xl flex items-center justify-center gap-3 text-sm font-black uppercase tracking-widest transition-all ${
+            className={`w-full p-6 rounded-2xl flex items-center justify-center gap-3 text-sm font-black uppercase tracking-widest transition-all shadow-lg ${
               isReady && !isVerifying
-                ? 'bg-white text-black hover:bg-[#00FF88] shadow-3xl' 
-                : 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
+                ? 'bg-gray-950 dark:bg-white text-white dark:text-black hover:bg-[#00FF88] hover:text-black border-2 border-gray-950 dark:border-white hover:border-[#00FF88]' 
+                : 'bg-gray-200 dark:bg-white/5 text-gray-500 dark:text-gray-600 border-2 border-gray-300 dark:border-white/5 cursor-not-allowed'
             }`}
           >
             {isVerifying ? 'Decrypting Vault...' : 'Authorize Vault Access'} <ArrowRight size={18} />
           </button>
 
-          <div className="flex items-center justify-center gap-2 text-gray-600">
+          <div className="flex items-center justify-center gap-2 text-gray-600 dark:text-gray-600">
             <ShieldCheck size={14} className="text-[#00FF88]/50" />
             <span className="text-[10px] font-black uppercase tracking-widest">End-to-End Encryption Enabled</span>
           </div>

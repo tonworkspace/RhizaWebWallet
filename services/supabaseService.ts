@@ -1557,6 +1557,77 @@ class SupabaseService {
       return { success: false, error: error.message };
     }
   }
+
+  // ============================================================================
+  // WALLET ACTIVATION
+  // ============================================================================
+
+  /**
+   * Activate a wallet after payment
+   */
+  async activateWallet(
+    walletAddress: string,
+    activationData: {
+      activation_fee_usd: number;
+      activation_fee_ton: number;
+      ton_price: number;
+      transaction_hash?: string;
+    }
+  ): Promise<boolean> {
+    if (!this.client) {
+      console.error('❌ Supabase client not initialized');
+      return false;
+    }
+
+    try {
+      // Call the activate_wallet function
+      const { data, error } = await this.client.rpc('activate_wallet', {
+        p_wallet_address: walletAddress,
+        p_activation_fee_usd: activationData.activation_fee_usd,
+        p_activation_fee_ton: activationData.activation_fee_ton,
+        p_ton_price: activationData.ton_price,
+        p_transaction_hash: activationData.transaction_hash || null
+      });
+
+      if (error) {
+        console.error('❌ Failed to activate wallet:', error);
+        throw error;
+      }
+
+      console.log('✅ Wallet activated successfully');
+      return true;
+    } catch (error: any) {
+      console.error('❌ Wallet activation error:', error);
+      throw new Error(error.message || 'Failed to activate wallet');
+    }
+  }
+
+  /**
+   * Check wallet activation status
+   */
+  async checkWalletActivation(walletAddress: string): Promise<{
+    is_activated: boolean;
+    activated_at: string | null;
+    activation_fee_paid: number;
+  } | null> {
+    if (!this.client) {
+      console.error('❌ Supabase client not initialized');
+      return null;
+    }
+
+    try {
+      const { data, error } = await this.client.rpc('check_wallet_activation', {
+        p_wallet_address: walletAddress
+      });
+
+      if (error) throw error;
+
+      return data && data.length > 0 ? data[0] : null;
+    } catch (error: any) {
+      console.error('❌ Failed to check wallet activation:', error);
+      return null;
+    }
+  }
 }
 
 // ============================================================================

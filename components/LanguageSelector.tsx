@@ -24,28 +24,35 @@ const languages: Language[] = [
 
 interface LanguageSelectorProps {
   compact?: boolean;
+  onSelect?: () => void;
+  isOpen?: boolean;
+  onToggle?: () => void;
 }
 
-const LanguageSelector: React.FC<LanguageSelectorProps> = ({ compact = false }) => {
+const LanguageSelector: React.FC<LanguageSelectorProps> = ({ compact = false, onSelect, isOpen: externalIsOpen, onToggle }) => {
   const { i18n } = useTranslation();
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<Language>(
     languages.find(lang => lang.code === i18n.language) || languages[0]
   );
 
+  // Use external state if provided, otherwise use internal state
+  const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
+  const toggleOpen = onToggle || (() => setInternalIsOpen(!internalIsOpen));
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (isOpen) {
+      if (isOpen && !externalIsOpen) {
         const target = event.target as HTMLElement;
         if (!target.closest('.language-selector')) {
-          setIsOpen(false);
+          setInternalIsOpen(false);
         }
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
+  }, [isOpen, externalIsOpen]);
 
   const changeLanguage = (langCode: string) => {
     i18n.changeLanguage(langCode);
@@ -53,31 +60,36 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({ compact = false }) 
     if (newLang) {
       setCurrentLanguage(newLang);
     }
-    setIsOpen(false);
+    if (!externalIsOpen) {
+      setInternalIsOpen(false);
+    }
+    onSelect?.(); // Call onSelect callback if provided
   };
 
   if (compact) {
     return (
       <div className="relative language-selector">
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-600 dark:text-gray-400 active:scale-90 flex items-center gap-1.5"
-          aria-label="Select language"
-        >
-          <Globe size={16} />
-          <span className="text-xs font-bold">{currentLanguage.flag}</span>
-        </button>
+        {!onToggle && (
+          <button
+            onClick={toggleOpen}
+            className="p-2 sm:p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-all text-slate-600 dark:text-gray-400 active:scale-90 flex items-center gap-1.5"
+            aria-label="Select language"
+          >
+            <Globe size={16} />
+            <span className="text-xs font-bold">{currentLanguage.flag}</span>
+          </button>
+        )}
 
         {isOpen && (
-          <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-50 overflow-hidden min-w-[200px] max-h-[400px] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px] max-h-[400px] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
             {languages.map((lang) => (
               <button
                 key={lang.code}
                 onClick={() => changeLanguage(lang.code)}
-                className={`w-full px-4 py-2.5 text-left text-xs font-medium transition-colors flex items-center justify-between gap-2 ${
+                className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-2 ${
                   currentLanguage.code === lang.code
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'
+                    ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                    : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -85,7 +97,7 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({ compact = false }) 
                   <span>{lang.nativeName}</span>
                 </div>
                 {currentLanguage.code === lang.code && (
-                  <Check size={14} className="text-primary" />
+                  <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
                 )}
               </button>
             ))}

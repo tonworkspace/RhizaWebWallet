@@ -8,6 +8,7 @@ import { supabaseService } from './supabaseService';
 // RZC reward amounts
 export const RZC_REWARDS = {
   SIGNUP_BONUS: 50,            // Initial bonus on wallet creation (halved from 100)
+  ACTIVATION_BONUS: 150,       // Bonus for $15 wallet activation
   REFERRAL_BONUS: 25,          // Bonus for each successful referral (halved from 50)
   REFERRAL_MILESTONE_10: 250,  // Bonus at 10 referrals (halved from 500)
   REFERRAL_MILESTONE_50: 1250, // Bonus at 50 referrals (halved from 2500)
@@ -54,6 +55,46 @@ export class RZCRewardService {
       return result;
     } catch (error: any) {
       console.error('❌ Signup bonus error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Award activation bonus for $15 wallet activation
+   */
+  static async awardActivationBonus(
+    userId: string,
+    transactionHash?: string
+  ): Promise<{
+    success: boolean;
+    amount?: number;
+    error?: string;
+  }> {
+    try {
+      console.log('🎁 Awarding activation bonus:', userId);
+
+      const result = await supabaseService.awardRZCTokens(
+        userId,
+        RZC_REWARDS.ACTIVATION_BONUS,
+        'activation_bonus',
+        'Welcome bonus for wallet activation',
+        { 
+          bonus_type: 'activation',
+          transaction_hash: transactionHash
+        }
+      );
+
+      if (result.success) {
+        console.log(`✅ Activation bonus awarded: ${RZC_REWARDS.ACTIVATION_BONUS} RZC`);
+        return {
+          success: true,
+          amount: RZC_REWARDS.ACTIVATION_BONUS
+        };
+      }
+
+      return result;
+    } catch (error: any) {
+      console.error('❌ Activation bonus error:', error);
       return { success: false, error: error.message };
     }
   }
