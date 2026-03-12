@@ -206,6 +206,13 @@ const Landing: React.FC = () => {
 
         {/* Enhanced Desktop Nav */}
         <div className="hidden lg:flex items-center gap-8 text-[10px] font-black uppercase tracking-[0.2em]">
+          <Link 
+            to="/use-rzc"
+            className="relative px-3 py-2 rounded-lg transition-all duration-300 group text-slate-400 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+          >
+            USE
+            <span className="absolute bottom-0 left-0 w-full h-0.5 bg-primary transition-all duration-300 opacity-0 scale-x-0 group-hover:opacity-50 group-hover:scale-x-100" />
+          </Link>
           {[
             { id: 'about', label: 'VISION' },
             { id: 'utility', label: 'USAGE' },
@@ -252,7 +259,7 @@ const Landing: React.FC = () => {
 
         <div className="flex items-center gap-3">
           <Link 
-            to="/onboarding" 
+            to="/login" 
             className="bg-primary text-black px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest hover:brightness-110 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 sm:gap-2 shadow-xl shadow-primary/20 group"
           >
             <span className="hidden sm:inline">Open Wallet</span>
@@ -272,6 +279,14 @@ const Landing: React.FC = () => {
       <div className={`fixed inset-0 z-[55] bg-white/98 dark:bg-black/98 backdrop-blur-3xl lg:hidden transition-all duration-500 flex flex-col items-center justify-center p-10 gap-8 ${
         mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}>
+        <Link
+          to="/use-rzc"
+          onClick={() => setMobileMenuOpen(false)}
+          className="text-3xl font-black text-slate-900 dark:text-white hover:text-primary transition-all hover:scale-110 uppercase"
+          style={{ animationDelay: '0ms' }}
+        >
+          Use RZC
+        </Link>
         {[
           { id: 'about', label: 'How it Works' },
           { id: 'utility', label: 'The Marketplace' },
@@ -283,15 +298,16 @@ const Landing: React.FC = () => {
             key={item.id}
             onClick={() => scrollToSection(item.id)}
             className="text-3xl font-black text-slate-900 dark:text-white hover:text-primary transition-all hover:scale-110 uppercase"
-            style={{ animationDelay: `${idx * 50}ms` }}
+            style={{ animationDelay: `${(idx + 1) * 50}ms` }}
           >
             {item.label}
           </button>
         ))}
         <Link
           to="/whitepaper"
+          onClick={() => setMobileMenuOpen(false)}
           className="text-3xl font-black text-slate-900 dark:text-white hover:text-primary transition-all hover:scale-110 uppercase"
-          style={{ animationDelay: '200ms' }}
+          style={{ animationDelay: '250ms' }}
         >
           Whitepaper
         </Link>
@@ -303,7 +319,7 @@ const Landing: React.FC = () => {
           {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
         </button>
         <Link 
-          to="/onboarding" 
+          to="/login" 
           className="w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-black rounded-2xl font-black text-sm uppercase tracking-widest text-center shadow-2xl hover:scale-105 active:scale-95 transition-all"
         >
           Launch App
@@ -371,8 +387,8 @@ const Landing: React.FC = () => {
               <span className="font-bold text-slate-700 dark:text-gray-300">For experts:</span> Non-custodial commerce protocol on TON with institutional-grade infrastructure.
             </p>
             <div className="flex flex-col sm:flex-row items-center gap-4">
-              <Link to="/onboarding" className="w-full sm:w-auto px-12 py-5 bg-primary text-black font-black text-xs uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-lg">
-                Start Your Journey
+              <Link to="/login" className="w-full sm:w-auto px-12 py-5 bg-primary text-black font-black text-xs uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-lg">
+                {isLoggedIn ? 'Login Wallet' : 'Start Your Journey'}
               </Link>
               <a 
                 href={TELEGRAM_MINI_APP_URL} 
@@ -396,7 +412,7 @@ const Landing: React.FC = () => {
                       <span className="text-xs font-black text-slate-600 dark:text-gray-400 uppercase">Your $RZC Balance</span>
                       <Zap size={20} className="text-primary" />
                    </div>
-                   <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">50,000.00 <span className="text-lg text-slate-500 dark:text-gray-400">RZC</span></h3>
+                   <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">5,000.00 <span className="text-lg text-slate-500 dark:text-gray-400">RZC</span></h3>
                    <div className="h-24 w-full bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5 flex items-center justify-center">
                       <p className="text-[10px] text-slate-600 dark:text-gray-400 font-bold uppercase tracking-widest">Global Rewards Active</p>
                    </div>
@@ -471,10 +487,19 @@ const Landing: React.FC = () => {
              ))}
           </div>
 
-          <div className="text-center">
-            <Link to="/whitepaper" className="inline-flex items-center gap-3 text-primary font-black uppercase tracking-widest text-xs group hover:gap-4 transition-all">
-               View Full Whitepaper <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+          <div className="text-center space-y-4">
+            <Link 
+              to="/use-rzc" 
+              className="inline-flex items-center gap-3 px-8 py-4 bg-primary text-black font-black uppercase tracking-widest text-xs rounded-2xl hover:scale-105 transition-all shadow-lg shadow-primary/20 group"
+            >
+              Explore All RZC Utilities
+              <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </Link>
+            <div className="pt-2">
+              <Link to="/whitepaper" className="inline-flex items-center gap-3 text-primary font-black uppercase tracking-widest text-xs group hover:gap-4 transition-all">
+                View Full Whitepaper <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>

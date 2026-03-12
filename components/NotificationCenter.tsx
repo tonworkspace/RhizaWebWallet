@@ -29,34 +29,45 @@ const timeAgo = (date: string) => {
 
 const NotificationCenter: React.FC = () => {
   const navigate = useNavigate();
-  const { address } = useWallet();
+  const { address, userProfile } = useWallet();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  // Use wallet address from userProfile or address
+  const walletAddress = userProfile?.wallet_address || address;
+
   // Fetch notifications
   const fetchNotifications = async () => {
-    if (!address) return;
+    if (!walletAddress) {
+      console.log('⚠️ No wallet address available for notifications');
+      return;
+    }
+
+    console.log('🔔 Fetching notifications for:', walletAddress);
 
     setLoading(true);
-    const result = await notificationService.getNotifications(address, {
+    const result = await notificationService.getNotifications(walletAddress, {
       limit: 20,
       includeRead: true,
       includeArchived: false
     });
 
     if (result.success && result.notifications) {
+      console.log('✅ Fetched notifications:', result.notifications.length);
       setNotifications(result.notifications);
+    } else {
+      console.error('❌ Failed to fetch notifications:', result.error);
     }
     setLoading(false);
   };
 
   // Fetch unread count
   const fetchUnreadCount = async () => {
-    if (!address) return;
+    if (!walletAddress) return;
 
-    const result = await notificationService.getUnreadCount(address);
+    const result = await notificationService.getUnreadCount(walletAddress);
     if (result.success && result.count !== undefined) {
       setUnreadCount(result.count);
     }
@@ -64,19 +75,22 @@ const NotificationCenter: React.FC = () => {
 
   // Initial fetch
   useEffect(() => {
-    if (address) {
+    if (walletAddress) {
+      console.log('🔄 Initial notification fetch for:', walletAddress);
       fetchNotifications();
       fetchUnreadCount();
     }
-  }, [address]);
+  }, [walletAddress]);
 
   // Subscribe to real-time notifications
   useEffect(() => {
-    if (!address) return;
+    if (!walletAddress) return;
 
+    console.log('📡 Subscribing to real-time notifications for:', walletAddress);
     const subscription = notificationService.subscribeToNotifications(
-      address,
+      walletAddress,
       (newNotification) => {
+        console.log('🔔 New notification received:', newNotification);
         setNotifications(prev => [newNotification, ...prev]);
         setUnreadCount(prev => prev + 1);
         
@@ -92,9 +106,10 @@ const NotificationCenter: React.FC = () => {
     );
 
     return () => {
+      console.log('📡 Unsubscribing from notifications');
       subscription.unsubscribe();
     };
-  }, [address]);
+  }, [walletAddress]);
 
   // Mark as read
   const handleMarkAsRead = async (notificationId: string) => {
@@ -107,9 +122,9 @@ const NotificationCenter: React.FC = () => {
 
   // Mark all as read
   const handleMarkAllAsRead = async () => {
-    if (!address) return;
+    if (!walletAddress) return;
     
-    await notificationService.markAllAsRead(address);
+    await notificationService.markAllAsRead(walletAddress);
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     setUnreadCount(0);
   };

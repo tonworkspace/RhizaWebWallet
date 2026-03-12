@@ -110,7 +110,7 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({ compact = false, on
   return (
     <div className="relative language-selector">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setInternalIsOpen(!internalIsOpen)}
         className="w-full p-4 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl sm:rounded-2xl hover:bg-slate-50 dark:hover:bg-white/10 transition-all flex items-center justify-between"
       >
         <div className="flex items-center gap-3">

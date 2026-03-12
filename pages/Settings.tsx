@@ -19,13 +19,15 @@ import {
   Wallet,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  Edit
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
 import LanguageSelector from '../components/LanguageSelector';
 import WalletSwitcher from '../components/WalletSwitcher';
 import { WalletManager } from '../utils/walletManager';
+import { supabaseService } from '../services/supabaseService';
 
 interface SettingsSectionProps {
   title: string;
@@ -169,9 +171,23 @@ const Settings: React.FC = () => {
           <div className="flex items-start gap-4">
             <div className="text-4xl">{userProfile?.avatar || '👤'}</div>
             <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-black text-gray-950 dark:text-white mb-1">
-                {userProfile?.name || t('settings.anonymous')}
-              </h2>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-lg font-black text-gray-950 dark:text-white">
+                  {userProfile?.name || t('settings.anonymous')}
+                </h2>
+                <button
+                  onClick={() => navigate('/wallet/profile')}
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all active:scale-90 group"
+                  title="Edit Profile"
+                >
+                  <Edit size={14} className="text-gray-600 dark:text-gray-500 group-hover:text-primary dark:group-hover:text-primary" />
+                </button>
+              </div>
+              {userProfile?.email && (
+                <p className="text-xs text-gray-600 dark:text-gray-500 mb-2 font-semibold">
+                  {userProfile.email}
+                </p>
+              )}
               <div className="flex items-center gap-2 mb-3">
                 <p className="text-xs font-mono text-gray-600 dark:text-gray-500 truncate font-semibold">
                   {address ? `${address.slice(0, 8)}...${address.slice(-6)}` : ''}
@@ -263,10 +279,10 @@ const Settings: React.FC = () => {
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-amber-700 dark:text-amber-400 font-semibold">
-                    Purchase a mining node or pay the activation fee to unlock full wallet access.
+                    Purchase a node or pay the activation fee to unlock full wallet access.
                   </p>
                   <button
-                    onClick={() => navigate('/wallet/mining')}
+                    onClick={() => navigate('/wallet/sales-package')}
                     className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all active:scale-95"
                   >
                     Activate Wallet

@@ -127,7 +127,7 @@ const SecurityAudit: React.FC = () => {
                 Found a security vulnerability? We appreciate responsible disclosure.
               </p>
               <ul className="space-y-2 text-slate-600 dark:text-gray-300">
-                <li>• <strong>Email:</strong> security@rhizacore.com</li>
+                <li>• <strong>Email:</strong> security@rhizacore.xyz</li>
                 <li>• <strong>PGP Key:</strong> Available on request</li>
                 <li>• <strong>Response Time:</strong> Within 24 hours</li>
                 <li>• <strong>Bug Bounty:</strong> Up to $10,000 for critical issues</li>

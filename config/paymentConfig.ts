@@ -20,18 +20,18 @@ export interface PaymentConfig {
 /**
  * Payment wallet addresses and pricing for receiving node purchases and activations
  * 
- * IMPORTANT: Update these addresses with your actual payment wallet addresses
+ * IMPORTANT: These are the actual payment wallet addresses for RhizaCore
  */
 export const PAYMENT_CONFIG: PaymentConfig = {
   mainnet: {
-    // TODO: Replace with your actual mainnet payment wallet address
-    walletAddress: 'EQDX5XHmQJctY7Wm2McEgIkr8eb0nHqaWbsvb3X2plc5AJ6F',
+    // RhizaCore mainnet payment wallet address
+    walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
     memo: 'RhizaCore Payment',
     activationFeeUSD: 15 // $15 activation fee for mainnet
   },
   testnet: {
-    // TODO: Replace with your actual testnet payment wallet address
-    walletAddress: 'EQDX5XHmQJctY7Wm2McEgIkr8eb0nHqaWbsvb3X2plc5AJ6F',
+    // RhizaCore testnet payment wallet address
+    walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
     memo: 'RhizaCore Test Payment',
     activationFeeUSD: 15, // $15 activation fee for testnet
     testNodeFeeTON: 0.5 // 0.5 TON for test node (testnet only)
@@ -80,23 +80,31 @@ export const calculateActivationFeeTON = (network: 'mainnet' | 'testnet', tonPri
 export const validatePaymentConfig = (network: 'mainnet' | 'testnet'): boolean => {
   const address = PAYMENT_CONFIG[network].walletAddress;
   
-  // Check if address is not the placeholder
-  if (address.includes('YOUR_') || address.includes('...')) {
+  // Check if address exists and is not empty
+  if (!address || address.trim() === '') {
     console.error(`❌ Payment wallet address not configured for ${network}`);
     return false;
   }
   
-  // Basic validation for TON address format
-  if (network === 'mainnet' && !address.startsWith('EQ')) {
-    console.error(`❌ Invalid mainnet address format: ${address}`);
+  // Check if address is not a placeholder (common placeholder patterns)
+  if (address.includes('YOUR_') || address.includes('...') || address.includes('TODO') || address.includes('REPLACE')) {
+    console.error(`❌ Payment wallet address not configured for ${network} - still contains placeholder`);
     return false;
   }
   
-  if (network === 'testnet' && !address.startsWith('kQ') && !address.startsWith('EQ')) {
-    console.error(`❌ Invalid testnet address format: ${address}`);
+  // Basic validation for TON address format (both UQ and EQ are valid prefixes)
+  if (!address.startsWith('UQ') && !address.startsWith('EQ') && !address.startsWith('kQ')) {
+    console.error(`❌ Invalid TON address format for ${network}: ${address}`);
     return false;
   }
   
+  // Check minimum address length (TON addresses are typically 48 characters)
+  if (address.length < 40) {
+    console.error(`❌ TON address too short for ${network}: ${address}`);
+    return false;
+  }
+  
+  console.log(`✅ Payment configuration valid for ${network}: ${address.substring(0, 10)}...`);
   return true;
 };
 

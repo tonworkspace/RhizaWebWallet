@@ -293,7 +293,7 @@ const Launchpad: React.FC = () => {
                 <CheckCircle className="text-primary flex-shrink-0 mt-1" size={20} />
                 <div>
                   <h4 className="font-black text-slate-900 dark:text-white mb-1">Marketing Support</h4>
-                  <p className="text-sm text-slate-600 dark:text-gray-400">Promoted to 50K+ active users</p>
+                  <p className="text-sm text-slate-600 dark:text-gray-400">Promoted to our community</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">

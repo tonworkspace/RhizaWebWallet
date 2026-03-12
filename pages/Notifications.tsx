@@ -38,18 +38,26 @@ const timeAgo = (date: string) => {
 
 const Notifications: React.FC = () => {
   const navigate = useNavigate();
-  const { address } = useWallet();
+  const { address, userProfile } = useWallet();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
+  // Use wallet address from userProfile or address
+  const walletAddress = userProfile?.wallet_address || address;
+
   // Fetch notifications
   const fetchNotifications = async () => {
-    if (!address) return;
+    if (!walletAddress) {
+      console.log('⚠️ No wallet address available for notifications');
+      setLoading(false);
+      return;
+    }
 
+    console.log('🔔 Fetching notifications for:', walletAddress);
     setLoading(true);
-    const result = await notificationService.getNotifications(address, {
+    const result = await notificationService.getNotifications(walletAddress, {
       limit: 100,
       includeRead: filter !== 'unread',
       includeArchived: false,
@@ -65,14 +73,17 @@ const Notifications: React.FC = () => {
         filtered = filtered.filter(n => n.is_read);
       }
       
+      console.log('✅ Fetched notifications:', filtered.length);
       setNotifications(filtered);
+    } else {
+      console.error('❌ Failed to fetch notifications:', result.error);
     }
     setLoading(false);
   };
 
   useEffect(() => {
     fetchNotifications();
-  }, [address, filter, typeFilter]);
+  }, [walletAddress, filter, typeFilter]);
 
   // Mark as read
   const handleMarkAsRead = async (notificationId: string) => {
@@ -84,9 +95,9 @@ const Notifications: React.FC = () => {
 
   // Mark all as read
   const handleMarkAllAsRead = async () => {
-    if (!address) return;
+    if (!walletAddress) return;
     
-    await notificationService.markAllAsRead(address);
+    await notificationService.markAllAsRead(walletAddress);
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
   };
 

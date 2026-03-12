@@ -17,7 +17,7 @@ const WalletActivationModal: React.FC<WalletActivationModalProps> = ({
 
   const handleSelectNode = (tier: 'standard' | 'premium' | 'vip') => {
     onClose();
-    navigate('/wallet/mining', { state: { selectedTier: tier } });
+    navigate('/wallet/sales-package', { state: { selectedTier: tier } });
   };
 
   return (
@@ -218,7 +218,7 @@ const WalletActivationModal: React.FC<WalletActivationModalProps> = ({
                 <li className="flex items-start gap-1.5 sm:gap-2">
                   <CheckCircle size={12} className="sm:hidden text-emerald-600 dark:text-primary flex-shrink-0 mt-0.5" />
                   <CheckCircle size={14} className="hidden sm:block text-emerald-600 dark:text-primary flex-shrink-0 mt-0.5" />
-                  <span>Daily RZC mining rewards automatically credited</span>
+                  <span>Daily RZC rewards automatically credited</span>
                 </li>
                 <li className="flex items-start gap-1.5 sm:gap-2">
                   <CheckCircle size={12} className="sm:hidden text-emerald-600 dark:text-primary flex-shrink-0 mt-0.5" />

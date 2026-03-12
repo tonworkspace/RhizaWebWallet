@@ -76,10 +76,21 @@ export const useBalance = () => {
         
         if (priceResponse.ok) {
           const priceData = await priceResponse.json();
-          tonPrice = priceData['the-open-network']?.usd || 2.45;
-          change24hPercent = priceData['the-open-network']?.usd_24h_change || 0;
+          const fetchedPrice = priceData['the-open-network']?.usd;
+          const fetchedChange = priceData['the-open-network']?.usd_24h_change;
           
-          // Update cache
+          // Validate fetched price before using it
+          if (fetchedPrice && fetchedPrice > 0 && isFinite(fetchedPrice) && !isNaN(fetchedPrice)) {
+            tonPrice = fetchedPrice;
+          } else {
+            console.warn('⚠️ Invalid price data from API, using fallback');
+          }
+          
+          if (fetchedChange && isFinite(fetchedChange) && !isNaN(fetchedChange)) {
+            change24hPercent = fetchedChange;
+          }
+          
+          // Update cache only with valid data
           priceCache = {
             price: tonPrice,
             change: change24hPercent,
@@ -97,11 +108,12 @@ export const useBalance = () => {
           console.warn('⚠️ Failed to fetch TON price:', priceError.message);
         }
         
-        // Use cached data if available
-        if (priceCache) {
+        // Use cached data if available and valid
+        if (priceCache && priceCache.price > 0 && isFinite(priceCache.price)) {
           tonPrice = priceCache.price;
           change24hPercent = priceCache.change;
         }
+        // Otherwise keep the fallback price of 2.45
       }
       
       const totalUsdValue = tonBalance * tonPrice;

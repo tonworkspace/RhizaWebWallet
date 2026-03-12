@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   Rocket, 
   ShoppingBag, 
@@ -23,8 +23,18 @@ import {
   Bell,
   Activity,
   Settings,
-  Wallet
+  Wallet,
+  History,
+  Zap,
+  Coins,
+  Gift,
+  User,
+  Copy,
+  Check,
+  Edit,
+  Crown
 } from 'lucide-react';
+import { useWallet } from '../context/WalletContext';
 
 interface MenuItem {
   title: string;
@@ -37,7 +47,74 @@ interface MenuItem {
 }
 
 const More: React.FC = () => {
+  const navigate = useNavigate();
+  const { userProfile, referralData, address } = useWallet();
+  const [copiedCode, setCopiedCode] = React.useState(false);
+  const [copiedAddress, setCopiedAddress] = React.useState(false);
+
+  const handleCopyCode = () => {
+    if (referralData?.referral_code) {
+      navigator.clipboard.writeText(referralData.referral_code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleCopyAddress = () => {
+    if (address) {
+      navigator.clipboard.writeText(address);
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
+    }
+  };
+
+  const isValidImageUrl = (url: string | undefined) => {
+    if (!url) return false;
+    return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:');
+  };
+
+  const getUserInitials = (name: string | undefined) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
   const menuSections: { title: string; items: MenuItem[] }[] = [
+    {
+      title: 'RZC Utilities',
+      items: [
+        {
+          title: 'Use RZC Everywhere',
+          description: 'Explore all RZC use cases',
+          icon: Sparkles,
+          path: '/use-rzc',
+          badge: 'New',
+          color: 'from-primary to-secondary'
+        },
+        {
+          title: 'Get RZC',
+          description: 'Purchase packages & earn rewards',
+          icon: Coins,
+          path: '/wallet/sales-package',
+          badge: 'Earn',
+          color: 'from-emerald-500 to-teal-500'
+        },
+        {
+          title: 'Transfer',
+          description: 'Send RZC to anyone',
+          icon: Send,
+          path: '/wallet/transfer',
+          color: 'from-purple-500 to-pink-500'
+        },
+        {
+          title: 'Earn Rewards',
+          description: 'Refer friends & earn 50 RZC',
+          icon: Gift,
+          path: '/wallet/referral',
+          badge: 'Hot',
+          color: 'from-orange-500 to-red-500'
+        }
+      ]
+    },
     {
       title: 'Wallet Features',
       items: [
@@ -56,12 +133,35 @@ const More: React.FC = () => {
           color: 'from-green-500 to-teal-500'
         },
         {
+          title: 'Wallet Migration',
+          description: 'Migrate from pre-mine to mainnet',
+          icon: TrendingUp,
+          path: '/wallet/migration',
+          badge: 'New',
+          color: 'from-violet-500 to-purple-500'
+        },
+        {
+          title: 'History',
+          description: 'View transaction history',
+          icon: History,
+          path: '/wallet/history',
+          color: 'from-indigo-500 to-purple-500'
+        },
+        {
+          title: 'Sales Packages',
+          description: 'Purchase packages & earn rewards',
+          icon: Zap,
+          path: '/wallet/sales-package',
+          badge: 'Earn',
+          color: 'from-emerald-500 to-cyan-500'
+        },
+        {
           title: 'AI Assistant',
           description: 'Get help from AI',
           icon: Bot,
           path: '/wallet/ai-assistant',
           badge: 'Beta',
-          color: 'from-purple-500 to-pink-500'
+          color: 'from-pink-500 to-rose-500'
         },
         {
           title: 'Notifications',
@@ -215,6 +315,144 @@ const More: React.FC = () => {
         <p className="text-sm text-slate-600 dark:text-gray-400">
           Explore the RhizaCore ecosystem and resources
         </p>
+      </div>
+
+      {/* User Profile Card - Compact & Responsive */}
+      <div className="bg-gradient-to-br from-emerald-50 to-cyan-50 dark:from-emerald-500/10 dark:to-cyan-500/10 border-2 border-emerald-200 dark:border-emerald-500/20 rounded-2xl p-4 relative overflow-hidden">
+        {/* Background decoration */}
+        <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-100 dark:bg-emerald-500/10 blur-[50px] rounded-full" />
+        
+        <div className="relative z-10 space-y-3">
+          {/* Profile Header - Compact */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              {/* Avatar - Smaller */}
+              {isValidImageUrl(userProfile?.avatar) ? (
+                <img 
+                  src={userProfile.avatar} 
+                  alt={userProfile.name || 'User'} 
+                  className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl object-cover ring-2 ring-emerald-200 dark:ring-emerald-500/20 flex-shrink-0"
+                />
+              ) : userProfile?.avatar ? (
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center ring-2 ring-emerald-200 dark:ring-emerald-500/20 flex-shrink-0">
+                  <span className="text-xl sm:text-2xl">{userProfile.avatar}</span>
+                </div>
+              ) : (
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center ring-2 ring-emerald-200 dark:ring-emerald-500/20 flex-shrink-0">
+                  <span className="text-white text-base sm:text-lg font-black">{getUserInitials(userProfile?.name)}</span>
+                </div>
+              )}
+              
+              {/* Name & Badges - Compact */}
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
+                  {userProfile?.name || 'User'}
+                </h3>
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {userProfile?.is_active ? (
+                    <span className="text-[9px] font-black uppercase tracking-wider bg-green-500/20 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-black uppercase tracking-wider bg-gray-500/20 text-gray-700 dark:text-gray-400 px-1.5 py-0.5 rounded">
+                      Inactive
+                    </span>
+                  )}
+                  {referralData && (
+                    <div className="flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded">
+                      <Crown size={9} />
+                      <span className="hidden sm:inline">{referralData.rank || 'Core Node'}</span>
+                      <span className="sm:hidden">Lv{referralData.level || 1}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Edit Button - Compact */}
+            <button
+              onClick={() => navigate('/wallet/profile')}
+              className="p-2 hover:bg-white/50 dark:hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
+            >
+              <Edit size={16} className="text-emerald-700 dark:text-emerald-400" />
+            </button>
+          </div>
+
+          {/* Stats Grid - Compact */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-white/50 dark:bg-white/5 rounded-lg p-2 border border-emerald-200 dark:border-emerald-500/20">
+              <div className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-0.5">
+                RZC
+              </div>
+              <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
+                {(userProfile?.rzc_balance || 0).toLocaleString()}
+              </div>
+            </div>
+            
+            <div className="bg-white/50 dark:bg-white/5 rounded-lg p-2 border border-emerald-200 dark:border-emerald-500/20">
+              <div className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-0.5">
+                Refs
+              </div>
+              <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                {referralData?.total_referrals || 0}
+              </div>
+            </div>
+            
+            <div className="bg-white/50 dark:bg-white/5 rounded-lg p-2 border border-emerald-200 dark:border-emerald-500/20">
+              <div className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-0.5">
+                Level
+              </div>
+              <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                {referralData?.level || 1}
+              </div>
+            </div>
+          </div>
+
+          {/* Referral Code - Compact */}
+          {referralData?.referral_code && (
+            <div className="bg-white/50 dark:bg-white/5 rounded-lg p-2 border border-emerald-200 dark:border-emerald-500/20">
+              <div className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-1.5">
+                Referral Code
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs sm:text-sm font-mono font-bold text-slate-900 dark:text-white bg-white/50 dark:bg-black/20 px-2 py-1.5 rounded truncate">
+                  {referralData.referral_code}
+                </code>
+                <button
+                  onClick={handleCopyCode}
+                  className="p-1.5 bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-700 dark:hover:bg-emerald-600 text-white rounded transition-colors flex-shrink-0"
+                >
+                  {copiedCode ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Wallet Address - Compact & Collapsible on Mobile */}
+          {address && (
+            <details className="bg-white/50 dark:bg-white/5 rounded-lg border border-emerald-200 dark:border-emerald-500/20 group">
+              <summary className="p-2 cursor-pointer list-none flex items-center justify-between">
+                <div className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                  Wallet Address
+                </div>
+                <ChevronRight size={12} className="text-emerald-700 dark:text-emerald-400 group-open:rotate-90 transition-transform" />
+              </summary>
+              <div className="px-2 pb-2">
+                <div className="flex items-center gap-2 pt-1">
+                  <code className="flex-1 text-[10px] sm:text-xs font-mono font-bold text-slate-900 dark:text-white bg-white/50 dark:bg-black/20 px-2 py-1.5 rounded break-all">
+                    {address}
+                  </code>
+                  <button
+                    onClick={handleCopyAddress}
+                    className="p-1.5 bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-700 dark:hover:bg-emerald-600 text-white rounded transition-colors flex-shrink-0"
+                  >
+                    {copiedAddress ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            </details>
+          )}
+        </div>
       </div>
 
       {/* Menu Sections */}

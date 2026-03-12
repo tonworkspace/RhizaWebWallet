@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ChevronLeft, 
   ArrowRight, 
@@ -10,7 +10,9 @@ import {
   Clock,
   Plus,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Gift,
+  Users
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { WalletManager, WalletMetadata } from '../utils/walletManager';
@@ -21,6 +23,10 @@ const WalletLogin: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useWallet();
   const { showToast } = useToast();
+  const [searchParams] = useSearchParams();
+  
+  // Get referral code from URL parameter
+  const referralCode = searchParams.get('ref');
   
   const [wallets, setWallets] = useState<WalletMetadata[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
@@ -114,6 +120,21 @@ const WalletLogin: React.FC = () => {
     return (
       <div className="min-h-screen bg-transparent flex items-center justify-center p-8">
         <div className="max-w-md w-full text-center space-y-6">
+          {/* Referral Banner */}
+          {referralCode && (
+            <div className="p-4 bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 rounded-2xl shadow-sm">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Gift size={20} className="text-emerald-700 dark:text-[#00FF88]" />
+                <h3 className="text-sm font-black text-emerald-700 dark:text-[#00FF88] uppercase tracking-wider">
+                  You've Been Invited!
+                </h3>
+              </div>
+              <p className="text-xs text-gray-700 dark:text-gray-400 font-semibold">
+                Create a wallet to claim your welcome bonus
+              </p>
+            </div>
+          )}
+          
           <div className="w-20 h-20 bg-gray-100 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto">
             <Wallet className="text-gray-500 dark:text-gray-500" size={40} />
           </div>
@@ -123,7 +144,7 @@ const WalletLogin: React.FC = () => {
           </p>
           <div className="flex flex-col gap-3 pt-4">
             <button
-              onClick={() => navigate('/create-wallet')}
+              onClick={() => navigate(referralCode ? `/create-wallet?ref=${referralCode}` : '/create-wallet')}
               className="w-full p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all shadow-lg"
             >
               Create New Wallet
@@ -150,6 +171,25 @@ const WalletLogin: React.FC = () => {
         >
           <ChevronLeft size={16} /> Back
         </button>
+
+        {/* Referral Banner */}
+        {referralCode && (
+          <div className="p-4 bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 rounded-2xl shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-200 dark:bg-[#00FF88]/20 flex items-center justify-center shrink-0">
+                <Users size={24} className="text-emerald-700 dark:text-[#00FF88]" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-black text-emerald-700 dark:text-[#00FF88] uppercase tracking-wider">
+                  You've Been Invited!
+                </h3>
+                <p className="text-xs text-gray-700 dark:text-gray-400 font-semibold mt-0.5">
+                  Join with referral code: <span className="font-mono text-emerald-700 dark:text-[#00FF88]">{referralCode}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4">
           <h1 className="text-4xl font-black text-gray-950 dark:text-white tracking-tight-custom">
@@ -259,13 +299,22 @@ const WalletLogin: React.FC = () => {
             )}
           </button>
 
-          <button
-            onClick={() => navigate('/import-wallet')}
-            className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 text-gray-950 dark:text-white rounded-2xl flex items-center justify-center gap-3 text-xs font-black uppercase tracking-widest hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all shadow-sm"
-          >
-            <Plus size={16} />
-            Add Another Wallet
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => navigate(referralCode ? `/create-wallet?ref=${referralCode}` : '/create-wallet')}
+              className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 text-gray-950 dark:text-white rounded-2xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all shadow-sm"
+            >
+              <Plus size={16} />
+              Create Wallet
+            </button>
+            <button
+              onClick={() => navigate('/import-wallet')}
+              className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 text-gray-950 dark:text-white rounded-2xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all shadow-sm"
+            >
+              <Plus size={16} />
+              Import Wallet
+            </button>
+          </div>
         </div>
 
         <div className="text-center pt-4">

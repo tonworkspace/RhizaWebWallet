@@ -3,12 +3,21 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { PlusCircle, Key, Zap, ShieldCheck, ArrowLeft, CheckCircle2, Lock, Users, LogIn, ArrowRight, X, Sparkles, Wallet, Gift, TrendingUp } from 'lucide-react';
 import { WalletManager } from '../utils/walletManager';
+import { useWallet } from '../context/WalletContext';
 
 const Onboarding: React.FC = () => {
   const navigate = useNavigate();
+  const { isLoggedIn, isLoading } = useWallet();
   const [hasWallets, setHasWallets] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+
+  // Redirect to dashboard if already logged in
+  useEffect(() => {
+    if (!isLoading && isLoggedIn) {
+      navigate('/wallet/dashboard', { replace: true });
+    }
+  }, [isLoggedIn, isLoading, navigate]);
 
   useEffect(() => {
     // Check if user has existing wallets
@@ -22,6 +31,18 @@ const Onboarding: React.FC = () => {
       localStorage.setItem('rhiza_has_visited', 'true');
     }
   }, []);
+
+  // Show loading while checking auth
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-black flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-[#00FF88] border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-gray-400 text-sm font-bold">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   const welcomeSteps = [
     {
@@ -242,7 +263,7 @@ const Onboarding: React.FC = () => {
                   <Users className="text-white" size={20} />
                 </div>
                 <div>
-                  <h4 className="font-black text-white mb-1">Join 10,000+ Users</h4>
+                  <h4 className="font-black text-white mb-1">Join the Community</h4>
                   <p className="text-sm text-gray-400 font-medium">Be part of the growing RhizaCore community building the future of finance.</p>
                 </div>
               </div>

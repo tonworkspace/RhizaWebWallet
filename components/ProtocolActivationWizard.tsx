@@ -60,6 +60,7 @@ const ProtocolActivationWizard: React.FC<ProtocolActivationWizardProps> = ({
   onClose,
   onActivationComplete
 }) => {
+  const { error, warning } = useToast();
   const [step, setStep] = useState<FlowStep>(FlowStep.INTRO);
   const [logs, setLogs] = useState<ProtocolLogEntry[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -153,7 +154,7 @@ const ProtocolActivationWizard: React.FC<ProtocolActivationWizardProps> = ({
 
   const handlePayment = async () => {
     if (!connected || !tonAddress) {
-      alert('Please connect your TON wallet first');
+      error('Please connect your TON wallet first');
       return;
     }
 
@@ -167,7 +168,7 @@ const ProtocolActivationWizard: React.FC<ProtocolActivationWizardProps> = ({
         ?.rpc('get_wallet_activation_status', { p_user_id: userId });
 
       if (currentStatus?.data?.wallet_activated) {
-        alert('Your wallet is already activated');
+        warning('Your wallet is already activated');
         setStep(FlowStep.SUCCESS);
         onActivationComplete();
         return;
@@ -230,7 +231,7 @@ const ProtocolActivationWizard: React.FC<ProtocolActivationWizardProps> = ({
       setPaymentSent(false);
       addLog("Transaction failed or cancelled by operator.", "error");
       setStep(FlowStep.COMMITMENT);
-      alert(error.message || 'Failed to process payment');
+      error(error.message || 'Failed to process payment');
     }
   };
 

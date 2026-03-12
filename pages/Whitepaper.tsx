@@ -197,12 +197,12 @@ const Whitepaper: React.FC = () => {
       title: 'Join the Movement',
       icon: Globe,
       simpleText: 'RhizaCore is building a financial system that works for everyone—whether you\'re 10 or 100, tech-savvy or just learning. No banks, no borders, no barriers. Your money, your rules. Join thousands already using RhizaCore to take control of their finances.',
-      technicalText: 'RhizaCore represents the convergence of DeFi infrastructure and real-world utility. By abstracting blockchain complexity while maintaining decentralization, we enable mass adoption of self-sovereign finance. Target: 10M users by 2026, $1B+ transaction volume.',
+      technicalText: 'RhizaCore represents the convergence of DeFi infrastructure and real-world utility. By abstracting blockchain complexity while maintaining decentralization, we enable mass adoption of self-sovereign finance. Building sustainable growth through community-driven development.',
       keyPoints: [
         'Financial freedom for everyone',
         'No banks or intermediaries',
         'Global accessibility',
-        'Join 10,000+ early users'
+        'Early adopter benefits'
       ]
     }
   ];

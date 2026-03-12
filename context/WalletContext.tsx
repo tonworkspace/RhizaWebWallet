@@ -11,9 +11,10 @@ interface UserProfile {
   wallet_address: string;
   name: string;
   avatar: string;
+  email?: string | null;
   role: string;
   is_active: boolean;
-  referrer_code: string | null;
+  referrer_code?: string | null; // Optional to match supabaseService
   rzc_balance: number;
   created_at: string;
   updated_at: string;
@@ -22,7 +23,7 @@ interface UserProfile {
 interface ReferralData {
   id: string;
   user_id: string;
-  referrer_id: string | null;
+  referrer_id?: string | null; // Optional to match supabaseService
   referral_code: string;
   total_earned: number;
   total_referrals: number;
@@ -70,7 +71,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activationFeePaid, setActivationFeePaid] = useState(0);
   const [network, setNetwork] = useState<NetworkType>(() => {
     const saved = localStorage.getItem('rhiza_network');
-    return (saved as NetworkType) || 'testnet';
+    return (saved as NetworkType) || 'mainnet'; // Default to mainnet
   });
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('rhiza_theme');

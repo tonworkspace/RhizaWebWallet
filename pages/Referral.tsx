@@ -310,7 +310,7 @@ const Referral: React.FC = () => {
       )}
 
       {/* Squad Mining Claim Card */}
-      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 relative overflow-hidden shadow-sm">
+      <div className="hidden p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 relative overflow-hidden shadow-sm">
         <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-100 dark:bg-[#00FF88]/10 blur-[40px] rounded-full" />
         
         <div className="relative z-10 space-y-3">
@@ -528,7 +528,7 @@ const Referral: React.FC = () => {
             { 
               icon: Gift, 
               title: "Signup Bonus", 
-              amount: "25 RZC", 
+              amount: "$5 (50 RZC)", 
               desc: "Per referral signup",
               color: "from-[#00FF88]/20 to-[#00FF88]/5",
               border: "border-[#00FF88]/20",
@@ -537,9 +537,9 @@ const Referral: React.FC = () => {
             },
             { 
               icon: Award, 
-              title: "Milestone Bonus", 
-              amount: "Up to 5,000 RZC", 
-              desc: "At 10, 50, 100 referrals",
+              title: "Package Commission", 
+              amount: "10% of Purchase", 
+              desc: "When referral buys package",
               color: "from-yellow-500/20 to-yellow-500/5",
               border: "border-yellow-500/20",
               iconBg: "bg-yellow-500/20",
@@ -547,9 +547,9 @@ const Referral: React.FC = () => {
             },
             { 
               icon: TrendingUp, 
-              title: "Rank Upgrade", 
-              amount: "Higher Commissions", 
-              desc: "Earn more as you grow",
+              title: "Team Sales Bonus", 
+              amount: "1% Weekly", 
+              desc: "From all team sales",
               color: "from-purple-500/20 to-purple-500/5",
               border: "border-purple-500/20",
               iconBg: "bg-purple-500/20",
@@ -578,7 +578,7 @@ const Referral: React.FC = () => {
       </div>
 
       {/* Creator Program CTA */}
-      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 cursor-pointer hover:border-emerald-400 dark:hover:border-[#00FF88]/40 transition-all group shadow-sm">
+      <div className="hidden p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 cursor-pointer hover:border-emerald-400 dark:hover:border-[#00FF88]/40 transition-all group shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-emerald-600 dark:bg-[#00FF88] flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">

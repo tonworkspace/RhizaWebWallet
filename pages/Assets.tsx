@@ -1,20 +1,27 @@
 
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { 
-  PlusCircle, 
-  Search, 
-  Coins, 
+import { useNavigate } from 'react-router-dom';
+import {
+  PlusCircle,
+  Search,
+  Coins,
   LayoutGrid,
   ExternalLink,
   Filter,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Send,
+  Lock
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { tonWalletService } from '../services/tonWalletService';
 import { getExplorerUrl } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import { getJettonRegistryData, enhanceJettonData, getJettonPrice, getAllRegistryTokens } from '../services/jettonRegistry';
+import { useToast } from '../context/ToastContext';
+import { RZC_CONFIG } from '../config/rzcConfig';
+import BalanceVerification from '../components/BalanceVerification';
 
 interface Jetton {
   balance: string;
@@ -25,6 +32,9 @@ interface Jetton {
     decimals: number;
     image?: string;
     verification?: string;
+    verified?: boolean;
+    description?: string;
+    emoji?: string; // Fallback emoji
   };
   price?: {
     usd: number;
@@ -60,7 +70,9 @@ interface NFT {
 
 const Assets: React.FC = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { address, network, balance: tonBalance, userProfile, refreshData } = useWallet();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'tokens' | 'nfts'>('tokens');
   const [jettons, setJettons] = useState<Jetton[]>([]);
   const [nfts, setNFTs] = useState<NFT[]>([]);
@@ -70,6 +82,7 @@ const Assets: React.FC = () => {
   const [nftError, setNftError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [tokenFilter, setTokenFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
 
   useEffect(() => {
     fetchJettons();
@@ -97,14 +110,78 @@ const Assets: React.FC = () => {
 
     try {
       console.log(`🪙 Fetching jettons for ${address}...`);
+
+      // Get all tokens from registry first
+      const registryTokens = getAllRegistryTokens();
+      console.log(`📋 Found ${registryTokens.length} tokens in registry`);
+
+      // Fetch user's actual balances
       const result = await tonWalletService.getJettons(address);
-      
-      if (result.success) {
-        setJettons(result.jettons || []);
-        console.log(`✅ Loaded ${result.jettons?.length || 0} jettons`);
-      } else {
-        throw new Error(result.error || 'Failed to fetch jettons');
+
+      // Create a map of user's jetton balances by address
+      const userBalances = new Map<string, any>();
+      if (result.success && result.jettons) {
+        result.jettons.forEach(jetton => {
+          userBalances.set(jetton.jetton.address.toLowerCase(), jetton);
+        });
       }
+
+      // Merge registry tokens with user balances
+      const mergedJettons: Jetton[] = registryTokens.map(registryToken => {
+        const userJetton = userBalances.get(registryToken.address.toLowerCase());
+
+        if (userJetton) {
+          // User has this token - use their balance
+          const enhanced = enhanceJettonData(userJetton, registryToken);
+          const price = getJettonPrice(registryToken.address);
+
+          return {
+            ...enhanced,
+            price: price !== null ? { usd: price } : undefined,
+          };
+        } else {
+          // User doesn't have this token - show with 0 balance (registry tokens only)
+          return {
+            balance: '0',
+            jetton: {
+              address: registryToken.address,
+              name: registryToken.name,
+              symbol: registryToken.symbol,
+              decimals: registryToken.decimals,
+              image: registryToken.image,
+              verified: registryToken.verified,
+              verification: 'whitelist',
+              emoji: registryToken.emoji,
+            },
+            price: registryToken.rateUsd > 0 ? { usd: registryToken.rateUsd } : undefined,
+          };
+        }
+      });
+
+      // Add user jettons that aren't in the registry BUT ONLY if they have a balance
+      result.jettons?.forEach(userJetton => {
+        const isInRegistry = registryTokens.some(
+          rt => rt.address.toLowerCase() === userJetton.jetton.address.toLowerCase()
+        );
+
+        // Only add unlisted tokens if user actually has a balance
+        const hasBalance = userJetton.balance !== '0' && parseFloat(userJetton.balance) > 0;
+
+        if (!isInRegistry && hasBalance) {
+          const registryData = getJettonRegistryData(userJetton.jetton.address);
+          const enhanced = enhanceJettonData(userJetton, registryData || undefined);
+          const price = getJettonPrice(userJetton.jetton.address);
+
+          mergedJettons.push({
+            ...enhanced,
+            price: price !== null ? { usd: price } : undefined,
+          });
+        }
+      });
+
+      setJettons(mergedJettons);
+      console.log(`✅ Loaded ${mergedJettons.length} total jettons (${mergedJettons.filter(j => j.jetton.verified).length} verified, ${mergedJettons.filter(j => j.balance !== '0').length} with balance)`);
+
     } catch (err) {
       console.error('❌ Jettons fetch failed:', err);
       setError('Failed to load tokens');
@@ -126,7 +203,7 @@ const Assets: React.FC = () => {
     try {
       console.log(`🖼️ Fetching NFTs for ${address}...`);
       const result = await tonWalletService.getNFTs(address);
-      
+
       if (result.success) {
         setNFTs(result.nfts || []);
         console.log(`✅ Loaded ${result.nfts?.length || 0} NFTs`);
@@ -143,19 +220,19 @@ const Assets: React.FC = () => {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    
+
     // Refresh wallet balance
     if (refreshData) {
       await refreshData();
     }
-    
+
     // Refresh tokens or NFTs based on active tab
     if (activeTab === 'tokens') {
       await fetchJettons();
     } else {
       await fetchNFTs();
     }
-    
+
     setIsRefreshing(false);
   };
 
@@ -176,18 +253,32 @@ const Assets: React.FC = () => {
     return `$${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  const getVerificationBadge = (verification?: string) => {
+  const getVerificationBadge = (verification?: string, verified?: boolean) => {
+    // Check registry verification first
+    if (verified) {
+      return <span className="text-[10px] text-green-500" title="Verified by Registry">✓</span>;
+    }
+    // Fallback to API verification
     if (verification === 'whitelist') {
       return <span className="text-[10px] text-green-500" title="Verified">✓</span>;
     }
     return null;
   };
 
-  // Filter jettons based on search query
-  const filteredJettons = jettons.filter(jetton => 
-    jetton.jetton.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    jetton.jetton.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter jettons based on search query and listing status
+  const filteredJettons = jettons.filter(jetton => {
+    // Search filter
+    const matchesSearch = jetton.jetton.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      jetton.jetton.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+
+    // Listing filter
+    const isListed = jetton.jetton.verified || jetton.jetton.verification === 'whitelist';
+    const matchesFilter = tokenFilter === 'all' ||
+      (tokenFilter === 'listed' && isListed) ||
+      (tokenFilter === 'unlisted' && !isListed);
+
+    return matchesSearch && matchesFilter;
+  });
 
   // Filter NFTs based on search query
   const filteredNFTs = nfts.filter(nft =>
@@ -207,17 +298,17 @@ const Assets: React.FC = () => {
     }
     return 0;
   })();
-  
+
   const tonPrice = 2.45; // TODO: Get from price API
   const rzcBalance = (userProfile as any)?.rzc_balance || 0;
-  const rzcPrice = 0.10; // 1 RZC = $0.10
+  const rzcPrice = RZC_CONFIG.RZC_PRICE_USD; // Use config price
   const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * rzcPrice);
 
-  console.log('🔍 Assets Debug:', { 
-    tonBalance, 
+  console.log('🔍 Assets Debug:', {
+    tonBalance,
     tonBalanceType: typeof tonBalance,
-    tonBalanceNum, 
-    totalValue 
+    tonBalanceNum,
+    totalValue
   });
 
   const getNFTImage = (nft: NFT) => {
@@ -240,7 +331,7 @@ const Assets: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <button 
+          <button
             onClick={handleRefresh}
             disabled={isRefreshing}
             className="p-2.5 sm:p-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl text-slate-500 dark:text-gray-500 hover:text-primary transition-all disabled:opacity-50 active:scale-95"
@@ -253,35 +344,79 @@ const Assets: React.FC = () => {
 
       {/* Tab Switcher */}
       <div className="flex p-1 bg-slate-100 dark:bg-white/5 rounded-xl sm:rounded-[1.25rem] border border-slate-200 dark:border-white/5">
-        <button 
+        <button
           onClick={() => setActiveTab('tokens')}
-          className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 rounded-lg sm:rounded-[1rem] text-[10px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${
-            activeTab === 'tokens' 
-              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg' 
+          className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 rounded-lg sm:rounded-[1rem] text-[10px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${activeTab === 'tokens'
+              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
               : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
-          }`}
+            }`}
         >
           <Coins size={14} /> {t('assets.tokens')}
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('nfts')}
-          className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 rounded-lg sm:rounded-[1rem] text-[10px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${
-            activeTab === 'nfts' 
-              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg' 
+          className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 rounded-lg sm:rounded-[1rem] text-[10px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${activeTab === 'nfts'
+              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
               : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
-          }`}
+            }`}
         >
           <LayoutGrid size={14} /> {t('assets.nfts')}
         </button>
       </div>
 
-      {/* Search */}
-      {(activeTab === 'tokens' || activeTab === 'nfts') && (
+      {/* Search and Filter */}
+      {activeTab === 'tokens' && (
+        <div className="space-y-3">
+          <div className="relative group">
+            <Search size={14} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-700 group-focus-within:text-primary transition-colors" />
+            <input
+              type="text"
+              placeholder={t('history.search')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-10 sm:pl-11 pr-3 sm:pr-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-800"
+            />
+          </div>
+
+          {/* Token Filter Tabs */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setTokenFilter('all')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${tokenFilter === 'all'
+                  ? 'bg-primary text-black'
+                  : 'bg-white dark:bg-white/5 text-slate-500 dark:text-gray-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+            >
+              All Tokens
+            </button>
+            <button
+              onClick={() => setTokenFilter('listed')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${tokenFilter === 'listed'
+                  ? 'bg-green-500 text-white'
+                  : 'bg-white dark:bg-white/5 text-slate-500 dark:text-gray-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+            >
+              ✓ Listed
+            </button>
+            <button
+              onClick={() => setTokenFilter('unlisted')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${tokenFilter === 'unlisted'
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-white dark:bg-white/5 text-slate-500 dark:text-gray-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+            >
+              Unlisted
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'nfts' && (
         <div className="relative group">
           <Search size={14} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-700 group-focus-within:text-primary transition-colors" />
-          <input 
-            type="text" 
-            placeholder={activeTab === 'tokens' ? t('history.search') : t('history.search')}
+          <input
+            type="text"
+            placeholder={t('history.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-10 sm:pl-11 pr-3 sm:pr-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-800"
@@ -300,7 +435,7 @@ const Assets: React.FC = () => {
                   <div>
                     <h4 className="font-bold text-red-900 dark:text-red-300 mb-1">Failed to load tokens</h4>
                     <p className="text-sm text-red-700 dark:text-red-400 mb-3">{error}</p>
-                    <button 
+                    <button
                       onClick={handleRefresh}
                       className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase hover:bg-red-700 transition-all"
                     >
@@ -317,13 +452,38 @@ const Assets: React.FC = () => {
               </div>
             ) : (
               <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-[2rem] overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
+              {/* RZC Balance Verification Banner */}
+              <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 flex items-start gap-2.5">
+                <Lock size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[10px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider">RZC Balance Verification Active</p>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400/80 font-medium mt-0.5 leading-snug">
+                    RZC transfers are temporarily disabled while we verify all user balances. Transfers will resume once verification is complete.
+                  </p>
+                </div>
+              </div>
+
                 {/* TON Balance (Always first) */}
-                <div className="py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group">
-                  <div className="flex items-center gap-4">
+                <div
+                  onClick={() => navigate('/wallet/asset-detail', {
+                    state: {
+                      symbol: 'TON',
+                      name: 'Toncoin',
+                      balance: String(tonBalanceNum * Math.pow(10, 9)),
+                      decimals: 9,
+                      emoji: '💎',
+                      price: tonPrice,
+                      verified: true,
+                      type: 'TON'
+                    }
+                  })}
+                  className="py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-4 flex-1">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 group-hover:scale-105 transition-transform">
                       💎
                     </div>
-                    <div>
+                    <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-sm text-slate-900 dark:text-white">Toncoin</h4>
                         <span className="text-[10px] text-green-500">✓</span>
@@ -337,24 +497,50 @@ const Assets: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-black text-sm text-slate-900 dark:text-white">
-                      ${(tonBalanceNum * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="font-black text-sm text-slate-900 dark:text-white">
+                        ${(tonBalanceNum * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
+                        Native
+                      </div>
                     </div>
-                    <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
-                      Native
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/wallet/transfer', { state: { asset: 'TON' } });
+                      }}
+                      className="p-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl transition-all active:scale-95"
+                      title="Send TON"
+                    >
+                      <Send size={16} />
+                    </button>
                   </div>
                 </div>
 
                 {/* RZC Balance (Community Token) */}
                 {userProfile && (
-                  <div className="py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group">
-                    <div className="flex items-center gap-4">
+                  <div
+                    onClick={() => navigate('/wallet/asset-detail', {
+                      state: {
+                        symbol: 'RZC',
+                        name: 'RhizaCore Token',
+                        balance: String((userProfile as any).rzc_balance || 0),
+                        decimals: 0,
+                        emoji: '⚡',
+                        price: rzcPrice,
+                        verified: true,
+                        type: 'RZC'
+                      }
+                    })}
+                    className="py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-4 flex-1">
                       <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl bg-gradient-to-br from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 group-hover:scale-105 transition-transform">
                         ⚡
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <h4 className="font-bold text-sm text-slate-900 dark:text-white">RhizaCore Token</h4>
                           <span className="text-[10px] text-[#00FF88]">✓</span>
@@ -364,12 +550,32 @@ const Assets: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-black text-sm text-[#00FF88]">
-                        ${(((userProfile as any).rzc_balance || 0) * 0.10).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className="font-black text-sm text-[#00FF88]">
+                          ${(((userProfile as any).rzc_balance || 0) * RZC_CONFIG.RZC_PRICE_USD).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
+                          Community
+                        </div>
                       </div>
-                      <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
-                        Community
+                      {/* RZC Transfer DISABLED — balance verification in progress */}
+                      <div className="flex flex-col items-center gap-1">
+                        <div
+                          title="RZC transfers disabled — balance verification in progress"
+                          className="p-2 bg-amber-500/10 text-amber-500 rounded-xl cursor-not-allowed"
+                        >
+                          <Lock size={16} />
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate('/wallet/verification');
+                          }}
+                          className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider hover:underline whitespace-nowrap"
+                        >
+                          Verify
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -387,47 +593,126 @@ const Assets: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  filteredJettons.map((jetton) => (
-                    <div 
-                      key={jetton.jetton.address} 
-                      className="py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 group-hover:scale-105 transition-transform overflow-hidden">
-                          {jetton.jetton.image ? (
-                            <img src={jetton.jetton.image} alt={jetton.jetton.symbol} className="w-full h-full object-cover" />
+                  filteredJettons.map((jetton) => {
+                    const hasBalance = jetton.balance !== '0' && parseFloat(jetton.balance) > 0;
+                    const registryData = getJettonRegistryData(jetton.jetton.address);
+                    const fallbackEmoji = registryData?.emoji || '🪙';
+
+                    return (
+                      <div
+                        key={jetton.jetton.address}
+                        onClick={() => navigate('/wallet/asset-detail', {
+                          state: {
+                            symbol: jetton.jetton.symbol,
+                            name: jetton.jetton.name,
+                            balance: jetton.balance,
+                            decimals: jetton.jetton.decimals,
+                            image: jetton.jetton.image,
+                            emoji: fallbackEmoji,
+                            price: jetton.price?.usd,
+                            verified: jetton.jetton.verified || jetton.jetton.verification === 'whitelist',
+                            address: jetton.jetton.address,
+                            type: 'JETTON'
+                          }
+                        })}
+                        className={`py-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group cursor-pointer ${!hasBalance ? 'opacity-60' : ''
+                          }`}
+                      >
+                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                          <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 group-hover:scale-105 transition-transform overflow-hidden relative">
+                            {jetton.jetton.image ? (
+                              <>
+                                <img
+                                  src={jetton.jetton.image}
+                                  alt={jetton.jetton.symbol}
+                                  className="w-full h-full object-cover absolute inset-0"
+                                  onError={(e) => {
+                                    // Hide image and show emoji fallback
+                                    const img = e.target as HTMLImageElement;
+                                    img.style.display = 'none';
+                                    const parent = img.parentElement;
+                                    if (parent) {
+                                      const fallback = parent.querySelector('.emoji-fallback') as HTMLElement;
+                                      if (fallback) fallback.style.display = 'flex';
+                                    }
+                                  }}
+                                />
+                                <span className="emoji-fallback absolute inset-0 flex items-center justify-center text-xl" style={{ display: 'none' }}>
+                                  {fallbackEmoji}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-sm">{fallbackEmoji}</span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate">{jetton.jetton.name}</h4>
+                              {getVerificationBadge(jetton.jetton.verification, (jetton.jetton as any).verified)}
+                            </div>
+                            <p className="text-[10px] text-slate-500 dark:text-gray-500 font-bold tracking-tight">
+                              {hasBalance ? formatBalance(jetton.balance, jetton.jetton.decimals) : '0'} <span className="text-slate-400 dark:text-gray-700">{jetton.jetton.symbol}</span>
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right ml-3">
+                            {jetton.price?.usd ? (
+                              <>
+                                <div className="font-black text-sm text-slate-900 dark:text-white whitespace-nowrap">
+                                  {hasBalance ? formatUsdValue(jetton.balance, jetton.jetton.decimals, jetton.price.usd) : '$0.00'}
+                                </div>
+                                <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
+                                  ${jetton.price.usd.toFixed(jetton.price.usd < 0.01 ? 4 : 2)}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
+                                No price
+                              </div>
+                            )}
+                          </div>
+                          {hasBalance ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate('/wallet/transfer', {
+                                  state: {
+                                    asset: 'JETTON',
+                                    jettonAddress: jetton.jetton.address,
+                                    jettonName: jetton.jetton.name,
+                                    jettonSymbol: jetton.jetton.symbol,
+                                    jettonDecimals: jetton.jetton.decimals,
+                                    jettonBalance: jetton.balance,
+                                    jettonWalletAddress: (jetton as any).walletAddress?.address
+                                  }
+                                });
+                              }}
+                              className="p-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-xl transition-all active:scale-95"
+                              title={`Send ${jetton.jetton.symbol}`}
+                            >
+                              <Send size={16} />
+                            </button>
                           ) : (
-                            <span className="text-sm">🪙</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate('/wallet/swap', {
+                                  state: {
+                                    toToken: jetton.jetton.symbol
+                                  }
+                                });
+                              }}
+                              className="p-2 bg-green-500/10 hover:bg-green-500/20 text-green-600 dark:text-green-400 rounded-xl transition-all active:scale-95"
+                              title={`Get ${jetton.jetton.symbol}`}
+                            >
+                              <PlusCircle size={16} />
+                            </button>
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate">{jetton.jetton.name}</h4>
-                            {getVerificationBadge(jetton.jetton.verification)}
-                          </div>
-                          <p className="text-[10px] text-slate-500 dark:text-gray-500 font-bold tracking-tight">
-                            {formatBalance(jetton.balance, jetton.jetton.decimals)} <span className="text-slate-400 dark:text-gray-700">{jetton.jetton.symbol}</span>
-                          </p>
-                        </div>
                       </div>
-                      <div className="text-right ml-3">
-                        {jetton.price?.usd ? (
-                          <>
-                            <div className="font-black text-sm text-slate-900 dark:text-white whitespace-nowrap">
-                              {formatUsdValue(jetton.balance, jetton.jetton.decimals, jetton.price.usd)}
-                            </div>
-                            <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
-                              ${jetton.price.usd.toFixed(4)}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
-                            No price
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -443,7 +728,7 @@ const Assets: React.FC = () => {
                   <div>
                     <h4 className="font-bold text-red-900 dark:text-red-300 mb-1">Failed to load NFTs</h4>
                     <p className="text-sm text-red-700 dark:text-red-400 mb-3">{nftError}</p>
-                    <button 
+                    <button
                       onClick={handleRefresh}
                       className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase hover:bg-red-700 transition-all"
                     >
@@ -471,13 +756,13 @@ const Assets: React.FC = () => {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {filteredNFTs.map((nft) => (
-                  <div 
+                  <div
                     key={`${nft.address}-${nft.index}`}
                     className="aspect-square rounded-[2rem] bg-slate-100 dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 overflow-hidden group cursor-pointer relative shadow-xl hover:border-primary transition-all"
                   >
                     {getNFTImage(nft) ? (
-                      <img 
-                        src={getNFTImage(nft)} 
+                      <img
+                        src={getNFTImage(nft)}
                         alt={nft.metadata?.name || 'NFT'}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                         onError={(e) => {
@@ -512,9 +797,14 @@ const Assets: React.FC = () => {
         )}
       </div>
 
+      {/* RZC Balance Verification Module */}
+      {activeTab === 'tokens' && userProfile && (
+        <BalanceVerification />
+      )}
+
       {/* Explorer Link */}
       {address && (
-        <button 
+        <button
           onClick={() => window.open(getExplorerUrl(address, network), '_blank')}
           className="w-full py-4 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-white/10 transition-all text-slate-500 dark:text-gray-500 group"
         >

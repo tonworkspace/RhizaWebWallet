@@ -10,7 +10,7 @@ import { rzcRewardService } from '../services/rzcRewardService';
 
 const CreateWallet: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useWallet();
+  const { login, isLoggedIn } = useWallet();
   const { showToast } = useToast();
   const [searchParams] = useSearchParams();
   
@@ -34,6 +34,13 @@ const CreateWallet: React.FC = () => {
   const [verificationInputs, setVerificationInputs] = useState<string[]>(['', '', '']);
   const [verificationError, setVerificationError] = useState('');
 
+  // Redirect to dashboard if user is already logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      navigate('/wallet/dashboard');
+    }
+  }, [isLoggedIn, navigate]);
+
   useEffect(() => {
     const generate = async () => {
       try {
@@ -55,9 +62,14 @@ const CreateWallet: React.FC = () => {
   }, [showToast]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(mnemonic.join(' '));
+    // Format mnemonic with numbers for easier backup
+    const numberedMnemonic = mnemonic
+      .map((word, index) => `${index + 1}. ${word}`)
+      .join('\n');
+    
+    navigator.clipboard.writeText(numberedMnemonic);
     setCopied(true);
-    showToast('Mnemonic copied to clipboard', 'success');
+    showToast('Mnemonic copied with numbers to clipboard', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
 

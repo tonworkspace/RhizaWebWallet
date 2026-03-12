@@ -1616,15 +1616,59 @@ class SupabaseService {
     }
 
     try {
+      // Try RPC function first
       const { data, error } = await this.client.rpc('check_wallet_activation', {
         p_wallet_address: walletAddress
       });
 
-      if (error) throw error;
+      if (error) {
+        // If RPC doesn't exist, fallback to direct query
+        console.warn('⚠️ RPC function not found, using fallback query');
+        return await this.checkWalletActivationFallback(walletAddress);
+      }
 
       return data && data.length > 0 ? data[0] : null;
     } catch (error: any) {
       console.error('❌ Failed to check wallet activation:', error);
+      // Try fallback
+      return await this.checkWalletActivationFallback(walletAddress);
+    }
+  }
+
+  /**
+   * Fallback method to check activation without RPC
+   */
+  private async checkWalletActivationFallback(walletAddress: string): Promise<{
+    is_activated: boolean;
+    activated_at: string | null;
+    activation_fee_paid: number;
+  } | null> {
+    try {
+      // Check if user has any mining nodes
+      const { data: nodes, error: nodesError } = await this.client!
+        .from('mining_nodes')
+        .select('id, purchased_at, price_paid')
+        .eq('wallet_address', walletAddress)
+        .limit(1);
+
+      if (nodesError) throw nodesError;
+
+      if (nodes && nodes.length > 0) {
+        return {
+          is_activated: true,
+          activated_at: nodes[0].purchased_at,
+          activation_fee_paid: nodes[0].price_paid || 0
+        };
+      }
+
+      // Not activated
+      return {
+        is_activated: false,
+        activated_at: null,
+        activation_fee_paid: 0
+      };
+    } catch (error: any) {
+      console.error('❌ Fallback activation check failed:', error);
       return null;
     }
   }

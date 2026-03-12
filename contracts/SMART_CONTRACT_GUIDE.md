@@ -471,5 +471,4 @@ For contract-related issues:
 ---
 
 ## 📜 License
-
 MIT License - See LICENSE file for details

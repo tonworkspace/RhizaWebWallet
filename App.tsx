@@ -5,6 +5,7 @@ import './i18n/config';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import Assets from './pages/Assets';
+import AssetDetail from './pages/AssetDetail';
 import History from './pages/History';
 import Settings from './pages/Settings';
 import Referral from './pages/Referral';
@@ -13,6 +14,7 @@ import CreateWallet from './pages/CreateWallet';
 import ImportWallet from './pages/ImportWallet';
 import WalletLogin from './pages/WalletLogin';
 import ProfileSetup from './pages/ProfileSetup';
+import ProfileEdit from './pages/ProfileEdit';
 import Transfer from './pages/Transfer';
 import Receive from './pages/Receive';
 import AIAssistant from './pages/AIAssistant';
@@ -23,6 +25,7 @@ import MiningNodes from './pages/MiningNodes';
 import AdminRegister from './pages/AdminRegister';
 import AdminSetup from './pages/AdminSetup';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminPanel from './pages/AdminPanel';
 import DatabaseTest from './pages/DatabaseTest';
 import SupabaseConnectionTest from './pages/SupabaseConnectionTest';
 import Whitepaper from './pages/Whitepaper';
@@ -41,6 +44,10 @@ import Marketplace from './pages/Marketplace';
 import Launchpad from './pages/Launchpad';
 import ReferralPortal from './pages/ReferralPortal';
 import More from './pages/More';
+import RzcUtility from './pages/RzcUtility';
+import Swap from './pages/Swap';
+import WalletMigration from './pages/WalletMigration';
+import BalanceVerification from './components/BalanceVerification';
 import { Layout } from './components/Layout';
 import { WalletProvider, useWallet } from './context/WalletContext';
 import { ToastProvider } from './context/ToastContext';
@@ -178,7 +185,9 @@ const AppContent: React.FC = () => {
       '/wallet/ai-assistant': 'AI Assistant',
       '/wallet/notifications': 'Notifications',
       '/wallet/activity': 'Activity Log',
-      '/mining-nodes': 'Mining Nodes',
+      '/wallet/sales-package': 'Sales Package',
+      '/wallet/profile': 'Edit Profile',
+      '/wallet/verification': 'Balance Verification',
       '/admin': 'Admin Dashboard',
       '/admin-register': 'Admin Registration',
       '/admin-setup': 'Admin Setup'
@@ -187,13 +196,10 @@ const AppContent: React.FC = () => {
     return routes[path] || path.split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown Page';
   };
 
-  const allowedPagesWhenLocked = ['/wallet/mining', '/wallet/receive'];
-  const isOnAllowedPage = allowedPagesWhenLocked.includes(location.pathname);
-
   return (
     <>
-      {/* Wallet Lock Overlay - Shows when not activated (except on Mining Nodes and Receive pages) */}
-      {!isLoadingActivation && !walletActivated && isLoggedIn && isWalletMode && !isOnAllowedPage && (
+      {/* Activation Banner - Shows when not activated (dismissible, non-blocking) */}
+      {!isLoadingActivation && !walletActivated && isLoggedIn && isWalletMode && (
         <WalletLockOverlay />
       )}
 
@@ -215,25 +221,30 @@ const AppContent: React.FC = () => {
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/launchpad" element={<Launchpad />} />
         <Route path="/referral" element={<ReferralPortal />} />
+        <Route path="/use-rzc" element={<RzcUtility />} />
+        <Route path="/rzc-utility" element={<RzcUtility />} />
         
         {/* Wallet Auth Routes */}
         <Route path="/login" element={<WalletLogin />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/create-wallet" element={<CreateWallet />} />
-        <Route path="/join" element={<CreateWallet />} />
+        <Route path="/join" element={<WalletLogin />} />
         <Route path="/import-wallet" element={<ImportWallet />} />
         
         {/* Admin Routes (Keep for backend management) */}
         <Route path="/admin-register" element={<AdminRegister />} />
         <Route path="/admin-setup" element={<AdminSetup />} />
         <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/database-test" element={<DatabaseTest />} />
         <Route path="/supabase-test" element={<SupabaseConnectionTest />} />
         
         {/* Wallet Routes */}
         <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
+        <Route path="/wallet/profile" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
         <Route path="/wallet/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/wallet/assets" element={<ProtectedRoute><Assets /></ProtectedRoute>} /> 
+        <Route path="/wallet/asset-detail" element={<ProtectedRoute><AssetDetail /></ProtectedRoute>} />
         <Route path="/wallet/history" element={<ProtectedRoute><History /></ProtectedRoute>} /> 
         <Route path="/wallet/referral" element={<ProtectedRoute><Referral /></ProtectedRoute>} />
         <Route path="/wallet/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
@@ -243,7 +254,10 @@ const AppContent: React.FC = () => {
         <Route path="/wallet/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
         <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
-        <Route path="/wallet/mining" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
+        <Route path="/wallet/sales-package" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
+        <Route path="/wallet/swap" element={<ProtectedRoute><Swap /></ProtectedRoute>} />
+        <Route path="/wallet/migration" element={<ProtectedRoute><WalletMigration /></ProtectedRoute>} />
+        <Route path="/wallet/verification" element={<ProtectedRoute><div className="max-w-xl mx-auto px-3 sm:px-4 md:px-0 py-6 space-y-4 page-enter"><div className="flex items-center gap-2 mb-2"><h1 className="text-xl font-black text-slate-900 dark:text-white">Balance Verification</h1></div><BalanceVerification /></div></ProtectedRoute>} />
         
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

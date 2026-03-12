@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { 
   ArrowLeft, 
@@ -11,18 +11,37 @@ import {
   ShieldCheck,
   CheckCircle2,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { tonWalletService } from '../services/tonWalletService';
 import { transactionSyncService } from '../services/transactionSync';
 import { useToast } from '../context/ToastContext';
+import { getJettonTransaction, estimateJettonTransferFee } from '../utility/jettonTransfer';
+import { toDecimals } from '../utility/decimals';
+import { Address } from '@ton/core';
 
 const Transfer: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const { balance, jettons, address, refreshData } = useWallet();
   const { showToast } = useToast();
+  
+  // Get asset data from navigation state
+  const locationState = location.state as any;
+  const isJettonTransfer = locationState?.asset === 'JETTON';
+  const isRzcTransfer = locationState?.asset === 'RZC';
+  const jettonData = isJettonTransfer ? {
+    address: locationState.jettonAddress,
+    name: locationState.jettonName,
+    symbol: locationState.jettonSymbol,
+    decimals: locationState.jettonDecimals,
+    balance: locationState.jettonBalance,
+    walletAddress: locationState.jettonWalletAddress
+  } : null;
+  
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
@@ -31,18 +50,45 @@ const Transfer: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [txHash, setTxHash] = useState('');
   const [isSendingAll, setIsSendingAll] = useState(false);
+  const [showAssetSelector, setShowAssetSelector] = useState(false);
 
-  // Use current balance directly instead of storing in state
-  const currentBalance = parseFloat(balance || '0');
+  // Calculate balances and fees based on asset type
+  const { userProfile } = useWallet();
+  const rzcBalance = (userProfile as any)?.rzc_balance || 0;
+  
+  const currentBalance = isRzcTransfer
+    ? rzcBalance
+    : isJettonTransfer && jettonData
+    ? parseFloat(toDecimals(BigInt(jettonData.balance), jettonData.decimals))
+    : parseFloat(balance || '0');
+  
   const sendAmount = parseFloat(amount || '0');
-  const estimatedFee = 0.01;
-  const totalRequired = sendAmount + estimatedFee;
+  const estimatedFee = isJettonTransfer ? parseFloat(estimateJettonTransferFee()) : isRzcTransfer ? 0 : 0.01;
+  const tonBalance = parseFloat(balance || '0');
+  
+  // For jettons, we need TON for gas but send jettons
+  // For RZC, no gas fees (internal transfer)
+  const totalRequired = isRzcTransfer
+    ? sendAmount // Just RZC amount, no fees
+    : isJettonTransfer 
+    ? sendAmount // Just the jetton amount
+    : sendAmount + estimatedFee; // TON amount + fee
+  
+  const hasEnoughTonForGas = isRzcTransfer ? true : tonBalance >= estimatedFee;
   const isLargeTransaction = sendAmount > currentBalance * 0.5;
 
   const handleMax = () => {
-    // Leave 0.05 TON for gas (safer buffer)
-    const max = Math.max(0, currentBalance - 0.05);
-    setAmount(max.toFixed(4));
+    if (isRzcTransfer) {
+      // For RZC, send max RZC balance (no gas fees)
+      setAmount(currentBalance.toString());
+    } else if (isJettonTransfer) {
+      // For jettons, send max jetton balance
+      setAmount(currentBalance.toFixed(jettonData?.decimals || 9));
+    } else {
+      // For TON, leave 0.05 TON for gas (safer buffer)
+      const max = Math.max(0, currentBalance - 0.05);
+      setAmount(max.toFixed(4));
+    }
   };
 
   const handleSendAll = async () => {
@@ -79,7 +125,10 @@ const Transfer: React.FC = () => {
         // Sync transaction to Supabase
         if (address && result.txHash) {
           try {
-            await transactionSyncService.syncSingleTransaction(address, result.txHash);
+            // Trigger a full sync after a short delay
+            setTimeout(() => {
+              refreshData();
+            }, 2000);
           } catch (syncError) {
             console.error('Failed to sync transaction:', syncError);
           }
@@ -112,36 +161,103 @@ const Transfer: React.FC = () => {
     setErrorMessage('');
     
     try {
-      // Send real TON transaction
-      const result = await tonWalletService.sendTransaction(
-        recipient,
-        amount,
-        comment || undefined
-      );
-      
-      if (result.success) {
-        setStatus('success');
-        setTxHash(result.txHash || '');
-        showToast('Transaction sent successfully!', 'success');
-        
-        // Sync transaction to Supabase
-        if (address && result.txHash) {
-          try {
-            await transactionSyncService.syncSingleTransaction(address, result.txHash);
-          } catch (syncError) {
-            console.error('Failed to sync transaction:', syncError);
-            // Don't fail the whole transaction if sync fails
-          }
+      if (isRzcTransfer) {
+        // Send RZC transaction (internal transfer via Supabase)
+        if (!address) {
+          throw new Error('Wallet not connected');
         }
         
-        // Refresh wallet data
-        setTimeout(() => {
-          refreshData();
-        }, 2000);
+        // Import RZC transfer service
+        const { rzcTransferService } = await import('../services/rzcTransferService');
+        
+        const result = await rzcTransferService.transferRZC(
+          address,
+          recipient,
+          parseFloat(amount),
+          comment || undefined
+        );
+        
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.transactionId || '');
+          showToast('RZC sent successfully!', 'success');
+          
+          // Refresh wallet data
+          setTimeout(() => {
+            refreshData();
+          }, 2000);
+        } else {
+          throw new Error(result.error || 'RZC transfer failed');
+        }
+      } else if (isJettonTransfer && jettonData) {
+        // Send jetton transaction using native wallet
+        if (!address) {
+          throw new Error('Wallet not connected');
+        }
+        
+        if (!jettonData.walletAddress) {
+          throw new Error('Jetton wallet address not available');
+        }
+        
+        // Convert amount to bigint
+        const { fromDecimals } = await import('../utility/decimals');
+        const amountBigInt = fromDecimals(amount, jettonData.decimals);
+        
+        // Send via native wallet service
+        const result = await tonWalletService.sendJettonTransaction(
+          jettonData.walletAddress,
+          recipient,
+          amountBigInt,
+          '0.01', // forward amount
+          comment || undefined
+        );
+        
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast(`${jettonData.symbol} sent successfully!`, 'success');
+          
+          // Refresh wallet data
+          setTimeout(() => {
+            refreshData();
+          }, 2000);
+        } else {
+          throw new Error(result.error || 'Transaction failed');
+        }
       } else {
-        setStatus('error');
-        setErrorMessage(result.error || 'Transaction failed');
-        showToast(result.error || 'Transaction failed', 'error');
+        // Send regular TON transaction
+        const result = await tonWalletService.sendTransaction(
+          recipient,
+          amount,
+          comment || undefined
+        );
+        
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast('Transaction sent successfully!', 'success');
+          
+          // Sync transaction to Supabase (if user is logged in)
+          if (address) {
+            try {
+              // Trigger a full sync after a short delay
+              setTimeout(() => {
+                refreshData();
+              }, 2000);
+            } catch (syncError) {
+              console.error('Failed to sync transaction:', syncError);
+            }
+          }
+          
+          // Refresh wallet data
+          setTimeout(() => {
+            refreshData();
+          }, 2000);
+        } else {
+          setStatus('error');
+          setErrorMessage(result.error || 'Transaction failed');
+          showToast(result.error || 'Transaction failed', 'error');
+        }
       }
     } catch (error) {
       console.error('Transaction error:', error);
@@ -151,7 +267,11 @@ const Transfer: React.FC = () => {
     }
   };
 
-  const isValid = recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
+  const isValid = isRzcTransfer
+    ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance
+    : isJettonTransfer
+    ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && hasEnoughTonForGas
+    : recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
 
   return (
     <div className="max-w-xl mx-auto space-y-6 sm:space-y-8 page-enter pb-8 sm:pb-12 px-3 sm:px-4 md:px-0">
@@ -162,21 +282,108 @@ const Transfer: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-black text-white">{t('transfer.title')}</h1>
       </div>
 
-      {step === 'form' && (
+      {/* RZC Transfer Lock — Balance Verification Active */}
+      {isRzcTransfer && (
+        <div className="flex flex-col items-center justify-center py-10 animate-in fade-in duration-500">
+          <div className="w-full max-w-md p-7 rounded-[2rem] bg-amber-500/10 border-2 border-amber-500/30 flex flex-col items-center gap-4 text-center shadow-xl">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 flex items-center justify-center">
+              <Lock size={32} className="text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-amber-300 mb-1">RZC Transfers Disabled</h2>
+              <p className="text-sm text-amber-400/80 font-medium leading-relaxed">
+                RhizaCore Token (RZC) transfers are temporarily suspended while we verify all user balances across the network.
+              </p>
+            </div>
+            <div className="w-full p-3.5 rounded-xl bg-white/5 border border-amber-500/20 space-y-2 text-left">
+              <p className="text-[11px] font-black text-amber-300 uppercase tracking-wider">What this means</p>
+              <ul className="space-y-1.5">
+                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2">
+                  <span className="mt-0.5 flex-shrink-0">•</span>
+                  Your RZC balance is safe and fully intact
+                </li>
+                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2">
+                  <span className="mt-0.5 flex-shrink-0">•</span>
+                  All balances are being audited to ensure accuracy
+                </li>
+                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2">
+                  <span className="mt-0.5 flex-shrink-0">•</span>
+                  Transfers will resume automatically once verification is complete
+                </li>
+              </ul>
+            </div>
+            <button
+              onClick={() => navigate('/wallet/assets')}
+              className="w-full py-3.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-black text-xs uppercase tracking-widest transition-all active:scale-95"
+            >
+              Back to Assets
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isRzcTransfer && step === 'form' && (
         <div className="space-y-5 sm:space-y-6">
           <div className="luxury-card p-6 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] space-y-6 sm:space-y-8">
             <div className="space-y-2.5 sm:space-y-3">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 ml-2">Select Asset</label>
-              <button className="w-full p-4 sm:p-5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl flex items-center justify-between hover:bg-white/10 transition-all active:scale-[0.98]">
+              <button 
+                onClick={() => setShowAssetSelector(!showAssetSelector)}
+                className="w-full p-4 sm:p-5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl flex items-center justify-between hover:bg-white/10 transition-all active:scale-[0.98]"
+              >
                 <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="text-lg sm:text-xl">💎</div>
+                  <div className="text-lg sm:text-xl">
+                    {isRzcTransfer ? '⚡' : isJettonTransfer ? '🪙' : '💎'}
+                  </div>
                   <div className="text-left">
-                    <div className="font-bold text-sm text-white">TON</div>
-                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Balance: {balance}</div>
+                    <div className="font-bold text-sm text-white">
+                      {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : 'TON'}
+                    </div>
+                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                      Balance: {isRzcTransfer 
+                        ? currentBalance.toLocaleString()
+                        : currentBalance.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)
+                      }
+                    </div>
                   </div>
                 </div>
                 <ChevronDown size={18} className="text-gray-600" />
               </button>
+              
+              {/* Asset Selector Dropdown */}
+              {showAssetSelector && (
+                <div className="absolute z-50 mt-2 w-full max-w-md bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                  <button
+                    onClick={() => {
+                      navigate('/wallet/transfer', { state: { asset: 'TON' } });
+                      setShowAssetSelector(false);
+                    }}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-white/5 flex items-center gap-3 transition-colors"
+                  >
+                    <span className="text-xl">💎</span>
+                    <div>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">Toncoin</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">TON</p>
+                    </div>
+                  </button>
+                  {/* RZC hidden — transfers disabled during verification */}
+                  {userProfile && (
+                    <div className="w-full px-4 py-3 flex items-center gap-3 opacity-50 cursor-not-allowed">
+                      <span className="text-xl">⚡</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-gray-900 dark:text-white">RhizaCore Token</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-500">RZC</p>
+                      </div>
+                      <Lock size={13} className="text-amber-500" />
+                    </div>
+                  )}
+                  <div className="px-4 py-2 bg-gray-50 dark:bg-white/5">
+                    <p className="text-xs text-gray-500 dark:text-gray-600 font-medium">
+                      More assets available in Assets page
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2.5 sm:space-y-3">
@@ -185,9 +392,14 @@ const Transfer: React.FC = () => {
                 type="text"
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value)}
-                placeholder="EQ... or UQ..."
+                placeholder={isRzcTransfer ? "@username or wallet address" : "EQ... or UQ..."}
                 className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-bold text-sm outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
               />
+              {isRzcTransfer && (
+                <p className="text-[9px] text-gray-500 ml-2">
+                  💡 You can send to @username or wallet address (must be registered in RhizaCore)
+                </p>
+              )}
             </div>
 
             <div className="space-y-2.5 sm:space-y-3">
@@ -213,14 +425,16 @@ const Transfer: React.FC = () => {
               <div className="relative">
                 <input 
                   type="number"
-                  step="0.0001"
+                  step={isJettonTransfer && jettonData ? `0.${'0'.repeat(jettonData.decimals - 1)}1` : "0.0001"}
                   min="0"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
                   className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-black text-xl sm:text-2xl outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-800"
                 />
-                <span className="absolute right-5 sm:right-6 top-1/2 -translate-y-1/2 font-black text-[#00FF88] text-sm">TON</span>
+                <span className="absolute right-5 sm:right-6 top-1/2 -translate-y-1/2 font-black text-[#00FF88] text-sm">
+                  {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : 'TON'}
+                </span>
               </div>
               <p className="text-[9px] text-gray-500 ml-2">💡 "Send All" transfers your entire balance with gas fees calculated automatically</p>
             </div>
@@ -243,24 +457,43 @@ const Transfer: React.FC = () => {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400 font-bold">{t('wallet.amount')}:</span>
-                    <span className="text-white font-mono">{sendAmount.toFixed(4)} TON</span>
+                    <span className="text-white font-mono">
+                      {isRzcTransfer 
+                        ? sendAmount.toLocaleString()
+                        : sendAmount.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)
+                      } {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : 'TON'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400 font-bold">{t('wallet.fee')}:</span>
-                    <span className="text-white font-mono">~{estimatedFee.toFixed(4)} TON</span>
-                  </div>
-                  <div className="border-t border-blue-500/20 pt-2 mt-2">
-                    <div className="flex justify-between items-center font-bold">
-                      <span className="text-blue-300">{t('transfer.total')}:</span>
-                      <span className="text-white font-mono">{totalRequired.toFixed(4)} TON</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400 font-bold">Remaining Balance:</span>
-                    <span className={`font-mono ${currentBalance - totalRequired >= 0 ? 'text-[#00FF88]' : 'text-red-400'}`}>
-                      {(currentBalance - totalRequired).toFixed(4)} TON
+                    <span className="text-white font-mono">
+                      {isRzcTransfer ? 'Free' : `~${estimatedFee.toFixed(4)} TON`}
                     </span>
                   </div>
+                  {isJettonTransfer && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400 font-bold">TON Balance:</span>
+                      <span className={`font-mono ${hasEnoughTonForGas ? 'text-[#00FF88]' : 'text-red-400'}`}>
+                        {tonBalance.toFixed(4)} TON
+                      </span>
+                    </div>
+                  )}
+                  {!isJettonTransfer && (
+                    <>
+                      <div className="border-t border-blue-500/20 pt-2 mt-2">
+                        <div className="flex justify-between items-center font-bold">
+                          <span className="text-blue-300">{t('transfer.total')}:</span>
+                          <span className="text-white font-mono">{totalRequired.toFixed(4)} TON</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400 font-bold">Remaining Balance:</span>
+                        <span className={`font-mono ${currentBalance - totalRequired >= 0 ? 'text-[#00FF88]' : 'text-red-400'}`}>
+                          {(currentBalance - totalRequired).toFixed(4)} TON
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -276,8 +509,21 @@ const Transfer: React.FC = () => {
               </div>
             )}
 
+            {/* Insufficient TON for Gas Warning (Jettons only) */}
+            {isJettonTransfer && !hasEnoughTonForGas && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl sm:rounded-2xl p-4 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-red-400 mb-1">Insufficient TON for Gas</p>
+                  <p className="text-xs text-red-300/80">
+                    You need {estimatedFee.toFixed(4)} TON for gas fees but only have {tonBalance.toFixed(4)} TON.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Insufficient Balance Warning */}
-            {amount && sendAmount > 0 && totalRequired > currentBalance && (
+            {amount && sendAmount > 0 && totalRequired > currentBalance && !isJettonTransfer && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-xl sm:rounded-2xl p-4 flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
                 <div>
@@ -302,12 +548,16 @@ const Transfer: React.FC = () => {
         </div>
       )}
 
-      {step === 'confirm' && (
+      {!isRzcTransfer && step === 'confirm' && (
         <div className="space-y-6 sm:space-y-8 animate-in zoom-in-95 duration-300">
            <div className="luxury-card p-8 sm:p-10 rounded-[2rem] sm:rounded-[3rem] space-y-6 sm:space-y-8">
               <div className="text-center space-y-3 sm:space-y-4">
                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.3em]">You are sending</p>
-                 <h2 className="text-4xl sm:text-5xl font-black text-[#00FF88] tracking-tight-custom">{amount} <span className="text-lg sm:text-xl text-white">TON</span></h2>
+                 <h2 className="text-4xl sm:text-5xl font-black text-[#00FF88] tracking-tight-custom">
+                   {amount} <span className="text-lg sm:text-xl text-white">
+                     {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : 'TON'}
+                   </span>
+                 </h2>
               </div>
 
               <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6 border-t border-white/5">
@@ -317,18 +567,27 @@ const Transfer: React.FC = () => {
                 </div>
                 <div className="flex justify-between items-center text-sm">
                    <span className="text-gray-500 font-bold">{t('wallet.amount')}</span>
-                   <span className="text-white font-bold">{sendAmount.toFixed(4)} TON</span>
+                   <span className="text-white font-bold">
+                     {isRzcTransfer 
+                       ? sendAmount.toLocaleString()
+                       : sendAmount.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)
+                     } {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : 'TON'}
+                   </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                    <span className="text-gray-500 font-bold">{t('wallet.fee')}</span>
-                   <span className="text-[#00FF88] font-bold">~{estimatedFee.toFixed(4)} TON</span>
+                   <span className="text-[#00FF88] font-bold">
+                     {isRzcTransfer ? 'Free' : `~${estimatedFee.toFixed(4)} TON`}
+                   </span>
                 </div>
-                <div className="border-t border-white/5 pt-3 mt-3">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400 font-bold">{t('wallet.total')}</span>
-                    <span className="text-white font-bold">{totalRequired.toFixed(4)} TON</span>
+                {!isJettonTransfer && (
+                  <div className="border-t border-white/5 pt-3 mt-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-400 font-bold">{t('wallet.total')}</span>
+                      <span className="text-white font-bold">{totalRequired.toFixed(4)} TON</span>
+                    </div>
                   </div>
-                </div>
+                )}
                 {comment && (
                   <div className="flex justify-between items-center text-sm pt-2 border-t border-white/5">
                      <span className="text-gray-500 font-bold">{t('wallet.memo')}</span>
@@ -360,7 +619,7 @@ const Transfer: React.FC = () => {
         </div>
       )}
 
-      {step === 'status' && (
+      {!isRzcTransfer && step === 'status' && (
         <div className="flex flex-col items-center justify-center py-20 space-y-8 animate-in fade-in duration-500">
            {!status ? (
              <>

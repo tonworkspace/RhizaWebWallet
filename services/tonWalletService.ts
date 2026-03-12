@@ -20,10 +20,10 @@ const sessionManager = {
         localStorage.setItem('rhiza_session', encrypted);
         localStorage.setItem('rhiza_session_encrypted', 'device');
       }
-      
+
       // Store session timestamp
       localStorage.setItem('rhiza_session_created', Date.now().toString());
-      
+
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -33,9 +33,9 @@ const sessionManager = {
     try {
       const encrypted = localStorage.getItem('rhiza_session');
       const encryptionType = localStorage.getItem('rhiza_session_encrypted');
-      
+
       if (!encrypted) return null;
-      
+
       if (encryptionType === 'true') {
         // Password-encrypted session
         if (!password) return null;
@@ -85,14 +85,14 @@ async function generateDeviceKey(): Promise<string> {
     screen.width + 'x' + screen.height,
     'rhizacore_v1' // App-specific salt
   ].join('|');
-  
+
   // Hash the fingerprint to create a consistent key
   const encoder = new TextEncoder();
   const data = encoder.encode(fingerprint);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
+
   return hashHex;
 }
 
@@ -101,19 +101,19 @@ export class TonWalletService {
   private keyPair: any = null;
   private wallet: any = null;
   private contract: any = null;
-  private currentNetwork: NetworkType = 'testnet';
+  private currentNetwork: NetworkType = 'mainnet'; // Default to mainnet
 
   constructor() {
-    // Initialize with testnet by default
-    const network = (localStorage.getItem('rhiza_network') as NetworkType) || 'testnet';
+    // Initialize with mainnet by default
+    const network = (localStorage.getItem('rhiza_network') as NetworkType) || 'mainnet';
     this.currentNetwork = network;
     const config = getNetworkConfig(network);
-    
+
     this.client = new TonClient({
       endpoint: config.API_ENDPOINT,
       apiKey: config.API_KEY
     });
-    
+
     console.log(`🔧 TonWalletService initialized with ${config.NAME}`);
   }
 
@@ -121,17 +121,17 @@ export class TonWalletService {
   setNetwork(network: NetworkType) {
     this.currentNetwork = network;
     const config = getNetworkConfig(network);
-    
+
     this.client = new TonClient({
       endpoint: config.API_ENDPOINT,
       apiKey: config.API_KEY
     });
-    
+
     // Reinitialize contract if wallet exists
     if (this.wallet) {
       this.contract = this.client.open(this.wallet);
     }
-    
+
     console.log(`🔄 Network switched to ${config.NAME}`);
     console.log(`📡 Using endpoint: ${config.API_ENDPOINT}`);
   }
@@ -152,16 +152,16 @@ export class TonWalletService {
       this.keyPair = await mnemonicToWalletKey(mnemonic);
       this.wallet = WalletContractV4.create({ workchain: 0, publicKey: this.keyPair.publicKey });
       this.contract = this.client.open(this.wallet);
-      
+
       console.log(`✅ Wallet initialized: ${this.wallet.address.toString()}`);
-      
+
       // Always save session (with device encryption by default, or password if provided)
       const result = await sessionManager.saveSession(mnemonic, password);
       if (!result.success) {
         console.warn('⚠️ Failed to save session:', result.error);
         // Don't fail the login, just warn
       }
-      
+
       return { success: true, address: this.wallet.address.toString() };
     } catch (e) {
       console.error('❌ Wallet initialization failed:', e);
@@ -174,15 +174,15 @@ export class TonWalletService {
       console.warn('⚠️ Contract not initialized');
       return { success: false, error: 'Not initialized' };
     }
-    
+
     try {
       console.log(`💰 Fetching balance for ${this.wallet.address.toString()} on ${this.currentNetwork}...`);
-      
+
       const balance = await this.contract.getBalance();
       const balanceInTon = (Number(balance) / 1e9).toFixed(4);
-      
+
       console.log(`✅ Balance fetched: ${balanceInTon} TON`);
-      
+
       return { success: true, balance: balanceInTon };
     } catch (e) {
       console.error('❌ Balance fetch failed:', e);
@@ -193,11 +193,11 @@ export class TonWalletService {
   async getBalanceByAddress(address: string) {
     try {
       console.log(`💰 Fetching balance for address ${address} on ${this.currentNetwork}...`);
-      
+
       const config = getNetworkConfig(this.currentNetwork);
       const endpoint = config.API_ENDPOINT;
       const apiKey = config.API_KEY;
-      
+
       // Use TonCenter API to get balance
       const response = await fetch(`${endpoint}?api_key=${apiKey}`, {
         method: 'POST',
@@ -213,22 +213,22 @@ export class TonWalletService {
           }
         })
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.error) {
         throw new Error(data.error.message || 'API error');
       }
-      
+
       const balanceInNano = data.result || '0';
       const balanceInTon = (Number(balanceInNano) / 1e9).toFixed(4);
-      
+
       console.log(`✅ Balance fetched: ${balanceInTon} TON`);
-      
+
       return { success: true, balance: balanceInTon };
     } catch (e) {
       console.error('❌ Balance fetch failed:', e);
@@ -239,26 +239,26 @@ export class TonWalletService {
   async getJettons(address: string) {
     try {
       const config = getNetworkConfig(this.currentNetwork);
-      const tonApiEndpoint = this.currentNetwork === 'mainnet' 
+      const tonApiEndpoint = this.currentNetwork === 'mainnet'
         ? 'https://tonapi.io/v2'
         : 'https://testnet.tonapi.io/v2';
-      
+
       console.log(`🪙 Fetching jettons for ${address} on ${this.currentNetwork}...`);
-      
+
       const res = await fetch(`${tonApiEndpoint}/accounts/${address}/jettons`, {
         headers: {
           'Authorization': `Bearer ${config.TONAPI_KEY}`
         }
       });
-      
+
       if (!res.ok) {
         console.warn('⚠️ Jettons fetch failed, returning empty array');
         return { success: true, jettons: [] };
       }
-      
+
       const data = await res.json();
       console.log(`✅ Jettons fetched: ${data.balances?.length || 0} tokens`);
-      
+
       return { success: true, jettons: data.balances || [] };
     } catch (e) {
       console.error('❌ Jettons fetch failed:', e);
@@ -269,25 +269,25 @@ export class TonWalletService {
   async getTransactions(address: string, limit: number = 50) {
     try {
       const config = getNetworkConfig(this.currentNetwork);
-      const tonApiEndpoint = this.currentNetwork === 'mainnet' 
+      const tonApiEndpoint = this.currentNetwork === 'mainnet'
         ? 'https://tonapi.io/v2'
         : 'https://testnet.tonapi.io/v2';
-      
+
       console.log(`📜 Fetching transactions for ${address} on ${this.currentNetwork}...`);
-      
+
       const response = await fetch(`${tonApiEndpoint}/blockchain/accounts/${address}/transactions?limit=${limit}`, {
         headers: {
           'Authorization': `Bearer ${config.TONAPI_KEY}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
       console.log(`✅ Fetched ${data.transactions?.length || 0} transactions`);
-      
+
       return { success: true, transactions: data.transactions || [] };
     } catch (e) {
       console.error('❌ Transactions fetch failed:', e);
@@ -298,25 +298,25 @@ export class TonWalletService {
   async getNFTs(address: string, limit: number = 100) {
     try {
       const config = getNetworkConfig(this.currentNetwork);
-      const tonApiEndpoint = this.currentNetwork === 'mainnet' 
+      const tonApiEndpoint = this.currentNetwork === 'mainnet'
         ? 'https://tonapi.io/v2'
         : 'https://testnet.tonapi.io/v2';
-      
+
       console.log(`🖼️ Fetching NFTs for ${address} on ${this.currentNetwork}...`);
-      
+
       const response = await fetch(`${tonApiEndpoint}/accounts/${address}/nfts?limit=${limit}`, {
         headers: {
           'Authorization': `Bearer ${config.TONAPI_KEY}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
       console.log(`✅ Fetched ${data.nft_items?.length || 0} NFTs`);
-      
+
       return { success: true, nfts: data.nft_items || [] };
     } catch (e) {
       console.error('❌ NFTs fetch failed:', e);
@@ -359,11 +359,11 @@ export class TonWalletService {
 
       const currentBalance = parseFloat(balanceResult.balance);
       const estimatedFee = 0.01; // Estimated gas fee in TON
-      
+
       if (currentBalance < amountNum + estimatedFee) {
-        return { 
-          success: false, 
-          error: `Insufficient balance. You have ${currentBalance} TON but need ${amountNum + estimatedFee} TON (including fees)` 
+        return {
+          success: false,
+          error: `Insufficient balance. You have ${currentBalance} TON but need ${amountNum + estimatedFee} TON (including fees)`
         };
       }
 
@@ -378,7 +378,7 @@ export class TonWalletService {
         messages: [
           internal({
             to: recipientAddr,
-            value: toNano(amount),
+            value: toNano(amountNum.toFixed(9)),
             body: comment || '', // Optional comment
             bounce: false, // Don't bounce if recipient doesn't exist
           })
@@ -411,20 +411,20 @@ export class TonWalletService {
 
       if (currentSeqno > seqno) {
         console.log(`✅ Transaction confirmed! New seqno: ${currentSeqno}`);
-        
+
         // Generate transaction hash (approximate)
         const txHash = `${this.wallet.address.toString()}_${seqno}`;
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           txHash,
           seqno,
           message: 'Transaction sent and confirmed'
         };
       } else {
         console.warn('⚠️ Transaction sent but confirmation timeout');
-        return { 
-          success: true, 
+        return {
+          success: true,
           txHash: `${this.wallet.address.toString()}_${seqno}`,
           seqno,
           message: 'Transaction sent (confirmation pending)'
@@ -433,8 +433,138 @@ export class TonWalletService {
 
     } catch (e) {
       console.error('❌ Transaction failed:', e);
-      return { 
-        success: false, 
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : String(e)
+      };
+    }
+  }
+
+  async sendJettonTransaction(
+    jettonWalletAddress: string,
+    recipientAddress: string,
+    amount: bigint,
+    forwardAmount: string = '0.01',
+    comment?: string
+  ) {
+    if (!this.contract || !this.keyPair) {
+      console.error('❌ Wallet not initialized');
+      return { success: false, error: 'Wallet not initialized' };
+    }
+
+    try {
+      console.log(`🪙 Preparing jetton transaction...`);
+      console.log(`   Jetton Wallet: ${jettonWalletAddress}`);
+      console.log(`   To: ${recipientAddress}`);
+      console.log(`   Amount: ${amount.toString()}`);
+      console.log(`   Network: ${this.currentNetwork}`);
+
+      // Validate addresses
+      let jettonWalletAddr: Address;
+      let recipientAddr: Address;
+      try {
+        jettonWalletAddr = Address.parse(jettonWalletAddress);
+        recipientAddr = Address.parse(recipientAddress);
+      } catch (e) {
+        return { success: false, error: 'Invalid address format' };
+      }
+
+      // Check TON balance for gas
+      const balanceResult = await this.getBalance();
+      if (!balanceResult.success) {
+        return { success: false, error: 'Failed to check balance' };
+      }
+
+      const currentBalance = parseFloat(balanceResult.balance);
+      const gasRequired = 0.05; // 0.05 TON for jetton transfer
+
+      if (currentBalance < gasRequired) {
+        return {
+          success: false,
+          error: `Insufficient TON for gas. You need ${gasRequired} TON but have ${currentBalance} TON`
+        };
+      }
+
+      // Get seqno
+      const seqno = await this.contract.getSeqno();
+      console.log(`📝 Current seqno: ${seqno}`);
+
+      // Build jetton transfer body
+      const { beginCell } = await import('@ton/ton');
+      const body = beginCell()
+        .storeUint(0xf8a7ea5, 32) // jetton transfer op code
+        .storeUint(0, 64) // query ID
+        .storeCoins(amount) // jetton amount
+        .storeAddress(recipientAddr) // destination
+        .storeAddress(this.wallet.address) // response destination
+        .storeUint(0, 1) // null custom payload
+        .storeCoins(toNano(forwardAmount)) // forward amount
+        .storeUint(0, 1) // null forward payload
+        .endCell();
+
+      // Create transfer message
+      const transfer = this.contract.createTransfer({
+        seqno,
+        secretKey: this.keyPair.secretKey,
+        messages: [
+          internal({
+            to: jettonWalletAddr,
+            value: toNano('0.05'), // gas fee
+            body: body,
+            bounce: true,
+          })
+        ]
+      });
+
+      console.log(`📤 Sending jetton transaction to ${this.currentNetwork}...`);
+
+      // Send the transaction
+      await this.contract.send(transfer);
+
+      console.log(`✅ Jetton transaction sent successfully!`);
+      console.log(`   Seqno: ${seqno}`);
+      console.log(`   Waiting for confirmation...`);
+
+      // Wait for transaction confirmation
+      let currentSeqno = seqno;
+      let attempts = 0;
+      const maxAttempts = 30;
+
+      while (currentSeqno === seqno && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+          currentSeqno = await this.contract.getSeqno();
+          attempts++;
+        } catch (e) {
+          console.warn('⚠️ Failed to check seqno, retrying...');
+        }
+      }
+
+      if (currentSeqno > seqno) {
+        console.log(`✅ Jetton transaction confirmed! New seqno: ${currentSeqno}`);
+
+        const txHash = `${this.wallet.address.toString()}_${seqno}`;
+
+        return {
+          success: true,
+          txHash,
+          seqno,
+          message: 'Jetton transaction sent and confirmed'
+        };
+      } else {
+        console.warn('⚠️ Jetton transaction sent but confirmation timeout');
+        return {
+          success: true,
+          txHash: `${this.wallet.address.toString()}_${seqno}`,
+          seqno,
+          message: 'Jetton transaction sent (confirmation pending)'
+        };
+      }
+
+    } catch (e) {
+      console.error('❌ Jetton transaction failed:', e);
+      return {
+        success: false,
         error: e instanceof Error ? e.message : String(e)
       };
     }
@@ -452,15 +582,15 @@ export class TonWalletService {
       // For TON, typical transaction fee is around 0.005-0.01 TON
       // This is an estimate - actual fee depends on network congestion
       const estimatedFee = '0.01';
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         fee: estimatedFee,
         total: (amountNum + parseFloat(estimatedFee)).toFixed(4)
       };
     } catch (e) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: e instanceof Error ? e.message : String(e)
       };
     }

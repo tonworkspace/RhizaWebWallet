@@ -16,9 +16,9 @@ export interface Notification {
   id: string;
   user_id: string | null;
   wallet_address: string;
-  type: 'transaction_received' | 'transaction_sent' | 'transaction_confirmed' | 'transaction_failed' | 
-        'referral_earned' | 'referral_joined' | 'reward_claimed' | 'system_announcement' | 
-        'security_alert' | 'achievement_unlocked';
+  type: 'transaction_received' | 'transaction_sent' | 'transaction_confirmed' | 'transaction_failed' |
+  'referral_earned' | 'referral_joined' | 'reward_claimed' | 'system_announcement' |
+  'security_alert' | 'achievement_unlocked';
   title: string;
   message: string;
   data: Record<string, any>;
@@ -36,10 +36,10 @@ export interface UserActivity {
   id: string;
   user_id: string | null;
   wallet_address: string;
-  activity_type: 'login' | 'logout' | 'wallet_created' | 'wallet_imported' | 
-                 'transaction_sent' | 'transaction_received' | 'profile_updated' | 
-                 'settings_changed' | 'referral_code_used' | 'referral_code_shared' | 
-                 'reward_claimed' | 'page_viewed' | 'feature_used';
+  activity_type: 'login' | 'logout' | 'wallet_created' | 'wallet_imported' |
+  'transaction_sent' | 'transaction_received' | 'profile_updated' |
+  'settings_changed' | 'referral_code_used' | 'referral_code_shared' |
+  'reward_claimed' | 'page_viewed' | 'feature_used';
   description: string;
   metadata: Record<string, any>;
   ip_address: string | null;
@@ -109,9 +109,9 @@ class NotificationService {
       return { success: true, notifications: data || [] };
     } catch (error) {
       console.error('❌ Error in getNotifications:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -137,9 +137,9 @@ class NotificationService {
       return { success: true, count: data || 0 };
     } catch (error) {
       console.error('❌ Error in getUnreadCount:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -162,9 +162,9 @@ class NotificationService {
       return { success: true };
     } catch (error) {
       console.error('❌ Error in markAsRead:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -187,9 +187,9 @@ class NotificationService {
       return { success: true, count: data };
     } catch (error) {
       console.error('❌ Error in markAllAsRead:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -213,9 +213,9 @@ class NotificationService {
       return { success: true };
     } catch (error) {
       console.error('❌ Error in archiveNotification:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -239,9 +239,9 @@ class NotificationService {
       return { success: true };
     } catch (error) {
       console.error('❌ Error in deleteNotification:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -282,9 +282,9 @@ class NotificationService {
       return { success: true, notificationId: data };
     } catch (error) {
       console.error('❌ Error in createNotification:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -324,9 +324,9 @@ class NotificationService {
       return { success: true, activities: data || [] };
     } catch (error) {
       console.error('❌ Error in getUserActivity:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -357,9 +357,9 @@ class NotificationService {
       return { success: true, activityId: data };
     } catch (error) {
       console.error('❌ Error in logActivity:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -367,10 +367,10 @@ class NotificationService {
   /**
    * Get notification preferences
    */
-  async getPreferences(walletAddress: string): Promise<{ 
-    success: boolean; 
-    preferences?: NotificationPreferences; 
-    error?: string 
+  async getPreferences(walletAddress: string): Promise<{
+    success: boolean;
+    preferences?: NotificationPreferences;
+    error?: string
   }> {
     try {
       const supabase = getSupabaseClient();
@@ -388,9 +388,9 @@ class NotificationService {
       return { success: true, preferences: data || undefined };
     } catch (error) {
       console.error('❌ Error in getPreferences:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -421,9 +421,9 @@ class NotificationService {
       return { success: true };
     } catch (error) {
       console.error('❌ Error in updatePreferences:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -458,6 +458,3 @@ class NotificationService {
 }
 
 export const notificationService = new NotificationService();
-
-// Re-export types for convenience
-export type { Notification, UserActivity, NotificationPreferences };
