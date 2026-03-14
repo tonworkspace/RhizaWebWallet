@@ -1,0 +1,23 @@
+# RhizaCore - Robots.txt
+# Allow all search engines to crawl the site
+
+User-agent: *
+Allow: /
+Disallow: /wallet/
+Disallow: /admin/
+
+# Sitemap location
+Sitemap: https://rhizacore.com/sitemap.xml
+
+# Crawl delay (optional, in seconds)
+Crawl-delay: 1
+
+# Specific bot rules
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Slurp
+Allow: /
