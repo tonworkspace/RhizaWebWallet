@@ -22,9 +22,11 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  ArrowRight
+  ArrowRight,
+  Pencil
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import AirdropTrigger from './AirdropTrigger';
 import LanguageSelector from './LanguageSelector';
 import { SOCIAL_LINKS } from '../constants';
 import { RZC_CONFIG, formatRzcAsUsd } from '../config/rzcConfig';
@@ -221,6 +223,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
           <SidebarItem to="/wallet/migration" icon={TrendingUp} label="Migrate" />
           <SidebarItem to="/wallet/history" icon={History} label={t('nav.history')} />
           <SidebarItem to="/wallet/referral" icon={Users} label={t('nav.referral')} />
+          
+          {/* Airdrop Trigger */}
+          <div className="px-4 py-2">
+            <AirdropTrigger variant="button" size="md" className="w-full justify-center" />
+          </div>
         </nav>
 
         <div className="mt-auto space-y-4">
@@ -473,9 +480,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   {/* User Info & Balance - Desktop */}
                   <div className="hidden lg:flex flex-col gap-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-tight">
-                        {userProfile?.name || 'User'}
-                      </span>
+                      <NavLink
+                        to="/wallet/profile"
+                        className="group/name flex items-center gap-1 hover:text-primary transition-colors"
+                        title="Edit profile"
+                      >
+                        <span className="text-[11px] font-bold text-slate-900 dark:text-white group-hover/name:text-primary leading-tight transition-colors">
+                          {userProfile?.name || 'User'}
+                        </span>
+                        <Pencil size={9} className="opacity-0 group-hover/name:opacity-60 transition-opacity text-primary" />
+                      </NavLink>
                       {referralData && referralData.total_referrals > 0 && (
                         <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
                           {referralData.total_referrals} Refs
@@ -501,9 +515,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   {/* Balance Only - Mobile */}
                   <div className="flex lg:hidden flex-col gap-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-tight">
-                        {userProfile?.name || 'User'}
-                      </span>
+                      <NavLink
+                        to="/wallet/profile"
+                        className="group/name flex items-center gap-1"
+                        title="Edit profile"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-tight group-hover/name:text-primary transition-colors">
+                          {userProfile?.name || 'User'}
+                        </span>
+                        <Pencil size={9} className="opacity-0 group-hover/name:opacity-60 transition-opacity text-primary" />
+                      </NavLink>
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -522,6 +544,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
               {/* Mobile Dropdown Menu */}
               {showMobileMenu && (
                 <div className="mobile-menu-container sm:hidden absolute top-full right-0 mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px] animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Edit Profile */}
+                  <div className="border-b-2 border-gray-200 dark:border-white/10">
+                    <NavLink
+                      to="/wallet/profile"
+                      onClick={() => setShowMobileMenu(false)}
+                      className="w-full px-3 py-3 text-left text-xs font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                    >
+                      <Pencil size={16} className="text-gray-700 dark:text-gray-400" />
+                      <span className="flex-1">Edit Profile</span>
+                    </NavLink>
+                  </div>
                   {/* Network Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
@@ -588,6 +621,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
               {/* Desktop Dropdown Menu */}
               {showDesktopMenu && (
                 <div className="hidden sm:block absolute top-full right-0 mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px] animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Edit Profile */}
+                  <div className="border-b-2 border-gray-200 dark:border-white/10">
+                    <NavLink
+                      to="/wallet/profile"
+                      onClick={() => setShowDesktopMenu(false)}
+                      className="w-full px-3 py-3 text-left text-xs font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                    >
+                      <Pencil size={16} className="text-gray-700 dark:text-gray-400" />
+                      <span className="flex-1">Edit Profile</span>
+                    </NavLink>
+                  </div>
                   {/* Network Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">

@@ -83,6 +83,8 @@ const Assets: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tokenFilter, setTokenFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
+  const [canSendRzc, setCanSendRzc] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
 
   useEffect(() => {
     fetchJettons();
@@ -91,6 +93,23 @@ const Assets: React.FC = () => {
       refreshData();
     }
   }, [address, network]);
+
+  // Re-run whenever userProfile changes (e.g. after approval + refresh)
+  useEffect(() => {
+    checkRzcTransferStatus();
+  }, [userProfile]);
+
+  const checkRzcTransferStatus = async () => {
+    if (!userProfile) return;
+    
+    // balance_locked = true means locked (cannot send), false means unlocked
+    // balance_verified = true means verified
+    const verified = (userProfile as any).balance_verified === true;
+    const locked = (userProfile as any).balance_locked !== false; // default to locked if missing
+    
+    setIsVerified(verified);
+    setCanSendRzc(verified && !locked);
+  };
 
   useEffect(() => {
     if (activeTab === 'nfts' && nfts.length === 0) {
@@ -452,16 +471,18 @@ const Assets: React.FC = () => {
               </div>
             ) : (
               <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-[2rem] overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
-              {/* RZC Balance Verification Banner */}
-              <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 flex items-start gap-2.5">
-                <Lock size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-[10px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider">RZC Balance Verification Active</p>
-                  <p className="text-[10px] text-amber-700 dark:text-amber-400/80 font-medium mt-0.5 leading-snug">
-                    RZC transfers are temporarily disabled while we verify all user balances. Transfers will resume once verification is complete.
-                  </p>
+              {/* RZC Balance Verification Banner - Only show if NOT verified */}
+              {!canSendRzc && (
+                <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 flex items-start gap-2.5">
+                  <Lock size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[10px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider">RZC Balance Verification Required</p>
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400/80 font-medium mt-0.5 leading-snug">
+                      RZC transfers are temporarily disabled while we verify your balance. Check the verification section below for status.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
                 {/* TON Balance (Always first) */}
                 <div
@@ -556,27 +577,49 @@ const Assets: React.FC = () => {
                           ${(((userProfile as any).rzc_balance || 0) * RZC_CONFIG.RZC_PRICE_USD).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                         <div className="text-[10px] font-black text-slate-400 dark:text-gray-600">
-                          Community
+                          Community {isVerified && '✓'}
                         </div>
                       </div>
-                      {/* RZC Transfer DISABLED — balance verification in progress */}
-                      <div className="flex flex-col items-center gap-1">
-                        <div
-                          title="RZC transfers disabled — balance verification in progress"
-                          className="p-2 bg-amber-500/10 text-amber-500 rounded-xl cursor-not-allowed"
-                        >
-                          <Lock size={16} />
-                        </div>
+                      {/* RZC Transfer - Dynamic based on verification status */}
+                      {canSendRzc ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate('/wallet/verification');
+                            navigate('/wallet/transfer', { 
+                              state: { 
+                                asset: 'RZC',
+                                balance: (userProfile as any).rzc_balance || 0
+                              } 
+                            });
                           }}
-                          className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider hover:underline whitespace-nowrap"
+                          className="p-2 bg-[#00FF88]/10 hover:bg-[#00FF88]/20 text-[#00FF88] rounded-xl transition-all active:scale-95"
+                          title="Send RZC"
                         >
-                          Verify
+                          <Send size={16} />
                         </button>
-                      </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1">
+                          <div
+                            title="RZC transfers disabled — balance verification required"
+                            className="p-2 bg-amber-500/10 text-amber-500 rounded-xl cursor-not-allowed"
+                          >
+                            <Lock size={16} />
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Scroll to verification section
+                              const verificationSection = document.querySelector('[data-verification-section]');
+                              if (verificationSection) {
+                                verificationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }
+                            }}
+                            className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider hover:underline whitespace-nowrap"
+                          >
+                            Check Status
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -799,7 +842,9 @@ const Assets: React.FC = () => {
 
       {/* RZC Balance Verification Module */}
       {activeTab === 'tokens' && userProfile && (
-        <BalanceVerification />
+        <div data-verification-section>
+          <BalanceVerification />
+        </div>
       )}
 
       {/* Explorer Link */}

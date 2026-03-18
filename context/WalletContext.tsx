@@ -146,8 +146,15 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const jRes = await tonWalletService.getJettons(addr);
         if (jRes.success) setJettons(jRes.jettons);
         
-        // Check activation status
+        // Refresh user profile to get updated RZC balance
         if (supabaseService.isConfigured()) {
+          const profileResult = await supabaseService.getProfile(addr);
+          if (profileResult.success && profileResult.data) {
+            setUserProfile(profileResult.data);
+            console.log('🔄 User profile refreshed, RZC balance:', profileResult.data.rzc_balance);
+          }
+          
+          // Check activation status
           const activationData = await supabaseService.checkWalletActivation(addr);
           if (activationData) {
             setIsActivated(activationData.is_activated || false);
@@ -169,6 +176,24 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (res.success && res.address) {
       setAddress(res.address);
       setIsLoggedIn(true);
+      
+      // Create Supabase auth session for wallet user
+      if (supabaseService.isConfigured()) {
+        console.log('🔐 Creating Supabase auth session for wallet...');
+        try {
+          const { authService } = await import('../services/authService');
+          const authResult = await authService.signInWithWallet(res.address);
+          if (authResult.success) {
+            console.log('✅ Supabase auth session created');
+          } else {
+            console.warn('⚠️ Failed to create Supabase auth session:', authResult.error);
+            // Continue anyway - wallet login should still work
+          }
+        } catch (authError) {
+          console.warn('⚠️ Auth service error:', authError);
+          // Continue anyway - wallet login should still work
+        }
+      }
       
       // Load user profile from Supabase
       if (supabaseService.isConfigured()) {
@@ -281,6 +306,11 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           device: navigator.userAgent
         }
       ).catch(err => console.error('Failed to log logout activity:', err));
+      
+      // Sign out from Supabase auth
+      import('../services/authService').then(({ authService }) => {
+        authService.signOut().catch(err => console.error('Failed to sign out from Supabase:', err));
+      });
     }
     
     tonWalletService.logout();

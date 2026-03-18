@@ -31,7 +31,7 @@ AS $$
 DECLARE
   v_referrer_id UUID;
   v_commission_rzc NUMERIC;
-  v_rzc_price NUMERIC := 0.10; -- $0.10 per RZC (adjust as needed)
+  v_rzc_price NUMERIC := 0.12; -- $0.10 per RZC (adjust as needed)
 BEGIN
   -- Get the referrer
   SELECT referrer_id INTO v_referrer_id
@@ -126,7 +126,7 @@ DECLARE
   v_user RECORD;
   v_team_sales NUMERIC;
   v_commission_rzc NUMERIC;
-  v_rzc_price NUMERIC := 0.10; -- $0.10 per RZC
+  v_rzc_price NUMERIC := 0.12; -- $0.10 per RZC
 BEGIN
   -- Loop through all users
   FOR v_user IN 

@@ -25,9 +25,9 @@ export interface PaymentConfig {
 export const PAYMENT_CONFIG: PaymentConfig = {
   mainnet: {
     // RhizaCore mainnet payment wallet address
-    walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
+    walletAddress: 'EQADCHuZSVck95LslSxCh8CMSQCIoK23uTpGgcjkwhldq5Ml',
     memo: 'RhizaCore Payment',
-    activationFeeUSD: 15 // $15 activation fee for mainnet
+    activationFeeUSD: 18 // $15 activation fee for mainnet
   },
   testnet: {
     // RhizaCore testnet payment wallet address
@@ -79,31 +79,31 @@ export const calculateActivationFeeTON = (network: 'mainnet' | 'testnet', tonPri
  */
 export const validatePaymentConfig = (network: 'mainnet' | 'testnet'): boolean => {
   const address = PAYMENT_CONFIG[network].walletAddress;
-  
+
   // Check if address exists and is not empty
   if (!address || address.trim() === '') {
     console.error(`❌ Payment wallet address not configured for ${network}`);
     return false;
   }
-  
+
   // Check if address is not a placeholder (common placeholder patterns)
   if (address.includes('YOUR_') || address.includes('...') || address.includes('TODO') || address.includes('REPLACE')) {
     console.error(`❌ Payment wallet address not configured for ${network} - still contains placeholder`);
     return false;
   }
-  
+
   // Basic validation for TON address format (both UQ and EQ are valid prefixes)
   if (!address.startsWith('UQ') && !address.startsWith('EQ') && !address.startsWith('kQ')) {
     console.error(`❌ Invalid TON address format for ${network}: ${address}`);
     return false;
   }
-  
+
   // Check minimum address length (TON addresses are typically 48 characters)
   if (address.length < 40) {
     console.error(`❌ TON address too short for ${network}: ${address}`);
     return false;
   }
-  
+
   console.log(`✅ Payment configuration valid for ${network}: ${address.substring(0, 10)}...`);
   return true;
 };

@@ -102,10 +102,11 @@ class RZCTransferService {
       const result = data[0];
 
       if (!result.success) {
+        console.error('transfer_rzc DB error:', result.message);
         return {
           success: false,
           message: result.message || 'Transfer failed',
-          error: 'TRANSFER_FAILED'
+          error: result.message || 'TRANSFER_FAILED'
         };
       }
 

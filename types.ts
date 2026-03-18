@@ -32,3 +32,18 @@ export interface UserProfile {
   avatar: string;
   totalBalance: number;
 }
+
+export interface SalesPackage {
+  id: string;
+  tier: 'starter' | 'professional' | 'enterprise';
+  tierName: string;
+  pricePoint: number;
+  activationFee: number;
+  rzcReward: number;
+  directReferralBonus: number;
+  teamSalesBonus: number;
+  features: string[];
+  badge?: string;
+  gradient: string;
+  icon: any;
+}

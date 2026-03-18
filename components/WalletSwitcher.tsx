@@ -25,6 +25,7 @@ const WalletSwitcher: React.FC = () => {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [password, setPassword] = useState('');
@@ -50,21 +51,27 @@ const WalletSwitcher: React.FC = () => {
       return;
     }
 
-    // Prompt for password
-    const password = prompt('Enter password to unlock this wallet:');
-    if (!password) return;
+    // Show unlock modal instead of browser prompt
+    setSelectedWallet(walletId);
+    setShowUnlockModal(true);
+  };
+
+  const handleUnlockWallet = async () => {
+    if (!selectedWallet || !password) return;
 
     setIsProcessing(true);
 
     try {
       // Get mnemonic
-      const result = await WalletManager.getWalletMnemonic(walletId, password);
+      const result = await WalletManager.getWalletMnemonic(selectedWallet, password);
       
       if (!result.success || !result.mnemonic) {
         showToast('Invalid password', 'error');
         setIsProcessing(false);
         return;
       }
+
+      const wallet = wallets.find(w => w.id === selectedWallet);
 
       // Logout current wallet
       logout();
@@ -73,9 +80,12 @@ const WalletSwitcher: React.FC = () => {
       const success = await login(result.mnemonic, password);
       
       if (success) {
-        WalletManager.setActiveWallet(walletId);
-        showToast(`Switched to ${wallet.name}`, 'success');
+        WalletManager.setActiveWallet(selectedWallet);
+        showToast(`Switched to ${wallet?.name}`, 'success');
         loadWallets();
+        setShowUnlockModal(false);
+        setPassword('');
+        setSelectedWallet(null);
       } else {
         showToast('Failed to switch wallet', 'error');
       }
@@ -456,6 +466,91 @@ const WalletSwitcher: React.FC = () => {
                 className="flex-1 p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isProcessing ? 'Exporting...' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unlock Wallet Modal */}
+      {showUnlockModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 max-w-md w-full space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-white">Unlock Wallet</h3>
+              <button
+                onClick={() => {
+                  setShowUnlockModal(false);
+                  setPassword('');
+                  setSelectedWallet(null);
+                }}
+                className="p-2 hover:bg-white/5 rounded-xl text-gray-400 hover:text-white transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {selectedWallet && (
+                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#00FF88]/20 text-[#00FF88] flex items-center justify-center">
+                      <Wallet size={20} />
+                    </div>
+                    <div>
+                      <p className="font-black text-white">
+                        {wallets.find(w => w.id === selectedWallet)?.name}
+                      </p>
+                      <p className="text-xs text-gray-500 font-mono">
+                        {wallets.find(w => w.id === selectedWallet)?.address && 
+                         shortenAddress(wallets.find(w => w.id === selectedWallet)!.address)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-sm text-gray-400">
+                Enter your password to unlock and switch to this wallet.
+              </p>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleUnlockWallet()}
+                className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
+                placeholder="Enter wallet password"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowUnlockModal(false);
+                  setPassword('');
+                  setSelectedWallet(null);
+                }}
+                className="flex-1 p-4 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-white/10 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnlockWallet}
+                disabled={!password || isProcessing}
+                className="flex-1 p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isProcessing ? 'Unlocking...' : 'Unlock'}
               </button>
             </div>
           </div>

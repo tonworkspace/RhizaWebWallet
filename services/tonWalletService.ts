@@ -440,6 +440,73 @@ export class TonWalletService {
     }
   }
 
+  /**
+   * Send TON to multiple recipients in a single transaction (up to 4 messages).
+   * Used to pay the platform AND the referrer's 1% commission atomically.
+   */
+  async sendMultiTransaction(
+    recipients: { address: string; amount: string; comment?: string }[]
+  ): Promise<{ success: boolean; txHash?: string; seqno?: number; error?: string }> {
+    if (!this.contract || !this.keyPair) {
+      return { success: false, error: 'Wallet not initialized' };
+    }
+    if (recipients.length === 0 || recipients.length > 4) {
+      return { success: false, error: 'Must have 1–4 recipients' };
+    }
+
+    try {
+      // Validate all addresses and amounts
+      const messages = recipients.map(r => {
+        const addr = Address.parse(r.address); // throws if invalid
+        const amountNum = parseFloat(r.amount);
+        if (isNaN(amountNum) || amountNum <= 0) throw new Error(`Invalid amount for ${r.address}`);
+        return internal({
+          to: addr,
+          value: toNano(amountNum.toFixed(9)),
+          body: r.comment || '',
+          bounce: false,
+        });
+      });
+
+      // Check total balance
+      const totalTON = recipients.reduce((s, r) => s + parseFloat(r.amount), 0);
+      const balanceResult = await this.getBalance();
+      if (!balanceResult.success) return { success: false, error: 'Failed to check balance' };
+      const currentBalance = parseFloat(balanceResult.balance);
+      const estimatedFee = 0.015; // slightly higher for multi-message
+      if (currentBalance < totalTON + estimatedFee) {
+        return {
+          success: false,
+          error: `Insufficient balance. Need ${(totalTON + estimatedFee).toFixed(4)} TON, have ${currentBalance.toFixed(4)} TON`
+        };
+      }
+
+      const seqno = await this.contract.getSeqno();
+      const transfer = this.contract.createTransfer({
+        seqno,
+        secretKey: this.keyPair.secretKey,
+        messages,
+      });
+
+      await this.contract.send(transfer);
+
+      // Wait for confirmation
+      let currentSeqno = seqno;
+      let attempts = 0;
+      while (currentSeqno === seqno && attempts < 30) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try { currentSeqno = await this.contract.getSeqno(); } catch {}
+        attempts++;
+      }
+
+      const txHash = `${this.wallet.address.toString()}_${seqno}`;
+      return { success: true, txHash, seqno, };
+    } catch (e) {
+      console.error('❌ Multi-transaction failed:', e);
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   async sendJettonTransaction(
     jettonWalletAddress: string,
     recipientAddress: string,

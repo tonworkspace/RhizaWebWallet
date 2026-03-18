@@ -105,9 +105,11 @@ class AuthService {
     }
   }
 
-  // Sign in with wallet (passwordless)
+  // Sign in with wallet (passwordless) - Creates anonymous session
   async signInWithWallet(walletAddress: string): Promise<AuthResponse> {
     try {
+      console.log('🔐 Creating Supabase auth session for wallet:', walletAddress);
+      
       // Check if user exists with this wallet address
       const { data: walletUser, error: fetchError } = await this.client
         .from('wallet_users')
@@ -115,41 +117,73 @@ class AuthService {
         .eq('wallet_address', walletAddress)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('❌ Error fetching wallet user:', fetchError);
+        throw fetchError;
+      }
+
+      // Generate a deterministic email from wallet address
+      const walletEmail = `${walletAddress.toLowerCase()}@rhiza.wallet`;
+      const walletPassword = `wallet_${walletAddress}_${import.meta.env.VITE_WALLET_AUTH_SECRET || 'rhiza2024'}`;
 
       if (!walletUser) {
-        // Create new user with magic link
-        const { data, error } = await this.client.auth.signInWithOtp({
-          email: `${walletAddress.slice(0, 8)}@rhizacore.wallet`,
+        console.log('📝 Creating new wallet user with auth...');
+        
+        // Create new user with email/password (no confirmation needed)
+        const { data, error } = await this.client.auth.signUp({
+          email: walletEmail,
+          password: walletPassword,
           options: {
             data: {
               wallet_address: walletAddress,
-              name: 'Rhiza Sovereign'
-            }
+              name: `Rhiza User #${walletAddress.slice(-4)}`
+            },
+            emailRedirectTo: undefined // Disable email confirmation
           }
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error('❌ Sign up error:', error);
+          throw error;
+        }
 
+        console.log('✅ Wallet user created with auth session');
+        
+        // Wait for trigger to create wallet_users record
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const newWalletUser = await this.getWalletUser(data.user!.id);
+        
         return {
           success: true,
-          error: 'Check your email for the login link'
+          user: data.user || undefined,
+          session: data.session || undefined,
+          walletUser: newWalletUser || undefined
         };
       }
 
-      // User exists, send magic link
-      const { data, error } = await this.client.auth.signInWithOtp({
-        email: walletUser.email || `${walletAddress.slice(0, 8)}@rhizacore.wallet`
+      // User exists, sign in with password
+      console.log('🔑 Signing in existing wallet user...');
+      const { data, error } = await this.client.auth.signInWithPassword({
+        email: walletEmail,
+        password: walletPassword
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Sign in error:', error);
+        throw error;
+      }
+
+      console.log('✅ Wallet user signed in with auth session');
 
       return {
         success: true,
-        error: 'Check your email for the login link'
+        user: data.user,
+        session: data.session,
+        walletUser: walletUser
       };
     } catch (error: any) {
-      console.error('Wallet sign in error:', error);
+      console.error('❌ Wallet sign in error:', error);
       return { success: false, error: error.message };
     }
   }

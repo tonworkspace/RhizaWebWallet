@@ -997,24 +997,24 @@ class SupabaseService {
         newLevel = 2;
       }
 
-      // Only update if rank changed
-      if (newRank !== referralData?.rank) {
-        const { error: updateError } = await this.client
-          .from('wallet_referrals')
-          .update({
-            rank: newRank,
-            level: newLevel,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', userId);
+      // Always persist level; only log when rank changes
+      const rankChanged = newRank !== referralData?.rank;
+      const { error: updateError } = await this.client
+        .from('wallet_referrals')
+        .update({
+          rank: newRank,
+          level: newLevel,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId);
 
-        if (updateError) throw updateError;
+      if (updateError) throw updateError;
 
-        console.log(`🎖️ Rank updated to ${newRank} for user:`, userId);
-        return { success: true, newRank };
+      if (rankChanged) {
+        console.log(`🎖️ Rank updated to ${newRank} (level ${newLevel}) for user:`, userId);
       }
 
-      return { success: true, newRank: referralData?.rank };
+      return { success: true, newRank };
     } catch (error: any) {
       console.error('❌ Update rank error:', error);
       return { success: false, error: error.message };

@@ -26,11 +26,13 @@ import {
 import { MOCK_PORTFOLIO_HISTORY, getNetworkConfig, getExplorerUrl, getTransactionUrl } from '../constants';
 import { useWallet } from '../context/WalletContext';
 import { useBalance } from '../hooks/useBalance';
+import { useRZCBalance } from '../hooks/useRZCBalance';
 import { useTransactions } from '../hooks/useTransactions';
 import TransactionItem from '../components/TransactionItem';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import LanguageSelector from '../components/LanguageSelector';
 import ClaimActivationBonus from '../components/ClaimActivationBonus';
+import AirdropWidget from '../components/AirdropWidget';
 import { supabaseService } from '../services/supabaseService';
 
 interface ActionButtonProps {
@@ -73,6 +75,14 @@ const Dashboard: React.FC = () => {
     refreshBalance
   } = useBalance();
   const {
+    balance: rzcBalance,
+    price: rzcPrice,
+    usdValue: rzcUsdValue,
+    isLoading: rzcLoading,
+    error: rzcError,
+    refreshBalance: refreshRZCBalance
+  } = useRZCBalance();
+  const {
     transactions,
     isLoading: txLoading,
     error: txError,
@@ -86,9 +96,6 @@ const Dashboard: React.FC = () => {
   const [timeframe, setTimeframe] = useState<'SEED' | 'PRESALE' | 'PUBLIC'>('SEED');
 
   // Calculate combined portfolio value (TON + RZC)
-  const rzcBalance = (userProfile as any)?.rzc_balance || 0;
-  const rzcPrice = 0.10; // 1 RZC = $0.10
-  const rzcUsdValue = rzcBalance * rzcPrice;
   const combinedPortfolioValue = totalUsdValue + rzcUsdValue;
 
   // Currency conversion rates (mock data - should be fetched from API)
@@ -160,6 +167,7 @@ const Dashboard: React.FC = () => {
   const [showCurrencyMenu, setShowCurrencyMenu] = useState(false);
   const [latestConfirmation, setLatestConfirmation] = useState<any>(null);
   const [migrationStatus, setMigrationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
+  const [verificationStatus, setVerificationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
 
   // Fetch real migration status from Supabase
   useEffect(() => {
@@ -178,6 +186,25 @@ const Dashboard: React.FC = () => {
       }
     };
     fetchMigrationStatus();
+  }, [address]);
+
+  // Fetch balance verification status from Supabase
+  useEffect(() => {
+    if (!address) return;
+    const fetchVerificationStatus = async () => {
+      try {
+        const { balanceVerificationService } = await import('../services/balanceVerificationService');
+        const res = await balanceVerificationService.getUserVerificationStatus(address);
+        if (res.success && res.has_request && res.request) {
+          setVerificationStatus(res.request.status as 'pending' | 'approved' | 'rejected');
+        } else {
+          setVerificationStatus('none');
+        }
+      } catch (err) {
+        console.error('Error fetching verification status', err);
+      }
+    };
+    fetchVerificationStatus();
   }, [address]);
 
   // System Announcements logic
@@ -256,17 +283,52 @@ const Dashboard: React.FC = () => {
       });
     }
 
-    // 3. RZC Balance Verification Notice
-    items.push({
-      id: 'rzc-verification',
-      title: "RZC Transfers Locked",
-      badge: "Verification",
-      ping: true,
-      message: "🔒 RZC transfers paused • Balances being verified • Funds are safe",
-      onClick: () => navigate('/wallet/assets'),
-      theme: 'amber' as const,
-      icon: Lock
-    });
+    // 3. Balance Verification Status — dynamic
+    if (verificationStatus === 'approved') {
+      items.push({
+        id: 'verification-approved',
+        title: "Balance Verified",
+        badge: "Approved",
+        ping: false,
+        message: "✅ Your RZC balance has been verified. Transfers are now unlocked!",
+        onClick: () => navigate('/wallet/assets'),
+        theme: 'emerald' as const,
+        icon: CheckCircle2
+      });
+    } else if (verificationStatus === 'pending') {
+      items.push({
+        id: 'verification-pending',
+        title: "Verification In Review",
+        badge: "Pending",
+        ping: true,
+        message: "⏳ Balance verification under review • 24-48h • Transfers paused • Funds safe",
+        onClick: () => navigate('/wallet/assets'),
+        theme: 'amber' as const,
+        icon: Clock
+      });
+    } else if (verificationStatus === 'rejected') {
+      items.push({
+        id: 'verification-rejected',
+        title: "Verification Rejected",
+        badge: "Action Needed",
+        ping: true,
+        message: "❌ Balance verification rejected. Tap to resubmit with correct details.",
+        onClick: () => navigate('/wallet/assets'),
+        theme: 'red' as const,
+        icon: XCircle
+      });
+    } else {
+      items.push({
+        id: 'rzc-verification',
+        title: "RZC Transfers Locked",
+        badge: "Verification",
+        ping: true,
+        message: "🔒 RZC transfers paused • Balances being verified • Funds are safe",
+        onClick: () => navigate('/wallet/assets'),
+        theme: 'amber' as const,
+        icon: Lock
+      });
+    }
 
     // 4. System News
     items.push({
@@ -281,7 +343,7 @@ const Dashboard: React.FC = () => {
     });
 
     return items;
-  }, [isActivated, activatedAt, navigate, migrationStatus]);
+  }, [isActivated, activatedAt, navigate, migrationStatus, verificationStatus]);
 
   const [currentAnnouncementIndex, setCurrentAnnouncementIndex] = useState(0);
 
@@ -546,6 +608,9 @@ const Dashboard: React.FC = () => {
         {/* Claim Missing Activation Bonus */}
         <ClaimActivationBonus />
 
+        {/* Social Airdrop Widget */}
+        <AirdropWidget />
+
         {/* Network Switcher - Compact */}
         <div className="flex items-center justify-between hidden">
           <div className="flex items-center gap-2">
@@ -690,7 +755,7 @@ const Dashboard: React.FC = () => {
 
                   <div className="flex gap-1.5 sm:gap-2">
                     {/* Currency Selector - Hidden on Mobile */}
-                    <div className="relative currency-selector hidden sm:block">
+                    <div className="relative currency-selector">
                       <button
                         onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
                         className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center shadow-sm"
@@ -925,7 +990,7 @@ const Dashboard: React.FC = () => {
                   <h4 className="font-bold text-sm text-red-900 dark:text-red-300 mb-1">{t('dashboard.failedToLoadTransactions')}</h4>
                   <p className="text-xs text-red-700 dark:text-red-400 mb-2.5">{txError}</p>
                   <button
-                    onClick={refreshTransactions}
+                    onClick={() => refreshTransactions()}
                     className="px-3.5 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all active:scale-95"
                   >
                     {t('common.retry')}

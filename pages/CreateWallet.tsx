@@ -7,6 +7,7 @@ import { validatePassword, generateVerificationChallenge, verifyMnemonicWords } 
 import { useToast } from '../context/ToastContext';
 import { supabaseService } from '../services/supabaseService';
 import { rzcRewardService } from '../services/rzcRewardService';
+import { processReferralSignup, validateReferralCode } from '../utils/referralUtils';
 
 const CreateWallet: React.FC = () => {
   const navigate = useNavigate();
@@ -22,6 +23,11 @@ const CreateWallet: React.FC = () => {
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [referralValidation, setReferralValidation] = useState<{
+    isValid: boolean;
+    referrerName?: string;
+    error?: string;
+  } | null>(null);
   
   // Password state
   const [password, setPassword] = useState('');
@@ -40,6 +46,25 @@ const CreateWallet: React.FC = () => {
       navigate('/wallet/dashboard');
     }
   }, [isLoggedIn, navigate]);
+
+  // Validate referral code if provided
+  useEffect(() => {
+    const validateReferral = async () => {
+      if (referralCode) {
+        console.log('🔍 Validating referral code:', referralCode);
+        const validation = await validateReferralCode(referralCode);
+        setReferralValidation(validation);
+        
+        if (!validation.isValid) {
+          showToast(`Invalid referral code: ${validation.error}`, 'warning');
+        } else {
+          showToast(`Valid referral from ${validation.referrerName}!`, 'success');
+        }
+      }
+    };
+    
+    validateReferral();
+  }, [referralCode, showToast]);
 
   useEffect(() => {
     const generate = async () => {
@@ -152,6 +177,8 @@ const CreateWallet: React.FC = () => {
             console.log('✅ Referrer found:', referrerId);
           } else {
             console.warn('⚠️ Referral code not found:', referralCode);
+            // Show warning but continue with wallet creation
+            showToast(`Referral code "${referralCode}" not found, but wallet will still be created`, 'warning');
           }
         }
         
@@ -393,6 +420,62 @@ const CreateWallet: React.FC = () => {
             />
           ))}
         </div>
+
+        {/* Referral Status */}
+        {referralCode && (
+          <div className={`p-4 rounded-2xl border-2 transition-all ${
+            referralValidation?.isValid 
+              ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20'
+              : referralValidation === null
+                ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20'
+                : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                referralValidation?.isValid 
+                  ? 'bg-emerald-200 dark:bg-emerald-500/20'
+                  : referralValidation === null
+                    ? 'bg-blue-200 dark:bg-blue-500/20'
+                    : 'bg-amber-200 dark:bg-amber-500/20'
+              }`}>
+                {referralValidation?.isValid ? (
+                  <Check size={16} className="text-emerald-700 dark:text-emerald-400" />
+                ) : referralValidation === null ? (
+                  <RefreshCw size={16} className="text-blue-700 dark:text-blue-400 animate-spin" />
+                ) : (
+                  <AlertCircle size={16} className="text-amber-700 dark:text-amber-400" />
+                )}
+              </div>
+              <div>
+                <p className={`text-sm font-bold ${
+                  referralValidation?.isValid 
+                    ? 'text-emerald-900 dark:text-emerald-300'
+                    : referralValidation === null
+                      ? 'text-blue-900 dark:text-blue-300'
+                      : 'text-amber-900 dark:text-amber-300'
+                }`}>
+                  {referralValidation?.isValid 
+                    ? `Referred by ${referralValidation.referrerName}`
+                    : referralValidation === null
+                      ? 'Validating referral code...'
+                      : 'Invalid referral code'
+                  }
+                </p>
+                <p className={`text-xs font-semibold ${
+                  referralValidation?.isValid 
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : referralValidation === null
+                      ? 'text-blue-700 dark:text-blue-400'
+                      : 'text-amber-700 dark:text-amber-400'
+                }`}>
+                  Code: {referralCode}
+                  {referralValidation?.isValid && ' • You\'ll both earn bonus RZC!'}
+                  {referralValidation !== null && !referralValidation.isValid && ' • Wallet will still be created'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4">
           <h1 className="text-4xl font-black text-gray-950 dark:text-white tracking-tight-custom">

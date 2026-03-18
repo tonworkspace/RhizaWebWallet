@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   Zap, 
   ShieldCheck, 
@@ -30,7 +30,13 @@ import {
   Mail,
   Gift,
   Repeat,
-  Image
+  Image,
+  Check,
+  Clock,
+  Star,
+  Award,
+  Copy,
+  Share2
 } from 'lucide-react';
 import { RHIZA_TOKENOMICS, RHIZA_UTILITIES, RHIZA_BUSINESS_MODEL, RHIZA_OPPORTUNITIES, SOCIAL_LINKS, TELEGRAM_MINI_APP_URL } from '../constants';
 import { useWallet } from '../context/WalletContext';
@@ -38,8 +44,10 @@ import { useToast } from '../context/ToastContext';
 import TokenomicsChart from '../components/TokenomicsChart';
 import TokenomicsCalculator from '../components/TokenomicsCalculator';
 import RoadmapTimeline from '../components/RoadmapTimeline';
+import AirdropPreview from '../components/AirdropPreview';
 import { supabaseService } from '../services/supabaseService';
 import { notificationService } from '../services/notificationService';
+import { airdropService } from '../services/airdropService';
 
 const FeatureCard: React.FC<{ icon: any, title: string, description: string }> = ({ icon: Icon, title, description }) => (
   <div className="glass p-8 rounded-[2rem] border-black/5 dark:border-white/5 group hover:border-primary/20 transition-all duration-500 hover:-translate-y-1">
@@ -76,13 +84,34 @@ const TokenomicsItem: React.FC<{ data: typeof RHIZA_TOKENOMICS[0] }> = ({ data }
 );
 
 const Landing: React.FC = () => {
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState('');
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterLoading, setNewsletterLoading] = useState(false);
+  const [airdropModalOpen, setAirdropModalOpen] = useState(false);
+  const [walletAddress, setWalletAddress] = useState('');
+  const [airdropTasks, setAirdropTasks] = useState([
+    { id: 1, title: 'Create RhizaCore Wallet', completed: false, reward: 150, action: 'create_wallet', verifying: false },
+    { id: 2, title: 'Follow @RhizaCore on X', completed: false, reward: 100, action: 'follow', verifying: false },
+    { id: 3, title: 'Retweet the pinned post', completed: false, reward: 50, action: 'retweet', verifying: false },
+    { id: 4, title: 'Join Telegram Community', completed: false, reward: 75, action: 'telegram', verifying: false },
+    { id: 5, title: 'Share your wallet address', completed: false, reward: 25, action: 'wallet', verifying: false }
+  ]);
   const { theme, toggleTheme, isLoggedIn, userProfile, referralData } = useWallet();
   const { showToast } = useToast();
+
+  // Auto-complete wallet creation task if user is already logged in
+  React.useEffect(() => {
+    if (isLoggedIn && userProfile && userProfile.wallet_address) {
+      setAirdropTasks(prev => prev.map(task => 
+        task.action === 'create_wallet' && !task.completed 
+          ? { ...task, completed: true }
+          : task
+      ));
+    }
+  }, [isLoggedIn, userProfile]);
 
   // Scroll detection for navbar styling
   React.useEffect(() => {
@@ -186,6 +215,122 @@ const Landing: React.FC = () => {
       setNewsletterLoading(false);
     }
   };
+
+  const handleTaskComplete = (taskId: number) => {
+    setAirdropTasks(prev => prev.map(task => 
+      task.id === taskId ? { ...task, completed: true } : task
+    ));
+    showToast('Task completed! Reward will be credited soon.', 'success');
+  };
+
+  const handleTaskAction = async (task: any) => {
+    try {
+      switch (task.action) {
+        case 'create_wallet':
+          // Check if user is already logged in
+          if (isLoggedIn && userProfile) {
+            // User is already logged in, mark as completed
+            handleTaskComplete(task.id);
+            showToast('RhizaCore wallet already created and logged in!', 'success');
+          } else {
+            // Navigate to wallet creation
+            navigate('/create-wallet');
+          }
+          break;
+        case 'follow':
+          window.open('https://twitter.com/RhizaCore', '_blank');
+          // Show validation instructions
+          showToast('Please follow @RhizaCore and then click "Verify" to confirm', 'info');
+          break;
+        case 'retweet':
+          window.open('https://x.com/RhizaCore/status/2028862409520132222?s=20', '_blank');
+          showToast('Please retweet the post and then click "Verify" to confirm', 'info');
+          break;
+        case 'telegram':
+          window.open(TELEGRAM_MINI_APP_URL, '_blank');
+          showToast('Please join our Telegram and then click "Verify" to confirm', 'info');
+          break;
+        case 'wallet':
+          if (!walletAddress.trim()) {
+            showToast('Please enter your wallet address first', 'error');
+            return;
+          }
+          // Validate TON wallet address format
+          if (!isValidTONAddress(walletAddress)) {
+            showToast('Please enter a valid TON wallet address', 'error');
+            return;
+          }
+          handleTaskComplete(task.id);
+          showToast('Wallet address verified successfully!', 'success');
+          break;
+      }
+    } catch (error) {
+      console.error('Task action error:', error);
+      showToast('An error occurred. Please try again.', 'error');
+    }
+  };
+
+  const verifyTask = async (task: any) => {
+    try {
+      setAirdropTasks(prev => prev.map(t => 
+        t.id === task.id ? { ...t, verifying: true } : t
+      ));
+
+      let isVerified = false;
+
+      // Special handling for wallet creation task
+      if (task.action === 'create_wallet') {
+        // Check if user is logged in with a RhizaCore wallet
+        isVerified = isLoggedIn && userProfile && !!userProfile.wallet_address;
+        if (!isVerified) {
+          showToast('Please create and login to your RhizaCore wallet first', 'error');
+          setAirdropTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, verifying: false } : t
+          ));
+          return;
+        }
+      } else {
+        // Use the airdrop service for other task verification
+        isVerified = await airdropService.verifyTaskCompletion(task.action, userProfile?.wallet_address);
+      }
+
+      if (isVerified) {
+        handleTaskComplete(task.id);
+        showToast(`Task "${task.title}" verified successfully! +${task.reward} RZC earned`, 'success');
+        
+        // Log activity if user is logged in
+        if (isLoggedIn && userProfile) {
+          await notificationService.logActivity(
+            userProfile.wallet_address,
+            'feature_used',
+            `Completed airdrop task: ${task.title}`,
+            {
+              taskId: task.id,
+              reward: task.reward,
+              taskType: 'airdrop_task',
+              timestamp: new Date().toISOString()
+            }
+          );
+        }
+      } else {
+        showToast('Task verification failed. Please complete the task and try again.', 'error');
+      }
+    } catch (error) {
+      console.error('Task verification error:', error);
+      showToast('Verification failed. Please try again.', 'error');
+    } finally {
+      setAirdropTasks(prev => prev.map(t => 
+        t.id === task.id ? { ...t, verifying: false } : t
+      ));
+    }
+  };
+
+  const isValidTONAddress = (address: string): boolean => {
+    return airdropService.isValidTONAddress(address);
+  };
+
+  const totalAirdropReward = airdropTasks.reduce((sum, task) => sum + (task.completed ? task.reward : 0), 0);
+  const maxAirdropReward = airdropTasks.reduce((sum, task) => sum + task.reward, 0);
 
   return (
     <div className="min-h-screen flex flex-col relative transition-colors duration-300">
@@ -432,6 +577,317 @@ const Landing: React.FC = () => {
         </div>
       </section>
 
+      {/* Airdrop Section */}
+      <section className="px-6 lg:px-24 py-16 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5 border-y border-primary/10 dark:border-primary/20 relative overflow-hidden">
+        {/* Background Effects */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-64 h-64 bg-secondary/10 rounded-full blur-3xl animate-pulse delay-1000" />
+        
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="text-center mb-12 space-y-4">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest">
+              <Gift size={14} className="animate-bounce" /> Limited Time Airdrop
+            </div>
+            <h2 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white tracking-tight">
+              Claim Your <span className="luxury-gradient-text">Free $RZC</span>
+            </h2>
+            <p className="text-lg text-slate-600 dark:text-gray-300 max-w-2xl mx-auto font-medium">
+              Complete simple tasks and earn up to <span className="font-black text-primary">{maxAirdropReward} $RZC tokens</span> absolutely free. No purchase required.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-gray-400 max-w-xl mx-auto">
+              <span className="font-bold text-primary">Bonus:</span> Create your RhizaCore wallet and get an extra 150 $RZC reward!
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Airdrop Stats */}
+            <div className="space-y-8">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="p-6 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-3xl text-center shadow-sm">
+                  <div className="text-3xl font-black text-primary mb-2">{maxAirdropReward}</div>
+                  <div className="text-xs font-black uppercase tracking-widest text-slate-600 dark:text-gray-400">Max Reward</div>
+                </div>
+                <div className="p-6 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-3xl text-center shadow-sm">
+                  <div className="text-3xl font-black text-secondary mb-2">{airdropTasks.filter(t => t.completed).length}/{airdropTasks.length}</div>
+                  <div className="text-xs font-black uppercase tracking-widest text-slate-600 dark:text-gray-400">Tasks Done</div>
+                </div>
+              </div>
+
+              <div className="p-8 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white">Your Progress</h3>
+                  <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full">
+                    <Award size={14} className="text-primary" />
+                    <span className="text-xs font-black text-primary">{totalAirdropReward} $RZC Earned</span>
+                  </div>
+                </div>
+                
+                <div className="w-full h-3 bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden mb-4">
+                  <div 
+                    className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-1000"
+                    style={{ width: `${(totalAirdropReward / maxAirdropReward) * 100}%` }}
+                  />
+                </div>
+                
+                <p className="text-sm text-slate-600 dark:text-gray-300 font-medium">
+                  Complete all tasks to unlock the full {maxAirdropReward} $RZC reward
+                </p>
+              </div>
+
+              <button 
+                onClick={() => setAirdropModalOpen(true)}
+                className="w-full px-8 py-5 bg-primary text-black font-black text-sm uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-3 group"
+              >
+                <Gift size={20} className="group-hover:rotate-12 transition-transform" />
+                Start Earning Now
+                <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+
+            {/* Task Preview */}
+            <div className="space-y-4">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Quick Tasks</h3>
+              {airdropTasks.slice(0, 3).map((task, idx) => (
+                <div key={task.id} className="p-6 bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-2xl flex items-center gap-4 hover:border-primary/30 transition-all group">
+                  <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+                    task.completed 
+                      ? 'bg-primary border-primary text-black' 
+                      : 'border-slate-300 dark:border-white/20 group-hover:border-primary/50'
+                  }`}>
+                    {task.completed ? <Check size={16} /> : <span className="text-xs font-bold">{idx + 1}</span>}
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-black text-slate-900 dark:text-white text-sm">{task.title}</h4>
+                    <p className="text-xs text-slate-500 dark:text-gray-400 font-medium">+{task.reward} $RZC</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {task.completed ? (
+                      <span className="text-xs font-black text-primary uppercase tracking-wider">Completed</span>
+                    ) : task.verifying ? (
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        <span className="text-xs font-black text-primary uppercase tracking-wider">Verifying</span>
+                      </div>
+                    ) : (
+                      <Clock size={16} className="text-slate-400 dark:text-gray-500" />
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-center pt-4">
+                <button 
+                  onClick={() => setAirdropModalOpen(true)}
+                  className="text-primary font-black text-sm uppercase tracking-widest hover:gap-3 transition-all flex items-center gap-2 mx-auto group"
+                >
+                  View All Tasks
+                  <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Airdrop Modal */}
+      {airdropModalOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="max-w-2xl w-full max-h-[90vh] overflow-y-auto bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-[2.5rem] p-8 relative">
+            <button 
+              onClick={() => setAirdropModalOpen(false)}
+              className="absolute top-6 right-6 p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all"
+            >
+              <X size={20} className="text-slate-600 dark:text-gray-400" />
+            </button>
+
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Gift size={32} className="text-primary" />
+              </div>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Claim Airdrop</h2>
+              <p className="text-slate-600 dark:text-gray-300 text-sm font-medium">
+                Complete all tasks below to be eligible for the $RZC airdrop
+              </p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              {airdropTasks.map((task) => (
+                <div key={task.id} className={`p-6 border rounded-2xl transition-all ${
+                  task.completed 
+                    ? 'bg-primary/5 border-primary/20' 
+                    : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 hover:border-primary/30'
+                }`}>
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all ${
+                      task.completed 
+                        ? 'bg-primary border-primary text-black' 
+                        : 'border-slate-300 dark:border-white/20'
+                    }`}>
+                      {task.completed ? <Check size={20} /> : task.id}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-black text-slate-900 dark:text-white mb-1">{task.title}</h4>
+                      <p className="text-xs text-slate-500 dark:text-gray-400 font-medium">Reward: +{task.reward} $RZC</p>
+                    </div>
+                    {!task.completed ? (
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => handleTaskAction(task)}
+                          className="px-4 py-2 bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-gray-300 rounded-xl text-xs font-black uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2"
+                        >
+                          {task.action === 'create_wallet' && (isLoggedIn ? 'Already Created' : 'Create Wallet')}
+                          {task.action === 'follow' && 'Follow'}
+                          {task.action === 'retweet' && 'Retweet'}
+                          {task.action === 'telegram' && 'Join'}
+                          {task.action === 'wallet' && 'Submit'}
+                          {task.action !== 'create_wallet' && <ExternalLink size={12} />}
+                          {task.action === 'create_wallet' && !isLoggedIn && <ArrowRight size={12} />}
+                          {task.action === 'create_wallet' && isLoggedIn && <Check size={12} />}
+                        </button>
+                        {task.action !== 'wallet' && task.action !== 'create_wallet' && (
+                          <button 
+                            onClick={() => verifyTask(task)}
+                            disabled={task.verifying}
+                            className="px-4 py-2 bg-primary text-black rounded-xl text-xs font-black uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {task.verifying ? (
+                              <>
+                                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                Verifying...
+                              </>
+                            ) : (
+                              <>
+                                <Check size={12} />
+                                Verify
+                              </>
+                            )}
+                          </button>
+                        )}
+                        {task.action === 'create_wallet' && isLoggedIn && (
+                          <button 
+                            onClick={() => verifyTask(task)}
+                            disabled={task.verifying}
+                            className="px-4 py-2 bg-primary text-black rounded-xl text-xs font-black uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {task.verifying ? (
+                              <>
+                                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                Verifying...
+                              </>
+                            ) : (
+                              <>
+                                <Check size={12} />
+                                Verify Login
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-primary">
+                        <Check size={16} />
+                        <span className="text-xs font-black uppercase tracking-wider">Done</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Wallet Address Input */}
+            <div className="p-6 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl mb-6">
+              <h4 className="font-black text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                <Target size={16} />
+                Your TON Wallet Address
+              </h4>
+              <div className="space-y-3">
+                <input 
+                  type="text"
+                  value={walletAddress}
+                  onChange={(e) => setWalletAddress(e.target.value)}
+                  placeholder="Enter your TON wallet address (EQ... or UQ...)"
+                  className="w-full bg-white dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all font-mono"
+                />
+                {walletAddress && !isValidTONAddress(walletAddress) && (
+                  <p className="text-xs text-red-500 font-medium flex items-center gap-1">
+                    <X size={12} />
+                    Invalid TON address format. Should start with EQ or UQ and be 48 characters long.
+                  </p>
+                )}
+                {walletAddress && isValidTONAddress(walletAddress) && (
+                  <p className="text-xs text-green-500 font-medium flex items-center gap-1">
+                    <Check size={12} />
+                    Valid TON address format
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-gray-400 mt-2 font-medium">
+                This is where your $RZC tokens will be sent once the airdrop is processed
+              </p>
+            </div>
+
+            {/* Progress Summary */}
+            <div className="text-center p-6 bg-gradient-to-r from-primary/10 to-secondary/10 border border-primary/20 rounded-2xl">
+              <div className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+                {totalAirdropReward} / {maxAirdropReward} $RZC
+              </div>
+              <p className="text-xs text-slate-600 dark:text-gray-300 font-medium mb-4">
+                {airdropTasks.filter(t => t.completed).length === airdropTasks.length 
+                  ? 'All tasks completed! Tokens will be distributed soon.' 
+                  : `Complete ${airdropTasks.filter(t => !t.completed).length} more tasks to maximize your reward`
+                }
+              </p>
+              
+              {airdropTasks.filter(t => t.completed).length === airdropTasks.length && walletAddress && isValidTONAddress(walletAddress) && (
+                <button 
+                  onClick={async () => {
+                    try {
+                      const submission = {
+                        walletAddress,
+                        completedTasks: airdropTasks.filter(t => t.completed).map(t => t.id),
+                        totalReward: maxAirdropReward,
+                        userAgent: navigator.userAgent,
+                        timestamp: new Date().toISOString()
+                      };
+
+                      const result = await airdropService.submitAirdropClaim(submission);
+                      
+                      if (result.success) {
+                        showToast(result.message, 'success');
+                        
+                        // Log the claim if user is logged in
+                        if (isLoggedIn && userProfile) {
+                          await notificationService.logActivity(
+                            userProfile.wallet_address,
+                            'reward_claimed',
+                            `Claimed ${maxAirdropReward} RZC airdrop`,
+                            {
+                              walletAddress,
+                              totalReward: maxAirdropReward,
+                              completedTasks: airdropTasks.length,
+                              claimType: 'airdrop',
+                              timestamp: new Date().toISOString()
+                            }
+                          );
+                        }
+                      } else {
+                        showToast(result.message, 'error');
+                      }
+                    } catch (error) {
+                      console.error('Airdrop claim error:', error);
+                      showToast('Failed to submit claim. Please try again.', 'error');
+                    }
+                  }}
+                  className="px-6 py-3 bg-primary text-black rounded-xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 mx-auto"
+                >
+                  <Award size={16} />
+                  Claim {maxAirdropReward} $RZC
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Simplified "How it Works" */}
       <section id="about" className="px-6 lg:px-24 py-24 bg-black/[0.02] dark:bg-white/[0.02] border-y border-slate-200 dark:border-white/5 transition-colors">
         <div className="max-w-7xl mx-auto">
@@ -452,6 +908,23 @@ const Landing: React.FC = () => {
                  <p className="text-xs text-slate-500 dark:text-gray-400 mt-3 relative z-10 italic">{item.technical}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Airdrop Preview Section */}
+      <section className="px-6 lg:px-24 py-24 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12 space-y-4">
+            <h4 className="text-primary text-[10px] font-black uppercase tracking-widest">Limited Time Offer</h4>
+            <h2 className="text-3xl lg:text-5xl font-black text-slate-900 dark:text-white">Earn Free RZC Tokens</h2>
+            <p className="text-lg text-slate-600 dark:text-gray-300 leading-relaxed font-medium max-w-2xl mx-auto">
+              Complete simple social tasks and earn up to 875 RZC tokens. No purchase required!
+            </p>
+          </div>
+          
+          <div className="max-w-2xl mx-auto">
+            <AirdropPreview />
           </div>
         </div>
       </section>

@@ -148,7 +148,7 @@ const More: React.FC = () => {
           color: 'from-indigo-500 to-purple-500'
         },
         {
-          title: 'Sales Packages',
+          title: 'Node Packages',
           description: 'Purchase packages & earn rewards',
           icon: Zap,
           path: '/wallet/sales-package',

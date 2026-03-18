@@ -18,6 +18,7 @@ import { useWallet } from '../context/WalletContext';
 import { tonWalletService } from '../services/tonWalletService';
 import { transactionSyncService } from '../services/transactionSync';
 import { useToast } from '../context/ToastContext';
+import { useTransactions } from '../hooks/useTransactions';
 import { getJettonTransaction, estimateJettonTransferFee } from '../utility/jettonTransfer';
 import { toDecimals } from '../utility/decimals';
 import { Address } from '@ton/core';
@@ -28,6 +29,7 @@ const Transfer: React.FC = () => {
   const { t } = useTranslation();
   const { balance, jettons, address, refreshData } = useWallet();
   const { showToast } = useToast();
+  const { refreshTransactions } = useTransactions();
   
   // Get asset data from navigation state
   const locationState = location.state as any;
@@ -51,10 +53,15 @@ const Transfer: React.FC = () => {
   const [txHash, setTxHash] = useState('');
   const [isSendingAll, setIsSendingAll] = useState(false);
   const [showAssetSelector, setShowAssetSelector] = useState(false);
+  const [recipientInfo, setRecipientInfo] = useState<{ valid: boolean; name?: string; walletAddress?: string; error?: string } | null>(null);
+  const [isValidatingRecipient, setIsValidatingRecipient] = useState(false);
 
   // Calculate balances and fees based on asset type
   const { userProfile } = useWallet();
   const rzcBalance = (userProfile as any)?.rzc_balance || 0;
+  const rzcBalanceLocked = (userProfile as any)?.balance_locked !== false; // default locked if column missing
+  const rzcVerified = (userProfile as any)?.balance_verified === true;
+  const canSendRzc = rzcVerified && !rzcBalanceLocked;
   
   const currentBalance = isRzcTransfer
     ? rzcBalance
@@ -122,22 +129,11 @@ const Transfer: React.FC = () => {
         setTxHash(result.txHash || '');
         showToast('All funds sent successfully!', 'success');
 
-        // Sync transaction to Supabase
-        if (address && result.txHash) {
-          try {
-            // Trigger a full sync after a short delay
-            setTimeout(() => {
-              refreshData();
-            }, 2000);
-          } catch (syncError) {
-            console.error('Failed to sync transaction:', syncError);
-          }
-        }
-
-        // Refresh wallet data
+        // Refresh wallet data and transactions
         setTimeout(() => {
           refreshData();
-        }, 2000);
+          refreshTransactions(3000);
+        }, 1500);
       } else {
         setStatus('error');
         setErrorMessage(result.error || 'Transaction failed');
@@ -155,6 +151,26 @@ const Transfer: React.FC = () => {
 
   const handleNext = () => setStep('confirm');
 
+  const handleRecipientBlur = async () => {
+    if (!isRzcTransfer || !recipient.trim()) {
+      setRecipientInfo(null);
+      return;
+    }
+    setIsValidatingRecipient(true);
+    try {
+      const { rzcTransferService } = await import('../services/rzcTransferService');
+      const result = await rzcTransferService.validateRecipient(recipient.trim());
+      setRecipientInfo(result.valid
+        ? { valid: true, name: result.name || result.username, walletAddress: result.walletAddress }
+        : { valid: false, error: result.error }
+      );
+    } catch {
+      setRecipientInfo({ valid: false, error: 'Failed to validate recipient' });
+    } finally {
+      setIsValidatingRecipient(false);
+    }
+  };
+
   const handleConfirm = async () => {
     setStep('status');
     setStatus(null);
@@ -163,7 +179,7 @@ const Transfer: React.FC = () => {
     try {
       if (isRzcTransfer) {
         // Send RZC transaction (internal transfer via Supabase)
-        if (!address) {
+        if (!address || !userProfile?.id) {
           throw new Error('Wallet not connected');
         }
         
@@ -171,7 +187,7 @@ const Transfer: React.FC = () => {
         const { rzcTransferService } = await import('../services/rzcTransferService');
         
         const result = await rzcTransferService.transferRZC(
-          address,
+          userProfile.id,  // UUID, not wallet address
           recipient,
           parseFloat(amount),
           comment || undefined
@@ -182,12 +198,13 @@ const Transfer: React.FC = () => {
           setTxHash(result.transactionId || '');
           showToast('RZC sent successfully!', 'success');
           
-          // Refresh wallet data
+          // Refresh wallet data and transactions
           setTimeout(() => {
             refreshData();
-          }, 2000);
+            refreshTransactions();
+          }, 1500);
         } else {
-          throw new Error(result.error || 'RZC transfer failed');
+          throw new Error(result.message || result.error || 'RZC transfer failed');
         }
       } else if (isJettonTransfer && jettonData) {
         // Send jetton transaction using native wallet
@@ -217,10 +234,11 @@ const Transfer: React.FC = () => {
           setTxHash(result.txHash || '');
           showToast(`${jettonData.symbol} sent successfully!`, 'success');
           
-          // Refresh wallet data
+          // Refresh wallet data and transactions (delay for blockchain indexing)
           setTimeout(() => {
             refreshData();
-          }, 2000);
+            refreshTransactions(3000); // extra delay for TonAPI indexing
+          }, 1500);
         } else {
           throw new Error(result.error || 'Transaction failed');
         }
@@ -237,22 +255,11 @@ const Transfer: React.FC = () => {
           setTxHash(result.txHash || '');
           showToast('Transaction sent successfully!', 'success');
           
-          // Sync transaction to Supabase (if user is logged in)
-          if (address) {
-            try {
-              // Trigger a full sync after a short delay
-              setTimeout(() => {
-                refreshData();
-              }, 2000);
-            } catch (syncError) {
-              console.error('Failed to sync transaction:', syncError);
-            }
-          }
-          
-          // Refresh wallet data
+          // Refresh wallet data and transactions (delay for blockchain indexing)
           setTimeout(() => {
             refreshData();
-          }, 2000);
+            refreshTransactions(3000); // extra delay for TonAPI indexing
+          }, 1500);
         } else {
           setStatus('error');
           setErrorMessage(result.error || 'Transaction failed');
@@ -268,7 +275,7 @@ const Transfer: React.FC = () => {
   };
 
   const isValid = isRzcTransfer
-    ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance
+    ? (recipientInfo?.valid === true || recipient.length > 20) && sendAmount > 0 && sendAmount <= currentBalance
     : isJettonTransfer
     ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && hasEnoughTonForGas
     : recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
@@ -283,7 +290,7 @@ const Transfer: React.FC = () => {
       </div>
 
       {/* RZC Transfer Lock — Balance Verification Active */}
-      {isRzcTransfer && (
+      {isRzcTransfer && !canSendRzc && (
         <div className="flex flex-col items-center justify-center py-10 animate-in fade-in duration-500">
           <div className="w-full max-w-md p-7 rounded-[2rem] bg-amber-500/10 border-2 border-amber-500/30 flex flex-col items-center gap-4 text-center shadow-xl">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/20 flex items-center justify-center">
@@ -322,7 +329,7 @@ const Transfer: React.FC = () => {
         </div>
       )}
 
-      {!isRzcTransfer && step === 'form' && (
+      {(!isRzcTransfer || canSendRzc) && step === 'form' && (
         <div className="space-y-5 sm:space-y-6">
           <div className="luxury-card p-6 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] space-y-6 sm:space-y-8">
             <div className="space-y-2.5 sm:space-y-3">
@@ -366,16 +373,32 @@ const Transfer: React.FC = () => {
                       <p className="text-xs text-gray-500 dark:text-gray-500">TON</p>
                     </div>
                   </button>
-                  {/* RZC hidden — transfers disabled during verification */}
+                  {/* RZC — clickable if verified & unlocked, otherwise disabled */}
                   {userProfile && (
-                    <div className="w-full px-4 py-3 flex items-center gap-3 opacity-50 cursor-not-allowed">
-                      <span className="text-xl">⚡</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-gray-900 dark:text-white">RhizaCore Token</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-500">RZC</p>
+                    canSendRzc ? (
+                      <button
+                        onClick={() => {
+                          navigate('/wallet/transfer', { state: { asset: 'RZC' } });
+                          setShowAssetSelector(false);
+                        }}
+                        className="w-full px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-white/5 flex items-center gap-3 transition-colors"
+                      >
+                        <span className="text-xl">⚡</span>
+                        <div>
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">RhizaCore Token</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-500">RZC</p>
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="w-full px-4 py-3 flex items-center gap-3 opacity-50 cursor-not-allowed">
+                        <span className="text-xl">⚡</span>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">RhizaCore Token</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-500">RZC — Verification required</p>
+                        </div>
+                        <Lock size={13} className="text-amber-500" />
                       </div>
-                      <Lock size={13} className="text-amber-500" />
-                    </div>
+                    )
                   )}
                   <div className="px-4 py-2 bg-gray-50 dark:bg-white/5">
                     <p className="text-xs text-gray-500 dark:text-gray-600 font-medium">
@@ -391,10 +414,23 @@ const Transfer: React.FC = () => {
               <input 
                 type="text"
                 value={recipient}
-                onChange={(e) => setRecipient(e.target.value)}
+                onChange={(e) => { setRecipient(e.target.value); setRecipientInfo(null); }}
+                onBlur={handleRecipientBlur}
                 placeholder={isRzcTransfer ? "@username or wallet address" : "EQ... or UQ..."}
                 className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-bold text-sm outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
               />
+              {isRzcTransfer && isValidatingRecipient && (
+                <p className="text-[9px] text-gray-500 ml-2 mt-1">Resolving recipient...</p>
+              )}
+              {isRzcTransfer && recipientInfo && !isValidatingRecipient && (
+                recipientInfo.valid ? (
+                  <p className="text-[9px] text-[#00FF88] ml-2 mt-1 font-bold">
+                    ✓ {recipientInfo.name ? `@${recipientInfo.name}` : recipientInfo.walletAddress?.slice(0, 8) + '...'}
+                  </p>
+                ) : (
+                  <p className="text-[9px] text-red-400 ml-2 mt-1 font-bold">✗ {recipientInfo.error}</p>
+                )
+              )}
               {isRzcTransfer && (
                 <p className="text-[9px] text-gray-500 ml-2">
                   💡 You can send to @username or wallet address (must be registered in RhizaCore)
@@ -548,7 +584,7 @@ const Transfer: React.FC = () => {
         </div>
       )}
 
-      {!isRzcTransfer && step === 'confirm' && (
+      {(!isRzcTransfer || canSendRzc) && step === 'confirm' && (
         <div className="space-y-6 sm:space-y-8 animate-in zoom-in-95 duration-300">
            <div className="luxury-card p-8 sm:p-10 rounded-[2rem] sm:rounded-[3rem] space-y-6 sm:space-y-8">
               <div className="text-center space-y-3 sm:space-y-4">
@@ -619,7 +655,7 @@ const Transfer: React.FC = () => {
         </div>
       )}
 
-      {!isRzcTransfer && step === 'status' && (
+      {(!isRzcTransfer || canSendRzc) && step === 'status' && (
         <div className="flex flex-col items-center justify-center py-20 space-y-8 animate-in fade-in duration-500">
            {!status ? (
              <>

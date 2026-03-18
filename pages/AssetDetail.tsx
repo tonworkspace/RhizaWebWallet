@@ -324,49 +324,73 @@ const AssetDetail: React.FC = () => {
           </div>
         ) : (
           <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
-            {assetTransactions.slice(0, 10).map((tx) => (
-              <div 
-                key={tx.id}
-                onClick={() => tx.hash && window.open(getTransactionUrl(tx.hash, network), '_blank')}
-                className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
-                    tx.type === 'receive' 
-                      ? 'bg-emerald-500/10 text-emerald-500' 
-                      : 'bg-red-500/10 text-red-500'
-                  }`}>
-                    {tx.type === 'receive' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-sm text-slate-900 dark:text-white capitalize">
-                      {tx.type}
-                    </h4>
-                    <p className="text-xs text-slate-500 dark:text-gray-500 truncate">
-                      {new Date(tx.timestamp).toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right flex items-center gap-2">
-                  <div>
-                    <div className={`font-black text-sm ${
-                      tx.type === 'receive' ? 'text-emerald-500' : 'text-slate-900 dark:text-white'
+            {assetTransactions.slice(0, 10).map((tx) => {
+              const isIncoming = tx.type === 'receive' || tx.type === 'purchase';
+              const isRZC = tx.asset === 'RZC';
+              const canOpenExplorer = !isRZC && !!tx.hash;
+
+              const typeLabel = tx.type === 'purchase' ? 'Received' :
+                                tx.type === 'receive' ? 'Received' :
+                                tx.type === 'send' ? 'Sent' : tx.type;
+
+              const subLabel = tx.counterpartyUsername
+                ? `@${tx.counterpartyUsername}`
+                : tx.comment
+                  ? tx.comment
+                  : new Date(tx.timestamp).toLocaleDateString('en-US', {
+                      month: 'short', day: 'numeric',
+                      hour: '2-digit', minute: '2-digit'
+                    });
+
+              return (
+                <div
+                  key={tx.id}
+                  onClick={() => canOpenExplorer && window.open(getTransactionUrl(tx.hash!, network), '_blank')}
+                  className={`p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group ${canOpenExplorer ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
+                      isIncoming
+                        ? 'bg-emerald-500/10 text-emerald-500'
+                        : 'bg-red-500/10 text-red-500'
                     }`}>
-                      {tx.type === 'receive' ? '+' : '-'}{tx.amount}
+                      {isIncoming ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
                     </div>
-                    <p className="text-xs text-slate-400 dark:text-gray-600">
-                      {tx.asset}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                        {typeLabel}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-gray-500 truncate">
+                        {subLabel}
+                      </p>
+                      {tx.counterpartyUsername && (
+                        <p className="text-[10px] text-slate-400 dark:text-gray-600 truncate">
+                          {new Date(tx.timestamp).toLocaleDateString('en-US', {
+                            month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <ExternalLink size={14} className="text-slate-400 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-right flex items-center gap-2">
+                    <div>
+                      <div className={`font-black text-sm ${
+                        isIncoming ? 'text-emerald-500' : 'text-slate-900 dark:text-white'
+                      }`}>
+                        {isIncoming ? '+' : '-'}{tx.amount}
+                      </div>
+                      <p className="text-xs text-slate-400 dark:text-gray-600">
+                        {tx.asset}
+                      </p>
+                    </div>
+                    {canOpenExplorer && (
+                      <ExternalLink size={14} className="text-slate-400 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

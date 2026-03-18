@@ -28,7 +28,7 @@ export const RZC_CONFIG = {
   DECIMALS: 0, // RZC is displayed as whole numbers
   
   // Minimum RZC amount for transactions
-  MIN_AMOUNT: 1,
+  MIN_AMOUNT: 1000,
   
   // Maximum RZC amount for single transaction (optional)
   MAX_AMOUNT: 1000000,

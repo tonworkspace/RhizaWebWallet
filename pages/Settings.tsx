@@ -18,16 +18,14 @@ import {
   AlertCircle,
   Wallet,
   Lock,
-  Eye,
-  EyeOff,
   Edit
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
+import { useSettingsModal } from '../context/SettingsModalContext';
 import LanguageSelector from '../components/LanguageSelector';
 import WalletSwitcher from '../components/WalletSwitcher';
 import { WalletManager } from '../utils/walletManager';
-import { supabaseService } from '../services/supabaseService';
 
 interface SettingsSectionProps {
   title: string;
@@ -101,7 +99,6 @@ const Settings: React.FC = () => {
     userProfile, 
     theme, 
     toggleTheme, 
-    logout,
     network,
     switchNetwork,
     isActivated,
@@ -109,12 +106,13 @@ const Settings: React.FC = () => {
     activationFeePaid
   } = useWallet();
   const { showToast } = useToast();
+  const {
+    openExportModal,
+    setShowLogoutConfirm,
+    setShowDeleteConfirm
+  } = useSettingsModal();
 
-  const [showMnemonic, setShowMnemonic] = useState(false);
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [walletCount, setWalletCount] = useState(0);
 
   useEffect(() => {
@@ -133,26 +131,11 @@ const Settings: React.FC = () => {
   };
 
   const handleExportMnemonic = () => {
-    // In production, this should require password confirmation
-    showToast(t('settings.mnemonicExported'), 'success');
+    openExportModal('mnemonic');
   };
 
   const handleExportPrivateKey = () => {
-    // In production, this should require password confirmation
-    showToast(t('settings.privateKeyExported'), 'success');
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-    showToast(t('settings.loggedOut'), 'success');
-  };
-
-  const handleDeleteWallet = () => {
-    // In production, this should require password confirmation
-    logout();
-    navigate('/onboarding');
-    showToast(t('settings.walletDeleted'), 'success');
+    openExportModal('privatekey');
   };
 
   return (
@@ -359,7 +342,7 @@ const Settings: React.FC = () => {
         <SettingsItem
           icon={Key}
           label={t('settings.backupRecoveryPhrase')}
-          value={t('settings.exportMnemonic')}
+          value="Export your 24-word recovery phrase"
           onClick={handleExportMnemonic}
         />
         
@@ -403,77 +386,6 @@ const Settings: React.FC = () => {
           danger
         />
       </SettingsSection>
-
-      {/* Logout Confirmation Modal */}
-      {showLogoutConfirm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-red-100 dark:bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <LogOut size={32} className="text-red-600 dark:text-red-400" />
-              </div>
-              <h3 className="text-xl font-black text-gray-950 dark:text-white mb-2">
-                {t('settings.confirmLogout')}
-              </h3>
-              <p className="text-sm text-gray-700 dark:text-gray-400 font-semibold">
-                {t('settings.confirmLogoutDesc')}
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowLogoutConfirm(false)}
-                className="flex-1 px-4 py-3 bg-gray-100 dark:bg-white/5 text-gray-950 dark:text-white rounded-xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 transition-all"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all"
-              >
-                {t('settings.logout')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#0a0a0a] border-2 border-red-300 dark:border-red-500/20 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-red-100 dark:bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Trash2 size={32} className="text-red-600 dark:text-red-400" />
-              </div>
-              <h3 className="text-xl font-black text-red-600 dark:text-red-400 mb-2">
-                {t('settings.confirmDelete')}
-              </h3>
-              <p className="text-sm text-gray-700 dark:text-gray-400 mb-3 font-semibold">
-                {t('settings.confirmDeleteDesc')}
-              </p>
-              <div className="p-3 bg-red-100 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/20 rounded-xl">
-                <p className="text-xs font-bold text-red-900 dark:text-red-300">
-                  {t('settings.permanentAction')}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 px-4 py-3 bg-gray-100 dark:bg-white/5 text-gray-950 dark:text-white rounded-xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 transition-all"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={handleDeleteWallet}
-                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all"
-              >
-                {t('settings.deleteWallet')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* App Version */}
       <div className="text-center py-6">

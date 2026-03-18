@@ -18,13 +18,16 @@ import {
   Activity,
   RefreshCw,
   Clock,
-  Loader
+  Loader,
+  Settings
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { supabaseService } from '../services/supabaseService';
 import { useToast } from '../context/ToastContext';
 import ClaimMissingRewards from '../components/ClaimMissingRewards';
+import ReferralSystemTest from '../components/ReferralSystemTest';
 import squadMiningService, { SquadMiningStats } from '../services/squadMiningService';
+import { rzcToUsd } from '../config/rzcConfig';
 
 // Helper function to calculate time ago
 const getTimeAgo = (date: Date): string => {
@@ -51,6 +54,8 @@ const Referral: React.FC = () => {
   const [upline, setUpline] = useState<any | null>(null);
   const [downline, setDownline] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showTestPanel, setShowTestPanel] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
   
   // Squad Mining State
   const [squadStats, setSquadStats] = useState<SquadMiningStats | null>(null);
@@ -62,9 +67,18 @@ const Referral: React.FC = () => {
     canClaim: boolean;
   }>({ hours: 0, minutes: 0, canClaim: true });
 
+  // TON commission earnings
+  const [tonEarnings, setTonEarnings] = useState<{
+    pending_ton: number;
+    paid_ton: number;
+    total_ton: number;
+    pending_count: number;
+  } | null>(null);
+
   useEffect(() => {
     loadReferralNetwork();
     loadSquadMiningData();
+    loadTonEarnings();
   }, [userProfile?.id]); // Only depend on user ID
 
   const loadReferralNetwork = async () => {
@@ -121,6 +135,22 @@ const Referral: React.FC = () => {
       setSquadStats(stats);
     } catch (error) {
       console.error('❌ Error loading squad mining data:', error);
+    }
+  };
+
+  const loadTonEarnings = async () => {
+    if (!userProfile?.id) return;
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return;
+      const { data, error } = await client.rpc('get_referrer_ton_earnings', {
+        p_referrer_id: userProfile.id
+      });
+      if (!error && data?.length > 0) {
+        setTonEarnings(data[0]);
+      }
+    } catch (e) {
+      console.error('Failed to load TON earnings:', e);
     }
   };
 
@@ -206,6 +236,13 @@ const Referral: React.FC = () => {
           >
             <RefreshCw size={14} className={`text-gray-600 dark:text-gray-400 ${loading ? 'animate-spin' : ''}`} />
           </button>
+          <button
+            onClick={() => setShowTestPanel(!showTestPanel)}
+            className="p-2 bg-white dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 border-2 border-gray-300 dark:border-white/10 rounded-lg transition-all shadow-sm"
+            title="Test Referral System"
+          >
+            <Settings size={14} className="text-gray-600 dark:text-gray-400" />
+          </button>
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-100 to-cyan-100 dark:from-[#00FF88]/20 dark:to-[#00CCFF]/20 border-2 border-emerald-300 dark:border-[#00FF88]/30 rounded-full shadow-sm">
             <Crown size={12} className="text-emerald-700 dark:text-[#00FF88]" />
             <span className="text-emerald-700 dark:text-[#00FF88] text-[10px] font-black uppercase tracking-wider">
@@ -214,6 +251,22 @@ const Referral: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Referral System Test Panel */}
+      {showTestPanel && (
+        <div className="p-4 bg-blue-50 dark:bg-blue-500/10 border-2 border-blue-200 dark:border-blue-500/20 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-black text-blue-900 dark:text-blue-300">System Diagnostics</h3>
+            <button
+              onClick={() => setShowTestPanel(false)}
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
+            >
+              ×
+            </button>
+          </div>
+          <ReferralSystemTest />
+        </div>
+      )}
 
       {/* Stats Overview Grid */}
       <div className="grid grid-cols-3 gap-2">
@@ -231,30 +284,85 @@ const Referral: React.FC = () => {
               {(userProfile as any).rzc_balance?.toLocaleString() || '0'}
             </h2>
             <p className="text-sm text-gray-700 dark:text-gray-400 font-bold">
-              ≈ ${(((userProfile as any).rzc_balance || 0) * 0.10).toFixed(2)} USD
+              ≈ ${rzcToUsd((userProfile as any).rzc_balance || 0).toFixed(2)} USD
             </p>
           </div>
         </div>
 
+        {/* TON Commission Earnings */}
+        <div className="col-span-3 p-4 rounded-2xl bg-gradient-to-br from-blue-50 to-white dark:from-blue-500/10 dark:to-transparent border-2 border-blue-200 dark:border-blue-500/20 relative overflow-hidden shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center">
+                <TrendingUp size={16} className="text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black text-gray-600 dark:text-gray-400 uppercase tracking-wider block">TON Commission</span>
+                <span className="text-[9px] text-gray-500 dark:text-gray-500">10% from direct invites</span>
+              </div>
+            </div>
+            {(tonEarnings?.pending_count ?? 0) > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
+                {tonEarnings?.pending_count} pending
+              </span>
+            )}
+          </div>
+          <div className="mt-3 flex items-baseline gap-3">
+            <span className="text-2xl font-black text-blue-700 dark:text-blue-300">
+              {(tonEarnings?.total_ton ?? 0).toFixed(4)} TON
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 font-semibold">
+              {(tonEarnings?.pending_ton ?? 0).toFixed(4)} pending · {(tonEarnings?.paid_ton ?? 0).toFixed(4)} paid
+            </span>
+          </div>
+          <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mt-1">
+            Paid directly to your wallet by smart contract when friends join.
+          </p>
+        </div>
+
+        {/* 1% Weekly Team Bonus */}
+        <div className="col-span-3 p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-600/10 dark:to-transparent border-2 border-indigo-200 dark:border-indigo-500/20 relative overflow-hidden shadow-sm mt-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center">
+                <TrendingUp size={16} className="text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black text-gray-600 dark:text-gray-400 uppercase tracking-wider block">Weekly Team Bonus</span>
+                <span className="text-[9px] text-gray-500 dark:text-gray-500">1% of all team sales (Weekly)</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-3">
+            <span className="text-2xl font-black text-indigo-700 dark:text-indigo-300">
+              {/* Note: This is a placeholder since weekly index processing hasn't been implemented yet. */}
+              0.00 RZC
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 font-semibold">
+              0.00 pending · 0.00 paid
+            </span>
+          </div>
+          <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+            Build your team to start earning the 1% weekly global matrix payout.
+          </p>
+        </div>
+
         {/* Total Referrals */}
-        <div className="p-3 rounded-xl bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 shadow-sm">
-          <div className="flex items-center gap-1.5 mb-1">
+        <div className="p-3 rounded-xl bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 shadow-sm">          <div className="flex items-center gap-1.5 mb-1">
             <Users size={12} className="text-blue-400" />
             <span className="text-[9px] font-bold text-gray-600 dark:text-gray-500 uppercase tracking-wider">{t('referral.totalReferrals')}</span>
           </div>
-          <p className="text-2xl font-black text-gray-950 dark:text-white">{loading ? '...' : referralData?.total_referrals || 0}</p>
+          <p className="text-2xl font-black text-gray-950 dark:text-white">{loading ? '...' : downline.length}</p>
         </div>
 
-        {/* Active Rate */}
+        {/* Active Count */}
         <div className="p-3 rounded-xl bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 shadow-sm">
           <div className="flex items-center gap-1.5 mb-1">
             <Activity size={12} className="text-green-400" />
             <span className="text-[9px] font-bold text-gray-600 dark:text-gray-500 uppercase tracking-wider">Active</span>
           </div>
           <p className="text-2xl font-black text-gray-950 dark:text-white">
-            {loading ? '...' : downline.length > 0 
-              ? ((downline.filter(u => u.is_active).length / downline.length) * 100).toFixed(0) 
-              : '0'}%
+            {loading ? '...' : downline.filter(u => u.is_active).length}
           </p>
         </div>
 
@@ -264,8 +372,137 @@ const Referral: React.FC = () => {
             <Star size={12} className="text-yellow-400" />
             <span className="text-[9px] font-bold text-gray-600 dark:text-gray-500 uppercase tracking-wider">Level</span>
           </div>
-          <p className="text-2xl font-black text-gray-950 dark:text-white">{referralData?.level || 1}</p>
+          {(() => {
+            const total = loading ? null : downline.length;
+            // Thresholds: level 1 = 0-10, level 2 = 11-50, level 3 = 51-99, level 4 = 100+
+            const levelThresholds = [
+              { min: 0,   max: 10,  level: 1 },
+              { min: 11,  max: 50,  level: 2 },
+              { min: 51,  max: 99,  level: 3 },
+              { min: 100, max: null, level: 4 },
+            ];
+            const current = total !== null
+              ? levelThresholds.reduce<typeof levelThresholds[0] | null>((acc, t) => (total >= t.min ? t : acc), null) ?? levelThresholds[0]
+              : null;
+            const level = current?.level ?? 1;
+            const nextThreshold = current?.max !== null ? (current?.max ?? 0) + 1 : null;
+            const prevThreshold = current?.min ?? 0;
+            const progress = nextThreshold
+              ? Math.min(((( total ?? 0) - prevThreshold) / (nextThreshold - prevThreshold)) * 100, 100)
+              : 100;
+            return (
+              <>
+                <p className="text-2xl font-black text-gray-950 dark:text-white">{loading ? '...' : level}</p>
+                <div className="mt-1.5">
+                  <div className="h-1 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-yellow-400 rounded-full transition-all duration-500"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <p className="text-[8px] text-gray-500 dark:text-gray-600 mt-0.5 font-semibold">
+                    {loading ? '...' : nextThreshold ? `${total}/${nextThreshold} refs` : 'Max rank'}
+                  </p>
+                </div>
+              </>
+            );
+          })()}
         </div>
+      </div>
+
+      {/* How It Works Panel */}
+      <div className="rounded-2xl border-2 border-gray-300 dark:border-white/10 overflow-hidden shadow-sm">
+        <button
+          onClick={() => setShowHowItWorks(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-white/5 hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-[#00FF88]/20 flex items-center justify-center">
+              <Zap size={13} className="text-emerald-700 dark:text-[#00FF88]" />
+            </div>
+            <span className="text-[11px] font-black uppercase tracking-widest text-gray-800 dark:text-white">How Referrals Work</span>
+          </div>
+          <ChevronRight
+            size={14}
+            className={`text-gray-500 dark:text-gray-400 transition-transform duration-300 ${showHowItWorks ? 'rotate-90' : ''}`}
+          />
+        </button>
+
+        {showHowItWorks && (
+          <div className="px-4 pb-4 pt-1 bg-white dark:bg-white/5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+
+            {/* Steps */}
+            <div className="space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-500 mb-1">How to earn</p>
+              {[
+                { step: '1', text: 'Share your unique referral link with friends.' },
+                { step: '2', text: 'They sign up using your link — you instantly earn 50 RZC ($5).' },
+                { step: '3', text: 'When they buy a package, you earn 10% commission.' },
+                { step: '4', text: "Every week you earn 1% of your entire team's sales volume." },
+              ].map(({ step, text }) => (
+                <div key={step} className="flex items-start gap-3">
+                  <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-[#00FF88]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[9px] font-black text-emerald-700 dark:text-[#00FF88]">{step}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-700 dark:text-gray-300 font-semibold leading-snug">{text}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="h-px bg-gray-200 dark:bg-white/10" />
+
+            {/* Levels */}
+            <div className="space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-500 mb-1">Rank levels</p>
+              {[
+                { level: 1, rank: 'Core Node',     range: '0 – 10 referrals',  color: 'bg-gray-400',    badge: 'text-gray-600 dark:text-gray-400' },
+                { level: 2, rank: 'Silver Node',   range: '11 – 50 referrals', color: 'bg-blue-400',    badge: 'text-blue-600 dark:text-blue-400' },
+                { level: 3, rank: 'Gold Node',     range: '51 – 99 referrals', color: 'bg-yellow-400',  badge: 'text-yellow-600 dark:text-yellow-400' },
+                { level: 4, rank: 'Elite Partner', range: '100+ referrals',    color: 'bg-emerald-400', badge: 'text-emerald-600 dark:text-[#00FF88]' },
+              ].map(({ level, rank, range, color, badge }) => {
+                const total = loading ? 0 : downline.length;
+                const currentLevel = [
+                  { min: 0, max: 10, level: 1 },
+                  { min: 11, max: 50, level: 2 },
+                  { min: 51, max: 99, level: 3 },
+                  { min: 100, max: null, level: 4 },
+                ].reduce((acc, t) => total >= t.min ? t.level : acc, 1);
+                const isActive = currentLevel === level;
+                const isPast = currentLevel > level;
+                return (
+                  <div
+                    key={level}
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${
+                      isActive
+                        ? 'border-emerald-300 dark:border-[#00FF88]/30 bg-emerald-50 dark:bg-[#00FF88]/10'
+                        : 'border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-white/5'
+                    }`}
+                  >
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${color} ${isPast || isActive ? 'opacity-100' : 'opacity-30'}`}>
+                      <span className="text-[9px] font-black text-white">{level}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[11px] font-black ${badge} ${!isPast && !isActive ? 'opacity-40' : ''}`}>{rank}</span>
+                        {isActive && (
+                          <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-500/20 text-emerald-700 dark:text-[#00FF88] rounded-full">You</span>
+                        )}
+                        {isPast && <Check size={10} className="text-emerald-500" />}
+                      </div>
+                      <p className={`text-[9px] font-semibold text-gray-500 dark:text-gray-500 ${!isPast && !isActive ? 'opacity-40' : ''}`}>{range}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="h-px bg-gray-200 dark:bg-white/10" />
+
+            <p className="text-[10px] text-gray-600 dark:text-gray-500 font-semibold text-center leading-snug">
+              Higher ranks unlock bigger team bonuses and exclusive rewards. Keep growing your network!
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Share Link Card */}

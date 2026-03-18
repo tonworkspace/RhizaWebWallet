@@ -100,7 +100,7 @@ const WalletActivationModal: React.FC<WalletActivationModalProps> = ({
                         10-60 RZC/day
                       </span>
                       <span className="text-[9px] sm:text-[10px] font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-white/10 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
-                        $15 activation
+                        $18 activation
                       </span>
                       <span className="text-[9px] sm:text-[10px] font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-white/10 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
                         5% referral

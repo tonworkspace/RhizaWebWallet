@@ -26,22 +26,11 @@ import {
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
 import { useBalance } from '../hooks/useBalance';
+import { usePurchaseModal } from '../context/PurchaseModalContext';
+import { SalesPackage } from '../types';
 import StoreUI from '../components/StoreUI';
 
-interface SalesPackage {
-  id: string;
-  tier: 'starter' | 'professional' | 'enterprise';
-  tierName: string;
-  pricePoint: number;
-  activationFee: number;
-  rzcReward: number;
-  directReferralBonus: number; // 10% from direct referrals
-  teamSalesBonus: number; // 1% from team sales weekly
-  features: string[];
-  badge?: string;
-  gradient: string;
-  icon: any;
-}
+
 
 const MiningNodes: React.FC = () => {
   const navigate = useNavigate();
@@ -50,8 +39,7 @@ const MiningNodes: React.FC = () => {
   const { tonBalance, tonPrice, isLoading: balanceLoading } = useBalance();
   const toast = useToast();
   const [selectedTier, setSelectedTier] = useState<'starter' | 'professional' | 'enterprise' | 'store'>('starter');
-  const [selectedPackage, setSelectedPackage] = useState<SalesPackage | null>(null);
-  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const { openPurchaseModal } = usePurchaseModal();
   const [purchasedPackages, setPurchasedPackages] = useState<string[]>([]);
   const [showActivationBanner, setShowActivationBanner] = useState(true);
 
@@ -105,19 +93,20 @@ const MiningNodes: React.FC = () => {
       badge: 'Test'
     }] : []),
 
-    // Activation Only - $15 One-Time Fee
+    // Activation Only - $18 One-Time Fee
     {
       id: 'activation-only',
       tier: 'starter',
       tierName: 'Wallet Activation',
       pricePoint: 0,
-      activationFee: 15,
+      activationFee: 18,
       rzcReward: 42, // $5 worth at $0.12/RZC
-      directReferralBonus: 0,
+      directReferralBonus: 10,
       teamSalesBonus: 0,
       features: [
         'Unlock Full Wallet Access',
         '$5 Welcome Bonus (42 RZC)',
+        '10% Referral Commission Earned',
         'One-Time Payment',
         'Access All Features',
         'Lifetime Activation'
@@ -133,7 +122,7 @@ const MiningNodes: React.FC = () => {
       tier: 'starter',
       tierName: 'Bronze Package',
       pricePoint: 100,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 833,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -146,7 +135,7 @@ const MiningNodes: React.FC = () => {
       tier: 'starter',
       tierName: 'Bronze+ Package',
       pricePoint: 200,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 2083,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -160,7 +149,7 @@ const MiningNodes: React.FC = () => {
       tier: 'starter',
       tierName: 'Silver Package',
       pricePoint: 300,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 3333,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -173,7 +162,7 @@ const MiningNodes: React.FC = () => {
       tier: 'starter',
       tierName: 'Silver+ Package',
       pricePoint: 400,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 5000,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -188,7 +177,7 @@ const MiningNodes: React.FC = () => {
       tier: 'professional',
       tierName: 'Gold Package',
       pricePoint: 500,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 8333,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -202,7 +191,7 @@ const MiningNodes: React.FC = () => {
       tier: 'professional',
       tierName: 'Gold+ Package',
       pricePoint: 600,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 10833,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -215,7 +204,7 @@ const MiningNodes: React.FC = () => {
       tier: 'professional',
       tierName: 'Platinum Package',
       pricePoint: 700,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 13333,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -228,7 +217,7 @@ const MiningNodes: React.FC = () => {
       tier: 'professional',
       tierName: 'Platinum+ Package',
       pricePoint: 1000,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 20833,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -243,7 +232,7 @@ const MiningNodes: React.FC = () => {
       tier: 'enterprise',
       tierName: 'Diamond Package',
       pricePoint: 2000,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 33333,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -257,7 +246,7 @@ const MiningNodes: React.FC = () => {
       tier: 'enterprise',
       tierName: 'Elite Package',
       pricePoint: 5000,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 100000,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -271,7 +260,7 @@ const MiningNodes: React.FC = () => {
       tier: 'enterprise',
       tierName: 'Ultimate Package',
       pricePoint: 10000,
-      activationFee: isActivated ? 0 : 15,
+      activationFee: isActivated ? 0 : 18,
       rzcReward: 250000,
       directReferralBonus: 10,
       teamSalesBonus: 1,
@@ -282,19 +271,25 @@ const MiningNodes: React.FC = () => {
     }
   ];
 
-  // If wallet is not activated, show the activation-only package first, then all packages for the selected tier (they will include the activation fee).
-  // If wallet is activated, show all packages EXCEPT activation-only
-  const filteredPackages = isActivated
-    ? salesPackages.filter(pkg => pkg.tier === selectedTier && pkg.id !== 'activation-only' && pkg.id !== 'test-001')
-    : salesPackages.filter(pkg => (pkg.id === 'activation-only' || pkg.id === 'test-001') || (pkg.tier === selectedTier));
+  // Show all tier packages conditionally. Hide activation package if already activated. Hide test package.
+  const filteredPackages = salesPackages.filter(pkg => {
+    if (pkg.id === 'test-001') return false;
+    if (pkg.id === 'activation-only' && isActivated) return false;
+    return pkg.tier === selectedTier;
+  });
 
   const handlePurchase = (pkg: SalesPackage) => {
     if (!address) {
       navigate('/wallet/login');
       return;
     }
-    setSelectedPackage(pkg);
-    setShowPurchaseModal(true);
+    openPurchaseModal(pkg, (packageId) => {
+      const updated = [...purchasedPackages, packageId];
+      setPurchasedPackages(updated);
+      if (address) {
+        localStorage.setItem(`purchased_packages_${address}`, JSON.stringify(updated));
+      }
+    });
   };
 
   return (
@@ -409,7 +404,7 @@ const MiningNodes: React.FC = () => {
                 </h3>
               </div>
               <p className="text-sm text-blue-200/70 font-medium mb-4 leading-relaxed max-w-2xl">
-                A one-time network initialization fee of $15 is required to sync your wallet with the RhizaCore matrix. This permanently unlocks custom node purchasing, instant RZC token yields, and global ecosystem reward claims.
+                A one-time network initialization fee of $18 is required to sync your wallet with the RhizaCore matrix. This permanently unlocks custom node purchasing, instant RZC token yields, and global ecosystem reward claims.
               </p>
 
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
@@ -571,7 +566,7 @@ const MiningNodes: React.FC = () => {
             Activate Your Wallet
           </h2>
           <p className="text-sm text-gray-700 dark:text-gray-400 font-semibold">
-            Complete the one-time activation to unlock sales packages and all wallet features.
+            Complete the one-time activation to unlock node packages and all wallet features.
           </p>
         </div>
       )}
@@ -735,577 +730,7 @@ const MiningNodes: React.FC = () => {
         </div>
       )}
 
-      {/* Purchase Modal */}
-      {showPurchaseModal && selectedPackage && (
-        <PurchaseModal
-          package={selectedPackage}
-          onClose={() => setShowPurchaseModal(false)}
-          onSuccess={(packageId) => {
-            // Add to purchased packages
-            const updated = [...purchasedPackages, packageId];
-            setPurchasedPackages(updated);
-            if (address) {
-              localStorage.setItem(`purchased_packages_${address}`, JSON.stringify(updated));
-            }
-          }}
-        />
-      )}
     </div>
-  );
-};
-
-// Purchase Modal Component
-const PurchaseModal: React.FC<{
-  package: SalesPackage;
-  onClose: () => void;
-  onSuccess?: (packageId: string) => void;
-}> = ({ package: pkg, onClose, onSuccess }) => {
-  const { address, network } = useWallet();
-  const { tonBalance, tonPrice } = useBalance();
-  const { success } = useToast();
-  const [paymentMethod, setPaymentMethod] = useState<'ton' | 'rzc' | 'hybrid'>('ton');
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const navigate = useNavigate();
-
-  const totalCost = pkg.pricePoint + pkg.activationFee;
-
-  // Calculate TON amount needed with proper error handling
-  let totalCostTON: number;
-
-  // Check if tonPrice is valid first
-  const isValidTonPrice = tonPrice && tonPrice > 0 && isFinite(tonPrice) && !isNaN(tonPrice);
-
-  if (pkg.id === 'test-001') {
-    // Test package: activation fee is already in TON (0.2 TON)
-    totalCostTON = pkg.activationFee > 0 ? pkg.activationFee : 0.2;
-  } else if (pkg.id === 'activation-only') {
-    // Activation only: convert USD to TON
-    if (isValidTonPrice) {
-      totalCostTON = pkg.activationFee / tonPrice;
-    } else {
-      // Fallback: use approximate TON price of $2.45 if price fetch failed
-      console.warn('⚠️ TON price invalid, using fallback price of $2.45');
-      totalCostTON = pkg.activationFee / 2.45;
-    }
-  } else {
-    // Regular packages: convert total USD to TON
-    if (isValidTonPrice) {
-      totalCostTON = totalCost / tonPrice;
-    } else {
-      // Fallback: use approximate TON price of $2.45 if price fetch failed
-      console.warn('⚠️ TON price invalid, using fallback price of $2.45');
-      totalCostTON = totalCost / 2.45;
-    }
-  }
-
-  // Final validation - ensure we have a valid number
-  if (isNaN(totalCostTON) || !isFinite(totalCostTON) || totalCostTON <= 0) {
-    console.error('Invalid TON amount calculated:', { totalCostTON, totalCost, tonPrice, pkg });
-    // Set reasonable fallback values
-    if (pkg.id === 'test-001') {
-      totalCostTON = 0.2;
-    } else if (pkg.id === 'activation-only') {
-      totalCostTON = pkg.activationFee / 2.45; // $15 / $2.45 ≈ 6.12 TON
-    } else {
-      totalCostTON = totalCost / 2.45;
-    }
-  }
-
-  const hasEnoughBalance = tonBalance >= totalCostTON;
-
-  const handlePurchase = async () => {
-    if (!address) {
-      setError('Wallet not connected');
-      return;
-    }
-
-    // Check balance before proceeding
-    if (!hasEnoughBalance) {
-      setError(`Insufficient balance. You need ${totalCostTON.toFixed(4)} TON but only have ${tonBalance.toFixed(4)} TON.`);
-      return;
-    }
-
-    setProcessing(true);
-    setError(null);
-
-    try {
-      // Validate TON amount
-      if (isNaN(totalCostTON) || !isFinite(totalCostTON) || totalCostTON <= 0) {
-        throw new Error(`Invalid payment amount calculated. Please refresh and try again.`);
-      }
-
-      // Validate TON price and use fallback if needed
-      let validTonPrice = tonPrice;
-      if (isNaN(tonPrice) || tonPrice <= 0 || !isFinite(tonPrice)) {
-        console.warn('⚠️ Invalid TON price detected, using fallback price of $2.45');
-        validTonPrice = 2.45;
-
-        // Recalculate totalCostTON with valid price
-        if (pkg.id === 'test-001') {
-          totalCostTON = pkg.activationFee > 0 ? pkg.activationFee : 0.2;
-        } else if (pkg.id === 'activation-only') {
-          totalCostTON = pkg.activationFee / validTonPrice;
-        } else {
-          totalCostTON = totalCost / validTonPrice;
-        }
-      }
-
-      console.log(`💳 Payment validation passed:`, {
-        totalCostTON: totalCostTON.toFixed(4),
-        totalCostUSD: totalCost,
-        tonPrice: validTonPrice.toFixed(2),
-        packageId: pkg.id
-      });
-
-      // Match the exact amount that will be sent to the blockchain (4 decimals)
-      totalCostTON = parseFloat(totalCostTON.toFixed(4));
-
-      // Import payment configuration
-      const { getPaymentAddress, validatePaymentConfig } = await import('../config/paymentConfig');
-      const { tonWalletService } = await import('../services/tonWalletService');
-
-      // Validate payment configuration
-      if (!validatePaymentConfig(network)) {
-        throw new Error(`Payment wallet address not configured for ${network}. Please contact support.`);
-      }
-
-      // Get payment wallet address
-      const paymentAddress = getPaymentAddress(network);
-
-      console.log(`💳 Processing payment: ${totalCostTON} TON to ${paymentAddress}`);
-
-      // Send TON payment (sendTransaction expects amount as string in TON, not nanotons)
-      const paymentResult = await tonWalletService.sendTransaction(
-        paymentAddress,
-        totalCostTON.toFixed(4),
-        `RhizaCore ${pkg.tierName} Purchase`
-      );
-
-      if (!paymentResult.success || !paymentResult.txHash) {
-        throw new Error(paymentResult.error || 'Payment failed');
-      }
-
-      console.log(`✅ Payment successful: ${paymentResult.txHash}`);
-
-      // Log payment activity
-      const { notificationService } = await import('../services/notificationService');
-      await notificationService.logActivity(
-        address,
-        'transaction_sent',
-        `Purchased ${pkg.tierName} - ${totalCostTON.toFixed(4)} TON`,
-        {
-          package_id: pkg.id,
-          package_name: pkg.tierName,
-          amount_ton: totalCostTON,
-          amount_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
-          rzc_reward: pkg.rzcReward,
-          transaction_hash: paymentResult.txHash,
-          network: network,
-          payment_address: paymentAddress
-        }
-      );
-
-      // Create a user-facing notification for transaction confirmation
-      await notificationService.createNotification(
-        address,
-        'transaction_confirmed',
-        'Payment Successful',
-        `Your payment of ${totalCostTON.toFixed(4)} TON for ${pkg.tierName} was successful.`,
-        {
-          priority: 'high',
-          data: { txHash: paymentResult.txHash, package: pkg.tierName }
-        }
-      );
-
-      // Activate wallet after successful purchase
-      const { supabaseService } = await import('../services/supabaseService');
-
-      const activated = await supabaseService.activateWallet(address, {
-        activation_fee_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
-        activation_fee_ton: totalCostTON,
-        ton_price: validTonPrice,
-        transaction_hash: paymentResult.txHash
-      });
-
-      if (activated) {
-        // Log wallet activation activity
-        await notificationService.logActivity(
-          address,
-          'wallet_created',
-          'Wallet activated successfully',
-          {
-            activation_fee_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
-            activation_fee_ton: totalCostTON,
-            package_purchased: pkg.tierName,
-            transaction_hash: paymentResult.txHash
-          }
-        );
-
-        // Award RZC tokens for package purchase
-        try {
-          // Get user profile to get user ID
-          const profileResult = await supabaseService.getProfile(address);
-          if (profileResult.success && profileResult.data) {
-            const userId = profileResult.data.id;
-
-            // Award RZC tokens based on package
-            const rewardResult = await supabaseService.awardRZCTokens(
-              userId,
-              pkg.rzcReward,
-              pkg.id === 'activation-only' ? 'activation_bonus' : 'package_purchase',
-              `${pkg.tierName} purchase reward`,
-              {
-                package_id: pkg.id,
-                package_name: pkg.tierName,
-                transaction_hash: paymentResult.txHash,
-                package_price_usd: pkg.pricePoint,
-                activation_fee_usd: pkg.activationFee,
-                total_cost_ton: totalCostTON
-              }
-            );
-
-            if (rewardResult.success) {
-              console.log(`✅ ${pkg.rzcReward} RZC tokens awarded`);
-
-              // Log the reward activity
-              await notificationService.logActivity(
-                address,
-                'reward_claimed',
-                `Received ${pkg.rzcReward.toLocaleString()} RZC from ${pkg.tierName}`,
-                {
-                  amount: pkg.rzcReward,
-                  type: pkg.id === 'activation-only' ? 'activation_bonus' : 'package_purchase',
-                  package_name: pkg.tierName,
-                  new_balance: rewardResult.newBalance
-                }
-              );
-
-              // Notify the user of the reward
-              await notificationService.createNotification(
-                address,
-                'reward_claimed',
-                'RZC Tokens Awarded',
-                `You received ${pkg.rzcReward.toLocaleString()} RZC tokens for purchasing ${pkg.tierName}!`,
-                {
-                  priority: 'normal',
-                  data: { amount: pkg.rzcReward, package: pkg.tierName }
-                }
-              );
-
-              // Award 10% commission to referrer (if package purchase, not activation-only)
-              if (pkg.pricePoint > 0) {
-                try {
-                  const client = supabaseService.getClient();
-                  if (client) {
-                    const commissionResult = await client.rpc('award_package_purchase_commission', {
-                      p_buyer_user_id: userId,
-                      p_package_price_usd: pkg.pricePoint,
-                      p_package_name: pkg.tierName,
-                      p_transaction_hash: paymentResult.txHash
-                    });
-
-                    if (commissionResult.error) {
-                      console.error('❌ Failed to award referral commission:', commissionResult.error);
-                    } else if (commissionResult.data && commissionResult.data.length > 0) {
-                      const commission = commissionResult.data[0];
-                      if (commission.success) {
-                        console.log(`✅ Referral commission awarded: ${commission.commission_amount} RZC to referrer`);
-                      } else {
-                        console.log(`ℹ️ No commission awarded: ${commission.message}`);
-                      }
-                    }
-                  }
-                } catch (commissionError) {
-                  console.error('❌ Error awarding referral commission:', commissionError);
-                  // Don't fail the purchase if commission fails
-                }
-              }
-            } else {
-              console.error('❌ Failed to award RZC tokens:', rewardResult.error);
-            }
-          }
-        } catch (rewardError) {
-          console.error('❌ Error awarding RZC tokens:', rewardError);
-          // Don't fail the activation if reward fails
-        }
-
-        const successMessage = pkg.pricePoint > 0
-          ? `🎉 Success! You've purchased ${pkg.tierName} and received ${pkg.rzcReward.toLocaleString()} RZC tokens! Start earning 10% from referrals and 1% from team sales.`
-          : `🎉 Success! Your wallet has been activated! You now have full access to all features and received $5 (${pkg.rzcReward} RZC) as a welcome bonus!`;
-        success(successMessage);
-
-        // Call onSuccess callback to update purchased packages
-        if (onSuccess) {
-          onSuccess(pkg.id);
-        }
-
-        onClose();
-        // Refresh the page to update activation status
-        window.location.reload();
-      } else {
-        throw new Error('Failed to activate wallet');
-      }
-    } catch (err: any) {
-      console.error('Purchase error:', err);
-      setError(err.message || 'Purchase failed. Please try again.');
-
-      // Log failed purchase activity
-      try {
-        const { notificationService } = await import('../services/notificationService');
-        await notificationService.logActivity(
-          address,
-          'transaction_sent',
-          `Failed to purchase ${pkg.tierName}`,
-          {
-            package_id: pkg.id,
-            package_name: pkg.tierName,
-            amount_ton: totalCostTON,
-            error: err.message,
-            network: network
-          }
-        );
-      } catch (logError) {
-        console.error('Failed to log error activity:', logError);
-      }
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b-2 border-gray-200 dark:border-white/10">
-          <h2 className="text-xl font-black text-gray-950 dark:text-white">
-            {pkg.pricePoint > 0 ? `Purchase ${pkg.tierName}` : 'Activate Wallet'}
-          </h2>
-          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 font-semibold">
-            {pkg.pricePoint > 0
-              ? `Complete your purchase to receive ${pkg.rzcReward.toLocaleString()} RZC tokens instantly`
-              : 'One-time payment to unlock full wallet access'
-            }
-          </p>
-        </div>
-
-        {/* Content */}
-        <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-          {/* Error Message */}
-          {error && (
-            <div className="p-3 bg-red-50 dark:bg-red-500/10 border-2 border-red-200 dark:border-red-500/20 rounded-xl">
-              <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-700 dark:text-red-400 font-semibold">{error}</p>
-              </div>
-            </div>
-          )}
-
-          {/* TON Price Warning */}
-          {(!tonPrice || tonPrice <= 0 || !isFinite(tonPrice) || isNaN(tonPrice)) && (
-            <div className="p-3 bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-200 dark:border-amber-500/20 rounded-xl">
-              <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-amber-700 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs text-amber-900 dark:text-amber-300 font-bold mb-1">
-                    Price Data Loading
-                  </p>
-                  <p className="text-xs text-amber-800 dark:text-amber-400 font-semibold">
-                    Using fallback TON price of $2.45. Calculations may be approximate.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Wallet Balance */}
-          <div className="p-4 bg-blue-50 dark:bg-blue-500/10 border-2 border-blue-200 dark:border-blue-500/20 rounded-xl">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-blue-900 dark:text-blue-300 uppercase tracking-wider">
-                Your Balance ({network === 'mainnet' ? 'Mainnet' : 'Testnet'})
-              </span>
-              {!hasEnoughBalance && (
-                <span className="text-xs font-bold text-red-600 dark:text-red-400">
-                  Insufficient
-                </span>
-              )}
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-xl font-black text-blue-950 dark:text-white">
-                {tonBalance.toFixed(4)} TON
-              </span>
-              <span className="text-xs text-blue-700 dark:text-blue-400 font-semibold">
-                ≈ ${(tonBalance * (tonPrice > 0 && isFinite(tonPrice) ? tonPrice : 2.45)).toFixed(2)}
-              </span>
-            </div>
-            {!hasEnoughBalance && (
-              <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-500/20">
-                <p className="text-xs text-blue-800 dark:text-blue-300 font-semibold mb-2">
-                  You need {totalCostTON.toFixed(4)} TON (${totalCost}) to purchase this node.
-                </p>
-                <button
-                  onClick={() => {
-                    onClose();
-                    navigate('/wallet/receive');
-                  }}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5"
-                >
-                  <WalletIcon size={14} />
-                  Fund Wallet
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Summary */}
-          <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl space-y-2">
-            {pkg.pricePoint > 0 ? (
-              <>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400 font-semibold">Package Price</span>
-                  <span className="font-bold text-gray-950 dark:text-white">${pkg.pricePoint}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400 font-semibold">RZC Reward</span>
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{pkg.rzcReward.toLocaleString()} RZC</span>
-                </div>
-                {pkg.activationFee > 0 ? (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400 font-semibold">Activation Fee</span>
-                    <span className="font-bold text-gray-950 dark:text-white">${pkg.activationFee}</span>
-                  </div>
-                ) : (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400 font-semibold">Activation Fee</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                      <Check size={14} />
-                      Wallet Activated
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400 font-semibold">
-                  {pkg.id === 'test-001' ? 'Test Activation Fee' : 'Activation Fee'}
-                </span>
-                <span className="font-bold text-gray-950 dark:text-white">
-                  {pkg.id === 'test-001' ? `${pkg.activationFee} TON` : `$${pkg.activationFee}`}
-                </span>
-              </div>
-            )}
-            <div className="pt-2 border-t-2 border-gray-200 dark:border-white/10 space-y-1">
-              <div className="flex justify-between">
-                <span className="font-bold text-gray-950 dark:text-white">
-                  {pkg.id === 'test-001' || pkg.id === 'activation-only' ? 'Total' : 'Total (USD)'}
-                </span>
-                <span className="text-lg font-black text-gray-950 dark:text-white">
-                  {pkg.id === 'test-001'
-                    ? `${totalCostTON} TON`
-                    : pkg.id === 'activation-only'
-                      ? `$${totalCost}`
-                      : `$${totalCost}`
-                  }
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-gray-600 dark:text-gray-400 font-semibold">
-                  {pkg.id === 'test-001' ? 'Equivalent USD' : 'Total (TON)'}
-                </span>
-                <span className="text-sm font-bold text-primary">
-                  {pkg.id === 'test-001'
-                    ? `≈ $${(totalCostTON * tonPrice).toFixed(2)}`
-                    : `${totalCostTON.toFixed(4)} TON`
-                  }
-                </span>
-              </div>
-            </div>
-            {pkg.pricePoint === 0 && (
-              <div className="pt-2 border-t border-gray-200 dark:border-white/10">
-                <p className="text-xs text-blue-700 dark:text-blue-400 font-semibold">
-                  {pkg.id === 'test-001'
-                    ? '🧪 Test package for testing activation flow on testnet.'
-                    : `ℹ️ This is a one-time activation fee. Includes ${pkg.rzcReward} RZC welcome bonus.`
-                  }
-                </p>
-              </div>
-            )}
-            {pkg.directReferralBonus > 0 && pkg.pricePoint > 0 && (
-              <div className="pt-2 border-t border-gray-200 dark:border-white/10 space-y-1">
-                <p className="text-xs text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
-                  <Percent size={12} />
-                  Earn {pkg.directReferralBonus}% from direct referral purchases
-                </p>
-                <p className="text-xs text-blue-700 dark:text-blue-400 font-bold flex items-center gap-1">
-                  <Users size={12} />
-                  Earn {pkg.teamSalesBonus}% from weekly team sales
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Payment Method */}
-          <div className="space-y-2">
-            <label className="text-xs font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">
-              Payment Method
-            </label>
-            <div className="space-y-2">
-              <button
-                onClick={() => setPaymentMethod('ton')}
-                className={`w-full p-3 rounded-xl border-2 transition-all text-left ${paymentMethod === 'ton'
-                  ? 'border-primary bg-primary/10'
-                  : 'border-gray-300 dark:border-white/10 hover:border-gray-400 dark:hover:border-white/20'
-                  }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-950 dark:text-white">TON Payment</span>
-                  <span className="text-xs text-emerald-600 dark:text-primary font-bold">Secure</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Payment Address Info */}
-          <div className="p-3 bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-200 dark:border-amber-500/20 rounded-xl">
-            <div className="flex items-start gap-2">
-              <AlertCircle size={14} className="text-amber-700 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs text-amber-900 dark:text-amber-300 font-bold mb-1">
-                  Payment will be sent to RhizaCore payment wallet
-                </p>
-                <p className="text-[10px] text-amber-800 dark:text-amber-400 font-semibold">
-                  Your wallet will send {totalCostTON.toFixed(4)} TON to our secure payment address. Transaction will be confirmed on the blockchain.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="p-5 border-t-2 border-gray-200 dark:border-white/10 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 bg-gray-200 dark:bg-white/10 text-gray-950 dark:text-white rounded-xl text-sm font-bold hover:bg-gray-300 dark:hover:bg-white/20 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handlePurchase}
-            disabled={processing || !hasEnoughBalance}
-            className="flex-1 py-3 bg-emerald-600 dark:bg-primary text-white dark:text-black rounded-xl text-sm font-bold hover:bg-emerald-700 dark:hover:bg-[#00dd77] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {processing ? 'Processing...' : !hasEnoughBalance ? 'Insufficient Balance' : 'Confirm Purchase'}
-          </button>
-        </div>
-      </div>
-    </>
   );
 };
 

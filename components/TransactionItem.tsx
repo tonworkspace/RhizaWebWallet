@@ -14,6 +14,7 @@ interface Transaction {
   hash?: string;
   fee?: string;
   comment?: string;
+  counterpartyUsername?: string;
 }
 
 interface TransactionItemProps {
@@ -91,10 +92,13 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, onClick 
               <span className="font-bold text-sm text-slate-900 dark:text-white capitalize">
                 {transaction.type}
               </span>
+              {transaction.asset === 'RZC' && (
+                <span className="text-[8px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-md">RZC</span>
+              )}
               <span className={`text-xs font-bold ${getStatusColor()}`}>
                 {transaction.status}
               </span>
-              {transaction.hash && (
+              {transaction.hash && transaction.asset !== 'RZC' && (
                 <button
                   onClick={handleExplorerClick}
                   className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded transition-colors"
@@ -107,13 +111,15 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, onClick 
             <div className="text-xs text-slate-500 dark:text-gray-400 font-medium truncate">
               {transaction.comment ? (
                 <span className="italic text-[8px]">"{transaction.comment}"</span>
+              ) : transaction.counterpartyUsername ? (
+                <span>{transaction.type === 'send' ? 'To' : 'From'}: @{transaction.counterpartyUsername}</span>
               ) : transaction.address ? (
                 formatAddress(transaction.address)
               ) : (
                 formatTime(transaction.timestamp)
               )}
             </div>
-            {transaction.fee && parseFloat(transaction.fee) > 0 && (
+            {transaction.fee && parseFloat(transaction.fee) > 0 && transaction.asset !== 'RZC' && (
               <div className="text-[10px] text-slate-400 dark:text-gray-500">
                 Fee: {transaction.fee} TON
               </div>

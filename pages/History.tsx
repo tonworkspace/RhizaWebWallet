@@ -1,12 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
   RefreshCw,
   Search,
-  Filter,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -18,12 +17,17 @@ import {
   Hash,
   Coins,
   MessageSquare,
-  XCircle
+  XCircle,
+  Gift,
+  Users,
+  Zap,
+  Activity
 } from 'lucide-react';
 import { useTransactions } from '../hooks/useTransactions';
 import { useWallet } from '../context/WalletContext';
-import { getTransactionUrl, getExplorerUrl } from '../constants';
+import { getTransactionUrl } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import { notificationService, UserActivity } from '../services/notificationService';
 
 interface Transaction {
   id: string;
@@ -36,16 +40,45 @@ interface Transaction {
   hash?: string;
   fee?: string;
   comment?: string;
+  counterpartyUsername?: string;
 }
 
 const History: React.FC = () => {
   const { t } = useTranslation();
   const { transactions, isLoading, error, refreshTransactions } = useTransactions();
-  const { network } = useWallet();
+  const { network, address } = useWallet();
+  const [activeTab, setActiveTab] = useState<'transactions' | 'activity'>('transactions');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'send' | 'receive'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'send' | 'receive' | 'rzc'>('all');
   const [expandedTx, setExpandedTx] = useState<string | null>(null);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+
+  // Activity feed state
+  const [activities, setActivities] = useState<UserActivity[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+
+  const loadActivities = async () => {
+    if (!address) return;
+    setActivityLoading(true);
+    setActivityError(null);
+    try {
+      const res = await notificationService.getUserActivity(address, { limit: 50 });
+      if (res.success) {
+        setActivities(res.activities || []);
+      } else {
+        setActivityError(res.error || 'Failed to load activity');
+      }
+    } catch (e: any) {
+      setActivityError(e.message || 'Failed to load activity');
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'activity') loadActivities();
+  }, [activeTab, address]);
 
   const handleCopyHash = (hash: string) => {
     navigator.clipboard.writeText(hash);
@@ -102,7 +135,12 @@ const History: React.FC = () => {
     }
   };
 
-  const getIconBg = (type: string) => {
+  const getIconBg = (type: string, asset?: string) => {
+    if (asset === 'RZC') {
+      return type === 'send'
+        ? 'bg-red-500/10 text-red-500'
+        : 'bg-emerald-500/10 text-emerald-500';
+    }
     switch (type) {
       case 'send':
         return 'bg-red-500/10 text-red-500';
@@ -120,9 +158,13 @@ const History: React.FC = () => {
     const matchesSearch = 
       tx.hash?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       tx.address?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.comment?.toLowerCase().includes(searchQuery.toLowerCase());
+      tx.comment?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tx.counterpartyUsername?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesFilter = filterType === 'all' || tx.type === filterType;
+    const matchesFilter =
+      filterType === 'all' ? true :
+      filterType === 'rzc' ? tx.asset === 'RZC' :
+      tx.type === filterType;
     
     return matchesSearch && matchesFilter;
   });
@@ -156,20 +198,49 @@ const History: React.FC = () => {
         <div>
           <h1 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">{t('history.title')}</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-gray-500 font-medium mt-0.5 sm:mt-1">
-            {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
+            {activeTab === 'transactions'
+              ? `${filteredTransactions.length} transaction${filteredTransactions.length !== 1 ? 's' : ''}`
+              : `${activities.length} event${activities.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <button 
-          onClick={refreshTransactions}
-          disabled={isLoading}
+          onClick={activeTab === 'transactions' ? refreshTransactions : loadActivities}
+          disabled={activeTab === 'transactions' ? isLoading : activityLoading}
           className="p-2.5 sm:p-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl text-slate-500 dark:text-gray-500 hover:text-primary transition-all disabled:opacity-50 active:scale-95"
           title="Refresh"
         >
-          <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+          <RefreshCw size={18} className={(activeTab === 'transactions' ? isLoading : activityLoading) ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Tab Switcher */}
+      <div className="flex gap-1 bg-slate-100 dark:bg-white/5 rounded-xl p-1 border border-slate-200 dark:border-white/5">
+        <button
+          onClick={() => setActiveTab('transactions')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+            activeTab === 'transactions'
+              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow'
+              : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
+          }`}
+        >
+          <Coins size={13} />
+          Transactions
+        </button>
+        <button
+          onClick={() => setActiveTab('activity')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+            activeTab === 'activity'
+              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow'
+              : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
+          }`}
+        >
+          <Activity size={13} />
+          Activity
         </button>
       </div>
 
       {/* Search and Filter */}
+      {activeTab === 'transactions' && (
       <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
         <div className="relative flex-1 group">
           <Search size={14} className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-700 group-focus-within:text-primary transition-colors" />
@@ -212,10 +283,22 @@ const History: React.FC = () => {
           >
             {t('history.received')}
           </button>
+          <button
+            onClick={() => setFilterType('rzc')}
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
+              filterType === 'rzc'
+                ? 'bg-emerald-500 text-white shadow-lg'
+                : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
+            }`}
+          >
+            RZC
+          </button>
         </div>
       </div>
+      )} {/* end transactions search/filter */}
 
       {/* Transaction List */}
+      {activeTab === 'transactions' && (
       <div className="space-y-4 sm:space-y-6">
         {error ? (
           <div className="p-4 sm:p-6 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl sm:rounded-2xl">
@@ -263,12 +346,15 @@ const History: React.FC = () => {
                       className="p-3.5 sm:p-4 md:p-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all cursor-pointer group active:bg-slate-100 dark:active:bg-white/10"
                     >
                       <div className="flex items-center gap-2.5 sm:gap-3 md:gap-4 flex-1 min-w-0">
-                        <div className={`w-9 h-9 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0 ${getIconBg(tx.type)}`}>
+                        <div className={`w-9 h-9 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0 ${getIconBg(tx.type, tx.asset)}`}>
                           {getIcon(tx.type)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 sm:gap-2">
                             <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white capitalize">{tx.type}</h4>
+                            {tx.asset === 'RZC' && (
+                              <span className="text-[8px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-md">RZC</span>
+                            )}
                             {tx.status === 'completed' ? (
                               <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
                             ) : tx.status === 'failed' ? (
@@ -280,6 +366,8 @@ const History: React.FC = () => {
                           <p className="text-[10px] text-slate-500 dark:text-gray-500 font-mono mt-0.5 sm:mt-1 truncate">
                             {tx.comment ? (
                               <span className="italic">"{tx.comment}"</span>
+                            ) : tx.counterpartyUsername ? (
+                              <span>{tx.type === 'send' ? 'To' : 'From'}: @{tx.counterpartyUsername}</span>
                             ) : (
                               <span className="hidden sm:inline">{tx.type === 'send' ? 'To' : 'From'}: {formatAddress(tx.address)}</span>
                             )}
@@ -308,8 +396,8 @@ const History: React.FC = () => {
                     {/* Expanded Details */}
                     {expandedTx === tx.id && (
                       <div className="px-3.5 sm:px-4 md:px-5 pb-3.5 sm:pb-4 md:pb-5 pt-2 bg-slate-50 dark:bg-white/5 space-y-2.5 sm:space-y-3 border-t border-slate-100 dark:border-white/5">
-                        {/* Transaction Hash */}
-                        {tx.hash && (
+                        {/* Transaction Hash (TON) or Transaction ID (RZC) */}
+                        {tx.hash ? (
                           <div className="flex items-start gap-2 sm:gap-3">
                             <Hash size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
@@ -334,10 +422,50 @@ const History: React.FC = () => {
                               </div>
                             </div>
                           </div>
+                        ) : tx.asset === 'RZC' && (
+                          <div className="flex items-start gap-2 sm:gap-3">
+                            <Hash size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                                RZC Transaction ID
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-[11px] sm:text-xs font-mono text-slate-700 dark:text-gray-300 break-all">
+                                  {tx.id}
+                                </p>
+                                <button
+                                  onClick={() => handleCopyHash(tx.id)}
+                                  className="p-1.5 sm:p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded transition-colors flex-shrink-0 active:scale-95"
+                                  title="Copy ID"
+                                >
+                                  {copiedHash === tx.id ? (
+                                    <CheckCircle2 size={12} className="text-green-500" />
+                                  ) : (
+                                    <Copy size={12} className="text-slate-400 dark:text-gray-500" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         )}
 
-                        {/* Address */}
-                        {tx.address && (
+                        {/* Counterparty Username (RZC) */}
+                        {tx.counterpartyUsername && (
+                          <div className="flex items-start gap-2 sm:gap-3">
+                            <ExternalLink size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                                {tx.type === 'send' ? 'Recipient' : 'Sender'}
+                              </p>
+                              <p className="text-[11px] sm:text-xs font-mono text-slate-700 dark:text-gray-300">
+                                @{tx.counterpartyUsername}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Address (TON only, skip if username shown) */}
+                        {tx.address && !tx.counterpartyUsername && (
                           <div className="flex items-start gap-2 sm:gap-3">
                             <ExternalLink size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
@@ -403,8 +531,8 @@ const History: React.FC = () => {
                           </div>
                         )}
 
-                        {/* View in Explorer */}
-                        {tx.hash && (
+                        {/* View in Explorer (TON only) */}
+                        {tx.hash && tx.asset !== 'RZC' && (
                           <button
                             onClick={() => window.open(getTransactionUrl(tx.hash!, network), '_blank')}
                             className="w-full mt-1 sm:mt-2 py-2.5 px-4 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95"
@@ -422,6 +550,107 @@ const History: React.FC = () => {
           ))
         )}
       </div>
+      )} {/* end activeTab === transactions */}
+
+      {/* Activity Feed */}
+      {activeTab === 'activity' && (
+        <div className="space-y-3">
+          {activityLoading ? (
+            <div className="space-y-2.5">
+              <LoadingSkeleton height={72} />
+              <LoadingSkeleton height={72} />
+              <LoadingSkeleton height={72} />
+            </div>
+          ) : activityError ? (
+            <div className="p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={16} />
+                <div>
+                  <p className="text-xs font-bold text-red-900 dark:text-red-300 mb-1">Failed to load activity</p>
+                  <p className="text-xs text-red-700 dark:text-red-400 mb-2">{activityError}</p>
+                  <button onClick={loadActivities} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-all">Retry</button>
+                </div>
+              </div>
+            </div>
+          ) : activities.length === 0 ? (
+            <div className="p-8 text-center bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-2xl">
+              <Activity size={36} className="mx-auto mb-2.5 text-slate-300 dark:text-gray-700" />
+              <p className="text-sm font-bold text-slate-900 dark:text-white mb-1">No activity yet</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">Commissions, rewards, and events will appear here</p>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
+              {activities.map((act) => {
+                const isCommission = act.metadata?.type === 'referral_commission';
+                const isReward = act.activity_type === 'reward_claimed';
+                const isReferral = act.activity_type === 'referral_code_used';
+                const date = new Date(act.created_at);
+                const timeAgo = (() => {
+                  const diff = Date.now() - date.getTime();
+                  const m = Math.floor(diff / 60000);
+                  const h = Math.floor(diff / 3600000);
+                  const d = Math.floor(diff / 86400000);
+                  if (m < 1) return 'Just now';
+                  if (m < 60) return `${m}m ago`;
+                  if (h < 24) return `${h}h ago`;
+                  if (d === 1) return 'Yesterday';
+                  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                })();
+
+                let iconBg = 'bg-slate-100 dark:bg-white/5';
+                let iconColor = 'text-slate-500 dark:text-gray-400';
+                let IconEl = Activity;
+                let amountLabel: string | null = null;
+
+                if (isCommission) {
+                  iconBg = 'bg-emerald-100 dark:bg-emerald-500/15';
+                  iconColor = 'text-emerald-600 dark:text-emerald-400';
+                  IconEl = Users;
+                  amountLabel = `+${Math.round(act.metadata.commission_rzc).toLocaleString()} RZC`;
+                } else if (isReward) {
+                  iconBg = 'bg-yellow-100 dark:bg-yellow-500/15';
+                  iconColor = 'text-yellow-600 dark:text-yellow-400';
+                  IconEl = Gift;
+                  const rzcMatch = act.description.match(/([\d,]+)\s*RZC/);
+                  if (rzcMatch) amountLabel = `+${rzcMatch[1]} RZC`;
+                } else if (isReferral) {
+                  iconBg = 'bg-blue-100 dark:bg-blue-500/15';
+                  iconColor = 'text-blue-600 dark:text-blue-400';
+                  IconEl = Users;
+                } else if (act.activity_type === 'transaction_sent') {
+                  iconBg = 'bg-red-100 dark:bg-red-500/10';
+                  iconColor = 'text-red-500';
+                  IconEl = Zap;
+                }
+
+                return (
+                  <div key={act.id} className="p-3.5 sm:p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-white/5 transition-all">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+                      <IconEl size={16} className={iconColor} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white leading-snug truncate">
+                        {act.description}
+                      </p>
+                      {isCommission && act.metadata?.package_name && (
+                        <p className="text-[10px] text-slate-500 dark:text-gray-500 font-semibold mt-0.5">
+                          {act.metadata.package_name} · ${act.metadata.package_price_usd} · 10% commission
+                        </p>
+                      )}
+                      <p className="text-[10px] text-slate-400 dark:text-gray-600 font-medium mt-0.5">{timeAgo}</p>
+                    </div>
+                    {amountLabel && (
+                      <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap flex-shrink-0">
+                        {amountLabel}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
