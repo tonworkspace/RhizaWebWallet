@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ShieldAlert, Copy, Check, ArrowRight, ChevronLeft, Lock, RefreshCw, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Check, ArrowRight, ChevronLeft, RefreshCw, Eye, EyeOff, AlertCircle, ShieldCheck, Copy, Lock } from 'lucide-react';
 import { tonWalletService } from '../services/tonWalletService';
 import { useWallet } from '../context/WalletContext';
 import { validatePassword, generateVerificationChallenge, verifyMnemonicWords } from '../utils/encryption';
@@ -9,136 +9,181 @@ import { supabaseService } from '../services/supabaseService';
 import { rzcRewardService } from '../services/rzcRewardService';
 import { processReferralSignup, validateReferralCode } from '../utils/referralUtils';
 
+// BIP-39 English word list (subset for autocomplete - in production import full list)
+const BIP39_WORDS_URL = 'https://raw.githubusercontent.com/bitcoin/bips/master/bip-0039/english.txt';
+
+const STEPS = ['Select Type', 'Backup Phrase', 'Set Password', 'Verify Backup', 'Confirm'];
+
 const CreateWallet: React.FC = () => {
   const navigate = useNavigate();
   const { login, isLoggedIn } = useWallet();
   const { showToast } = useToast();
   const [searchParams] = useSearchParams();
-  
-  // Get referral code from URL parameter
   const referralCode = searchParams.get('ref');
-  
+
+  const [walletType, setWalletType] = useState<'ton-24' | 'multi-12' | null>(null);
   const [mnemonic, setMnemonic] = useState<string[]>([]);
-  const [copied, setCopied] = useState(false);
-  const [step, setStep] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
+  const [step, setStep] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // BIP-39 wordlist for autocomplete
+  const [bip39Words, setBip39Words] = useState<string[]>([]);
+
+  // Referral states
   const [referralValidation, setReferralValidation] = useState<{
-    isValid: boolean;
-    referrerName?: string;
-    error?: string;
+    isValid: boolean; referrerName?: string;
   } | null>(null);
-  
-  // Password state
+
+  // Password states
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
-  
-  // Verification state
+
+  // Phrase display states
+  const [isRevealed, setIsRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Verification states
   const [verificationPositions, setVerificationPositions] = useState<number[]>([]);
   const [verificationInputs, setVerificationInputs] = useState<string[]>(['', '', '']);
   const [verificationError, setVerificationError] = useState('');
+  const [suggestions, setSuggestions] = useState<string[][]>([[], [], []]);
+  const [activeSuggestion, setActiveSuggestion] = useState<number | null>(null);
 
-  // Redirect to dashboard if user is already logged in
-  useEffect(() => {
-    if (isLoggedIn) {
-      navigate('/wallet/dashboard');
-    }
-  }, [isLoggedIn, navigate]);
+  // Final confirmation checkboxes
+  const [confirmations, setConfirmations] = useState({
+    storage: false, digital: false, password: false, responsibility: false
+  });
 
-  // Validate referral code if provided
+  // ─── Redirect removed so logged in users can add a new wallet ─────────
+
+  // ─── Load BIP-39 wordlist for autocomplete ────────────────────────────────
   useEffect(() => {
-    const validateReferral = async () => {
-      if (referralCode) {
-        console.log('🔍 Validating referral code:', referralCode);
-        const validation = await validateReferralCode(referralCode);
-        setReferralValidation(validation);
-        
-        if (!validation.isValid) {
-          showToast(`Invalid referral code: ${validation.error}`, 'warning');
-        } else {
-          showToast(`Valid referral from ${validation.referrerName}!`, 'success');
-        }
-      }
-    };
-    
-    validateReferral();
+    fetch(BIP39_WORDS_URL)
+      .then(r => r.text())
+      .then(text => setBip39Words(text.trim().split('\n')))
+      .catch(() => {
+        // Fallback: autocomplete will still work from mnemonic words themselves
+      });
+  }, []);
+
+  // ─── Validate referral code ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!referralCode) return;
+    validateReferralCode(referralCode).then(v => {
+      setReferralValidation(v);
+      if (!v.isValid) showToast(`Invalid referral code`, 'warning');
+    });
   }, [referralCode, showToast]);
 
-  useEffect(() => {
-    const generate = async () => {
-      try {
+  // ─── Generate mnemonic with secure entropy ────────────────────────────────
+  const generateWalletMnemonic = async (type: 'ton-24' | 'multi-12') => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      if (type === 'ton-24') {
+        const extraEntropy = crypto.getRandomValues(new Uint8Array(32));
         const res = await tonWalletService.generateNewWallet();
         if (res.success && res.mnemonic) {
           setMnemonic(res.mnemonic);
-          setError(null);
         } else {
           setError(res.error || 'Failed to generate wallet');
-          showToast('Failed to generate wallet. Please try again.', 'error');
         }
-      } catch (err) {
-        setError('An unexpected error occurred');
-        showToast('An unexpected error occurred', 'error');
+      } else {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const phrase = tetherWdkService.generateMnemonic();
+        setMnemonic(phrase.split(' '));
       }
-      setIsLoading(false);
-    };
-    generate();
-  }, [showToast]);
+    } catch {
+      setError('An unexpected error occurred');
+    }
+    setIsLoading(false);
+    setStep(1);
+  };
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
 
   const handleCopy = () => {
-    // Format mnemonic with numbers for easier backup
-    const numberedMnemonic = mnemonic
-      .map((word, index) => `${index + 1}. ${word}`)
+    if (!isRevealed) return;
+    // Format as professional numbered list
+    const formatted = mnemonic
+      .map((word, i) => `${String(i + 1).padStart(2, ' ')}. ${word}`)
       .join('\n');
-    
-    navigator.clipboard.writeText(numberedMnemonic);
+    navigator.clipboard.writeText(formatted);
     setCopied(true);
-    showToast('Mnemonic copied with numbers to clipboard', 'success');
+    showToast('Recovery phrase copied', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleStep1Next = () => {
+    if (!isRevealed) {
+      showToast('Please reveal your phrase before continuing', 'warning');
+      return;
+    }
     setStep(2);
   };
 
   const handleStep2Next = () => {
-    // Validate password
     const validation = validatePassword(password);
-    if (!validation.valid) {
-      setPasswordError(validation.message);
-      return;
-    }
-    
-    if (password !== confirmPassword) {
-      setPasswordError('Passwords do not match');
-      return;
-    }
-    
+    if (!validation.valid) { setPasswordError(validation.message); return; }
+    if (password !== confirmPassword) { setPasswordError('Passwords do not match'); return; }
     setPasswordError('');
-    
-    // Generate verification challenge
-    const positions = generateVerificationChallenge();
-    setVerificationPositions(positions);
+    // Generate verification positions based on mnemonic length
+    const totalWords = walletType === 'multi-12' ? 12 : 24;
+    const positions: number[] = [];
+    while (positions.length < 3) {
+      const p = Math.floor(Math.random() * totalWords);
+      if (!positions.includes(p)) positions.push(p);
+    }
+    setVerificationPositions(positions.sort((a, b) => a - b));
+    setVerificationInputs(['', '', '']);
+    setSuggestions([[], [], []]);
     setStep(3);
   };
 
+  const handleVerificationInput = (idx: number, value: string) => {
+    // Update input
+    const newInputs = [...verificationInputs];
+    newInputs[idx] = value;
+    setVerificationInputs(newInputs);
+    setVerificationError('');
+
+    // Build autocomplete from BIP-39 list (or fallback to mnemonic words)
+    const wordPool = bip39Words.length > 0 ? bip39Words : mnemonic;
+    const query = value.toLowerCase().trim();
+    const newSuggestions = [...suggestions];
+    if (query.length >= 2) {
+      newSuggestions[idx] = wordPool.filter(w => w.startsWith(query)).slice(0, 5);
+    } else {
+      newSuggestions[idx] = [];
+    }
+    setSuggestions(newSuggestions);
+    setActiveSuggestion(newSuggestions[idx].length > 0 ? idx : null);
+  };
+
+  const applySuggestion = (inputIdx: number, word: string) => {
+    const newInputs = [...verificationInputs];
+    newInputs[inputIdx] = word;
+    setVerificationInputs(newInputs);
+    const newSuggestions = [...suggestions];
+    newSuggestions[inputIdx] = [];
+    setSuggestions(newSuggestions);
+    setActiveSuggestion(null);
+    setVerificationError('');
+  };
+
   const handleVerification = () => {
-    // Check if all inputs are filled
-    if (verificationInputs.some(input => !input.trim())) {
+    if (verificationInputs.some(i => !i.trim())) {
       setVerificationError('Please fill in all words');
       return;
     }
-    
-    // Verify the words
     const isValid = verifyMnemonicWords(mnemonic, verificationInputs, verificationPositions);
-    
     if (!isValid) {
       setVerificationError('Incorrect words. Please check your backup and try again.');
-      showToast('Verification failed. Please check your words.', 'error');
       return;
     }
-    
     setVerificationError('');
     setStep(4);
   };
@@ -146,227 +191,137 @@ const CreateWallet: React.FC = () => {
   const handleComplete = async () => {
     setIsLoading(true);
     setError(null);
-    
     try {
-      console.log('🚀 Starting wallet creation process...');
-      
-      // First, initialize the wallet to get the address
-      const initResult = await tonWalletService.initializeWallet(mnemonic, password);
-      
-      if (!initResult.success || !initResult.address) {
-        setError('Failed to initialize wallet');
-        showToast('Failed to initialize wallet. Please try again.', 'error');
-        setIsLoading(false);
-        return;
-      }
+      let walletAddress = '';
+      let addResult: any;
 
-      const walletAddress = initResult.address;
-      console.log('✅ Wallet initialized:', walletAddress);
-
-      // Create user profile in Supabase
-      if (supabaseService.isConfigured()) {
-        console.log('💾 Creating user profile in Supabase...');
+      if (walletType === 'ton-24') {
+        const initResult = await tonWalletService.initializeWallet(mnemonic, password);
+        if (!initResult.success || !initResult.address) throw new Error('Failed to initialize TON Vault');
+        walletAddress = initResult.address;
         
-        // Look up referrer if referral code provided
-        let referrerId: string | null = null;
-        if (referralCode) {
-          console.log('🔍 Looking up referrer with code:', referralCode);
-          const referrerResult = await supabaseService.getUserByReferralCode(referralCode);
-          if (referrerResult.success && referrerResult.data) {
-            referrerId = referrerResult.data.user_id;
-            console.log('✅ Referrer found:', referrerId);
-          } else {
-            console.warn('⚠️ Referral code not found:', referralCode);
-            // Show warning but continue with wallet creation
-            showToast(`Referral code "${referralCode}" not found, but wallet will still be created`, 'warning');
-          }
-        }
-        
-        const profileResult = await supabaseService.createOrUpdateProfile({
-          wallet_address: walletAddress,
-          name: `Rhiza User #${walletAddress.slice(-4)}`,
-          avatar: '🌱',
-          role: 'user',
-          is_active: true,
-          referrer_code: referralCode || null // Store who referred this user
-        });
-
-        if (profileResult.success && profileResult.data) {
-          console.log('✅ User profile created:', profileResult.data.id);
-          
-          // Award signup bonus (50 RZC)
-          console.log('💰 Attempting to award signup bonus...');
-          const signupBonus = await rzcRewardService.awardSignupBonus(profileResult.data.id);
-          if (signupBonus.success) {
-            console.log(`🎁 Signup bonus awarded: ${signupBonus.amount} RZC`);
-            
-            // Send welcome notification to new user
-            try {
-              const { notificationService } = await import('../services/notificationService');
-              await notificationService.createNotification(
-                walletAddress,
-                'reward_claimed',
-                'Welcome to Rhiza! 🎉',
-                `Your wallet has been created successfully! You received ${signupBonus.amount} RZC as a welcome bonus.`,
-                {
-                  data: {
-                    bonus_amount: signupBonus.amount,
-                    wallet_address: walletAddress,
-                    bonus_type: 'signup'
-                  },
-                  priority: 'high'
-                }
-              );
-              console.log('📬 Welcome notification sent to new user');
-            } catch (notifError) {
-              console.warn('⚠️ Failed to send welcome notification:', notifError);
-            }
-          } else {
-            console.error('❌ Signup bonus failed:', signupBonus.error);
-            // Continue anyway - user can contact support
-          }
-          
-          // Generate referral code for this new user
-          console.log('🎫 Generating referral code...');
-          const referralResult = await supabaseService.createReferralCode(
-            profileResult.data.id,
-            walletAddress,
-            referrerId // Link to referrer if exists
-          );
-          
-          if (referralResult.success) {
-            console.log('✅ Referral code created:', referralResult.data?.referral_code);
-            
-            // If user was referred, increment referrer's count and award RZC bonus
-            if (referrerId) {
-              console.log('📈 Incrementing referrer count...');
-              await supabaseService.incrementReferralCount(referrerId);
-              await supabaseService.updateReferralRank(referrerId);
-              
-              // Award RZC tokens to referrer (25 RZC + potential milestone bonus)
-              console.log('💰 Attempting to award referral bonus...');
-              const referralBonus = await rzcRewardService.awardReferralBonus(
-                referrerId,
-                profileResult.data.id,
-                walletAddress
-              );
-              
-              if (referralBonus.success) {
-                console.log(`🎁 Referral bonus awarded: ${referralBonus.amount} RZC`);
-                if (referralBonus.milestoneReached) {
-                  console.log(`🎉 Milestone bonus: ${referralBonus.milestoneBonus} RZC`);
-                }
-                
-                // Send notification to referrer about new signup
-                try {
-                  const { notificationService } = await import('../services/notificationService');
-                  const referrerProfile = await supabaseService.getProfileById(referrerId);
-                  
-                  if (referrerProfile.success && referrerProfile.data) {
-                    const totalBonus = (referralBonus.amount || 25) + (referralBonus.milestoneBonus || 0);
-                    const message = referralBonus.milestoneReached
-                      ? `Someone just joined using your referral link! You earned ${referralBonus.amount} RZC. Plus ${referralBonus.milestoneBonus} RZC milestone bonus! 🎉`
-                      : `Someone just joined using your referral link! You earned ${referralBonus.amount} RZC.`;
-                    
-                    await notificationService.createNotification(
-                      referrerProfile.data.wallet_address,
-                      'referral_joined',
-                      'New Referral Signup! 🎉',
-                      message,
-                      {
-                        data: {
-                          referral_code: referralCode,
-                          new_user_address: walletAddress,
-                          bonus_amount: referralBonus.amount || 25,
-                          milestone_bonus: referralBonus.milestoneBonus || 0,
-                          milestone_reached: referralBonus.milestoneReached || false,
-                          total_bonus: totalBonus
-                        },
-                        priority: 'high'
-                      }
-                    );
-                    console.log('📬 Notification sent to referrer');
-                  }
-                } catch (notifError) {
-                  console.warn('⚠️ Failed to send notification:', notifError);
-                  // Don't fail the signup if notification fails
-                }
-              } else {
-                console.error('❌ Referral bonus failed:', referralBonus.error);
-                // Continue anyway - referrer can contact support
-              }
-              
-              console.log('✅ Referrer stats updated');
-            }
-          } else {
-            console.warn('⚠️ Referral code creation failed:', referralResult.error);
-          }
-          
-          // Track wallet creation event
-          await supabaseService.trackEvent('wallet_created', {
-            wallet_address: walletAddress,
-            creation_method: 'new_wallet',
-            has_referrer: !!referrerId,
-            referrer_code: referralCode || null
-          });
-          console.log('📊 Analytics event tracked');
-        } else {
-          console.warn('⚠️ Profile creation failed:', profileResult.error);
-          // Continue anyway - profile can be created on next login
-        }
+        const { WalletManager } = await import('../utils/walletManager');
+        addResult = await WalletManager.addWallet(mnemonic, password, walletAddress, 'TON Vault', 'primary');
       } else {
-        console.warn('⚠️ Supabase not configured - skipping profile creation');
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const addrs = await tetherWdkService.initializeManagers(mnemonic.join(' '));
+        if (!addrs || !addrs.tonAddress) throw new Error('Failed to initialize Multi-Chain Wallet');
+        walletAddress = addrs.tonAddress;
+
+        const { WalletManager } = await import('../utils/walletManager');
+        addResult = await WalletManager.addWallet(mnemonic, password, walletAddress, 'Multi-Chain Wallet', 'secondary', {
+          evm: addrs.evmAddress,
+          ton: addrs.tonAddress,
+          btc: addrs.btcAddress
+        });
       }
 
-      // Add wallet to manager
-      const { WalletManager } = await import('../utils/walletManager');
-      const addResult = await WalletManager.addWallet(
-        mnemonic,
-        password,
-        walletAddress
-      );
-
-      if (!addResult.success) {
-        setError(addResult.error || 'Failed to save wallet');
+      if (!addResult.success || !addResult.walletId) {
         showToast(addResult.error || 'Failed to save wallet', 'error');
         setIsLoading(false);
         return;
       }
 
-      console.log('✅ Wallet added to manager');
+      if (supabaseService.isConfigured()) {
+        let referrerId: string | null = null;
+        if (referralCode) {
+          const referrerResult = await supabaseService.getUserByReferralCode(referralCode);
+          if (referrerResult.success && referrerResult.data) referrerId = referrerResult.data.user_id;
+        }
 
-      // Login with the wallet
-      const success = await login(mnemonic, password);
+        const profileResult = await supabaseService.createOrUpdateProfile({
+          wallet_address: walletAddress,
+          name: `Rhiza User #${walletAddress.slice(-4)}`,
+          avatar: '🌱', role: 'user', is_active: true,
+          referrer_code: referralCode || null
+        });
+
+        if (profileResult.success && profileResult.data) {
+          const signupBonus = await rzcRewardService.awardSignupBonus(profileResult.data.id);
+          if (signupBonus.success) {
+            try {
+              const { notificationService } = await import('../services/notificationService');
+              await notificationService.createNotification(walletAddress, 'reward_claimed', 'Welcome to Rhiza! 🎉',
+                `Your wallet has been created! You received ${signupBonus.amount} RZC as a welcome bonus.`,
+                { data: { bonus_amount: signupBonus.amount, wallet_address: walletAddress, bonus_type: 'signup' }, priority: 'high' }
+              );
+            } catch {}
+          }
+
+          const referralResult = await supabaseService.createReferralCode(profileResult.data.id, walletAddress, referrerId);
+          if (referralResult.success && referrerId) {
+            await supabaseService.incrementReferralCount(referrerId);
+            await supabaseService.updateReferralRank(referrerId);
+            const referralBonus = await rzcRewardService.awardReferralBonus(referrerId, profileResult.data.id, walletAddress);
+            if (referralBonus.success) {
+              try {
+                const { notificationService } = await import('../services/notificationService');
+                const referrerProfile = await supabaseService.getProfileById(referrerId);
+                if (referrerProfile.success && referrerProfile.data) {
+                  const msg = referralBonus.milestoneReached
+                    ? `New referral! You earned ${referralBonus.amount} RZC + ${referralBonus.milestoneBonus} RZC milestone bonus! 🎉`
+                    : `New referral! You earned ${referralBonus.amount} RZC.`;
+                  await notificationService.createNotification(referrerProfile.data.wallet_address, 'referral_joined', 'New Referral! 🎉', msg,
+                    { data: { referral_code: referralCode, new_user_address: walletAddress, bonus_amount: referralBonus.amount || 25 }, priority: 'high' }
+                  );
+                }
+              } catch {}
+            }
+          }
+
+          await supabaseService.trackEvent('wallet_created', {
+            wallet_address: walletAddress, creation_method: 'new_wallet',
+            has_referrer: !!referrerId, referrer_code: referralCode || null
+          });
+        }
+      }
+
+      const success = await login(mnemonic, password, walletType === 'multi-12' ? 'secondary' : 'primary');
       if (success && addResult.walletId) {
+        const { WalletManager } = await import('../utils/walletManager');
         WalletManager.setActiveWallet(addResult.walletId);
-        console.log('✅ Wallet creation complete!');
-        showToast('Wallet created successfully!', 'success');
+        showToast('Wallet created successfully! 🎉', 'success');
         navigate('/wallet/dashboard');
       } else {
-        setError('Failed to initialize wallet');
-        showToast('Failed to initialize wallet. Please try again.', 'error');
+        showToast('Failed to initialize wallet session', 'error');
       }
     } catch (err) {
-      console.error('❌ Wallet creation error:', err);
-      setError('An unexpected error occurred');
-      showToast('An unexpected error occurred', 'error');
+      console.error('Wallet creation error:', err);
+      showToast(err instanceof Error ? err.message : 'An unexpected error occurred', 'error');
     }
-    
     setIsLoading(false);
   };
 
-  const handleRetry = () => {
-    setError(null);
-    setIsLoading(true);
-    window.location.reload();
+  // ─── Password strength ────────────────────────────────────────────────────
+  const getPasswordStrength = () => {
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (password.length >= 12) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+    if (score <= 2) return { label: 'Weak', color: '#ef4444', width: '25%' };
+    if (score <= 4) return { label: 'Fair', color: '#f59e0b', width: '55%' };
+    if (score <= 5) return { label: 'Good', color: '#3b82f6', width: '80%' };
+    return { label: 'Strong', color: '#00FF88', width: '100%' };
   };
 
+  const strength = getPasswordStrength();
+  const allConfirmed = Object.values(confirmations).every(Boolean);
+
+  // ─── Loading screen ───────────────────────────────────────────────────────
   if (isLoading && step === 1) {
     return (
-      <div className="min-h-screen bg-transparent flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <RefreshCw className="text-[#00FF88] animate-spin mx-auto" size={40} />
-          <p className="text-gray-400 font-medium">Generating secure wallet...</p>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-5">
+          <div className="w-16 h-16 rounded-2xl bg-[#00FF88]/10 flex items-center justify-center mx-auto">
+            <ShieldCheck className="text-[#00FF88] animate-pulse" size={32} />
+          </div>
+          <div>
+            <p className="text-white font-bold text-lg">Generating secure wallet</p>
+            <p className="text-gray-400 text-sm mt-1">Using cryptographic entropy...</p>
+          </div>
         </div>
       </div>
     );
@@ -374,343 +329,428 @@ const CreateWallet: React.FC = () => {
 
   if (error && step === 1) {
     return (
-      <div className="min-h-screen bg-transparent flex items-center justify-center p-8">
-        <div className="max-w-md w-full space-y-6 text-center">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
-            <AlertCircle className="text-red-500" size={32} />
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-sm w-full text-center space-y-6">
+          <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto">
+            <AlertCircle className="text-red-400" size={28} />
           </div>
-          <h2 className="text-2xl font-black text-white">Generation Failed</h2>
-          <p className="text-gray-400">{error}</p>
-          <button
-            onClick={handleRetry}
-            className="w-full p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all"
-          >
+          <div>
+            <h2 className="text-xl font-bold text-white">Generation Failed</h2>
+            <p className="text-gray-400 text-sm mt-2">{error}</p>
+          </div>
+          <button onClick={() => window.location.reload()}
+            className="w-full py-3.5 bg-[#00FF88] text-black rounded-2xl font-bold text-sm">
             Try Again
           </button>
-          <button
-            onClick={() => navigate('/onboarding')}
-            className="w-full p-4 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-white/10 transition-all"
-          >
-            Back to Onboarding
+          <button onClick={() => navigate(isLoggedIn ? '/wallet/dashboard' : '/onboarding')}
+            className="w-full py-3.5 bg-white/5 border border-white/10 text-white rounded-2xl font-semibold text-sm">
+            Back
           </button>
         </div>
       </div>
     );
   }
 
+  // ─── Main UI ──────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-transparent flex flex-col items-center justify-center p-8 page-enter">
-      <div className="w-full max-w-3xl space-y-12">
-        
-        <button 
-          onClick={() => step === 1 ? navigate('/onboarding') : setStep(step - 1)}
-          className="flex items-center gap-3 text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white transition-colors text-xs font-black uppercase tracking-widest"
+    <div className="min-h-screen flex flex-col" style={{ background: 'transparent' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 pt-6 pb-4">
+        <button
+          onClick={() => step === 0 || step === 1 ? navigate(isLoggedIn ? '/wallet/dashboard' : '/onboarding') : setStep(step - 1)}
+          className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-all"
         >
-          <ChevronLeft size={16} /> {step === 1 ? 'Back to Entry' : 'Previous Step'}
+          <ChevronLeft size={18} />
         </button>
 
-        {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-2">
-          {[1, 2, 3, 4].map((s) => (
-            <div
-              key={s}
-              className={`h-1.5 rounded-full transition-all ${
-                s === step ? 'w-12 bg-[#00FF88]' : s < step ? 'w-8 bg-[#00FF88]/50' : 'w-8 bg-white/10'
-              }`}
-            />
+        {/* Step dots */}
+        <div className="flex items-center gap-1.5">
+          {STEPS.map((_, i) => (
+            <div key={i} className={`rounded-full transition-all duration-300 ${i + 1 === step ? 'w-6 h-2 bg-[#00FF88]' : i + 1 < step ? 'w-2 h-2 bg-[#00FF88]/40' : 'w-2 h-2 bg-white/10'}`} />
           ))}
         </div>
 
-        {/* Referral Status */}
-        {referralCode && (
-          <div className={`p-4 rounded-2xl border-2 transition-all ${
-            referralValidation?.isValid 
-              ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20'
-              : referralValidation === null
-                ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20'
-                : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20'
-          }`}>
-            <div className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                referralValidation?.isValid 
-                  ? 'bg-emerald-200 dark:bg-emerald-500/20'
-                  : referralValidation === null
-                    ? 'bg-blue-200 dark:bg-blue-500/20'
-                    : 'bg-amber-200 dark:bg-amber-500/20'
-              }`}>
-                {referralValidation?.isValid ? (
-                  <Check size={16} className="text-emerald-700 dark:text-emerald-400" />
-                ) : referralValidation === null ? (
-                  <RefreshCw size={16} className="text-blue-700 dark:text-blue-400 animate-spin" />
-                ) : (
-                  <AlertCircle size={16} className="text-amber-700 dark:text-amber-400" />
-                )}
-              </div>
-              <div>
-                <p className={`text-sm font-bold ${
-                  referralValidation?.isValid 
-                    ? 'text-emerald-900 dark:text-emerald-300'
-                    : referralValidation === null
-                      ? 'text-blue-900 dark:text-blue-300'
-                      : 'text-amber-900 dark:text-amber-300'
-                }`}>
-                  {referralValidation?.isValid 
-                    ? `Referred by ${referralValidation.referrerName}`
-                    : referralValidation === null
-                      ? 'Validating referral code...'
-                      : 'Invalid referral code'
-                  }
-                </p>
-                <p className={`text-xs font-semibold ${
-                  referralValidation?.isValid 
-                    ? 'text-emerald-700 dark:text-emerald-400'
-                    : referralValidation === null
-                      ? 'text-blue-700 dark:text-blue-400'
-                      : 'text-amber-700 dark:text-amber-400'
-                }`}>
-                  Code: {referralCode}
-                  {referralValidation?.isValid && ' • You\'ll both earn bonus RZC!'}
-                  {referralValidation !== null && !referralValidation.isValid && ' • Wallet will still be created'}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+        <div className="text-xs text-gray-500 font-semibold">{step}/{STEPS.length}</div>
+      </div>
 
-        <div className="space-y-4">
-          <h1 className="text-4xl font-black text-gray-950 dark:text-white tracking-tight-custom">
-            {step === 1 && 'Your Private Key Sequence'}
-            {step === 2 && 'Set Encryption Password'}
-            {step === 3 && 'Verify Your Backup'}
-            {step === 4 && 'Finalizing Security'}
-          </h1>
-          <p className="text-gray-700 dark:text-gray-400 text-lg font-semibold leading-relaxed max-w-2xl">
-            {step === 1 && 'These 24 words represent your digital vault key. Write them down in order on physical paper. Never store them digitally.'}
-            {step === 2 && 'Create a strong password to encrypt your wallet. This adds an extra layer of security to your stored session.'}
-            {step === 3 && 'To ensure you\'ve backed up your mnemonic correctly, please enter the words at the positions shown below.'}
-            {step === 4 && 'Before we activate your terminal, confirm your understanding of self-sovereignty.'}
-          </p>
+      {/* Referral banner */}
+      {referralCode && referralValidation?.isValid && (
+        <div className="mx-6 mb-2 px-4 py-2.5 bg-[#00FF88]/10 border border-[#00FF88]/20 rounded-2xl flex items-center gap-2.5">
+          <Check size={14} className="text-[#00FF88] shrink-0" />
+          <p className="text-xs text-[#00FF88] font-semibold">Referred by {referralValidation.referrerName} · You'll both earn bonus RZC!</p>
         </div>
+      )}
 
-        {/* Step 1: Display Mnemonic */}
-        {step === 1 && (
-          <div className="space-y-10">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-10 bg-gradient-to-br from-gray-50 to-white dark:from-white/5 dark:to-transparent rounded-[3rem] shadow-xl dark:shadow-3xl border border-gray-200 dark:border-white/10">
-              {mnemonic.map((word, idx) => (
-                <div key={idx} className="flex items-center gap-3 p-4 bg-white dark:bg-white/5 rounded-2xl border-2 border-gray-300 dark:border-white/10 group hover:border-[#00FF88] dark:hover:border-[#00FF88]/30 transition-all shadow-sm">
-                  <span className="text-[9px] font-mono text-gray-600 dark:text-gray-500 w-4 font-bold">{idx + 1}</span>
-                  <span className="text-sm font-black text-gray-950 dark:text-white group-hover:text-[#00FF88] transition-colors">{word}</span>
+      {/* Content */}
+      <div className="flex-1 flex flex-col px-6 pb-8 max-w-lg mx-auto w-full">
+
+        {/* ── STEP 0: Select Type ── */}
+        {step === 0 && (
+          <div className="flex flex-col flex-1 pt-4 space-y-6">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Choose Wallet Format</h1>
+              <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+                Rhiza supports two types of wallets. Choose the one that best fits your needs.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <button 
+                onClick={() => setWalletType('ton-24')}
+                className={`w-full p-5 rounded-3xl border-2 text-left transition-all ${walletType === 'ton-24' ? 'border-[#00FF88] bg-[#00FF88]/10' : 'border-white/10 bg-white/5 hover:border-white/30'}`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-lg text-white">TON Vault (24 Words)</h3>
+                    <p className="text-xs text-gray-400 mt-1">Standard high-security native TON wallet. Best for dedicated TON users.</p>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${walletType === 'ton-24' ? 'border-[#00FF88] bg-[#00FF88]' : 'border-gray-600'}`}>
+                    {walletType === 'ton-24' && <div className="w-2 h-2 rounded-full bg-black" />}
+                  </div>
                 </div>
-              ))}
+              </button>
+
+              <button 
+                onClick={() => setWalletType('multi-12')}
+                className={`w-full p-5 rounded-3xl border-2 text-left transition-all ${walletType === 'multi-12' ? 'border-violet-500 bg-violet-500/10' : 'border-white/10 bg-white/5 hover:border-white/30'}`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-lg text-white">Multi-Chain (12 Words)</h3>
+                    <p className="text-xs text-gray-400 mt-1">Supports TON W5, Polygon EVM, and Bitcoin all derived from one 12-phrase seed.</p>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${walletType === 'multi-12' ? 'border-violet-500 bg-violet-500' : 'border-gray-600'}`}>
+                    {walletType === 'multi-12' && <div className="w-2 h-2 rounded-full bg-black" />}
+                  </div>
+                </div>
+              </button>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-6">
-              <button 
-                onClick={handleCopy}
-                className="flex-1 p-6 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl flex items-center justify-center gap-4 text-xs font-black uppercase tracking-widest text-gray-950 dark:text-white hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all group shadow-sm"
-              >
-                {copied ? <Check size={18} className="text-[#00FF88]" /> : <Copy size={18} className="text-gray-700 dark:text-gray-400 group-hover:text-[#00FF88]" />}
-                {copied ? 'Sequence Copied' : 'Secure Copy to Buffer'}
-              </button>
-              <button 
-                onClick={handleStep1Next}
-                className="flex-1 p-6 bg-[#00FF88] text-black rounded-2xl flex items-center justify-center gap-4 text-xs font-black uppercase tracking-widest transition-all hover:scale-[1.03] shadow-2xl"
-              >
-                I have stored it safely <ArrowRight size={18} />
-              </button>
+            <button
+              onClick={() => {
+                if (walletType) generateWalletMnemonic(walletType);
+              }}
+              disabled={!walletType}
+              className="w-full xl mt-auto py-4 bg-[#00FF88] text-black rounded-2xl font-bold text-sm hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              Generate Protocol <ArrowRight size={16} />
+            </button>
+          </div>
+        )}
+
+        {/* ── STEP 1: Recovery Phrase ── */}
+        {step === 1 && (
+          <div className="flex flex-col flex-1 pt-4 space-y-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <h1 className="text-2xl font-bold text-white">Secret Recovery Phrase</h1>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${walletType === 'multi-12' ? 'bg-violet-500/20 text-violet-400' : 'bg-[#00FF88]/20 text-[#00FF88]'}`}>
+                  {walletType === 'multi-12' ? '12 Words' : '24 Words'}
+                </span>
+              </div>
+              <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+                Write down these {mnemonic.length} words in order on paper. This is the only way to recover your wallet.
+              </p>
             </div>
-            
-            <div className="p-6 bg-amber-500/5 border border-amber-500/10 rounded-2xl flex gap-6">
-               <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-                  <ShieldAlert className="text-amber-500" size={20} />
-               </div>
-               <p className="text-xs text-amber-500/80 leading-relaxed font-bold">
-                 RhizaCore Labs cannot recover this phrase. If you lose it, your assets are permanently lost. Write it down on paper and store it securely.
-               </p>
+
+            {/* Phrase grid with blur-to-reveal */}
+            <div className="relative rounded-3xl overflow-hidden border border-white/10 bg-white/5">
+              <div className={`grid grid-cols-3 gap-0 transition-all duration-300 ${!isRevealed ? 'blur-lg select-none pointer-events-none' : ''}`}>
+                {mnemonic.map((word, idx) => (
+                  <div key={idx} className={`flex items-center gap-2 px-3 py-2.5 ${idx % 3 !== 2 ? 'border-r border-white/5' : ''} ${idx < mnemonic.length - 3 ? 'border-b border-white/5' : ''}`}>
+                    <span className="text-[10px] text-gray-600 w-5 shrink-0 font-mono">{idx + 1}</span>
+                    <span className="text-sm text-white font-semibold tracking-wide">{word}</span>
+                  </div>
+                ))}
+              </div>
+
+              {!isRevealed && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30 backdrop-blur-sm">
+                  <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
+                    <Eye size={22} className="text-white" />
+                  </div>
+                  <button
+                    onClick={() => setIsRevealed(true)}
+                    className="px-5 py-2.5 bg-white text-black rounded-xl font-bold text-sm hover:bg-[#00FF88] transition-colors"
+                  >
+                    Tap to Reveal
+                  </button>
+                  <p className="text-xs text-gray-400 px-8 text-center">Make sure no one can see your screen</p>
+                </div>
+              )}
+
+              {isRevealed && (
+                <button
+                  onClick={() => setIsRevealed(false)}
+                  className="absolute top-3 right-3 px-2.5 py-1.5 bg-black/40 backdrop-blur-sm rounded-lg flex items-center gap-1.5 text-xs text-gray-300 font-medium hover:text-white transition-colors"
+                >
+                  <EyeOff size={12} /> Hide
+                </button>
+              )}
+            </div>
+
+            {/* Warning notice */}
+            <div className="flex items-start gap-3 p-4 bg-amber-500/8 border border-amber-500/15 rounded-2xl">
+              <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-400/90 leading-relaxed font-medium">
+                Never share your recovery phrase with anyone. Rhiza will never ask for it. Anyone with these words can access your wallet.
+              </p>
+            </div>
+
+            <div className="flex gap-3 mt-auto">
+              <button
+                onClick={handleCopy}
+                disabled={!isRevealed}
+                className="flex-1 py-3.5 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold text-gray-300 hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {copied ? <Check size={16} className="text-[#00FF88]" /> : <Copy size={16} />}
+                {copied ? 'Copied' : 'Copy Phrase'}
+              </button>
+              <button
+                onClick={handleStep1Next}
+                className="flex-1 py-3.5 bg-[#00FF88] text-black rounded-2xl flex items-center justify-center gap-2 text-sm font-bold hover:brightness-110 transition-all"
+              >
+                I've Saved It <ArrowRight size={16} />
+              </button>
             </div>
           </div>
         )}
 
-        {/* Step 2: Set Password */}
+        {/* ── STEP 2: Set Password ── */}
         {step === 2 && (
-          <div className="space-y-8 max-w-2xl">
-            <div className="space-y-6">
-              <div className="space-y-3">
-                <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">Create Password</label>
+          <div className="flex flex-col flex-1 pt-4 space-y-6">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Set a Password</h1>
+              <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+                This password encrypts your wallet locally. You'll need it every time you open the app.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {/* Password input */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
-                    placeholder="Enter a strong password"
+                    onChange={e => { setPassword(e.target.value); setPasswordError(''); }}
+                    className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 outline-none focus:border-[#00FF88]/50 focus:ring-1 focus:ring-[#00FF88]/20 transition-all font-medium text-sm"
+                    placeholder="Enter password"
+                    autoComplete="new-password"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400 hover:text-gray-950 dark:hover:text-white transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors p-1">
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+
+                {/* Strength bar */}
+                {password.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: strength.width, backgroundColor: strength.color }} />
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex gap-1">
+                        {[8, 12].map(len => (
+                          <span key={len} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${password.length >= len ? 'text-[#00FF88] bg-[#00FF88]/10' : 'text-gray-600 bg-white/5'}`}>
+                            {len}+
+                          </span>
+                        ))}
+                        {[/[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].map((re, i) => (
+                          <span key={i} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${re.test(password) ? 'text-[#00FF88] bg-[#00FF88]/10' : 'text-gray-600 bg-white/5'}`}>
+                            {['A-Z', '0-9', '!@#'][i]}
+                          </span>
+                        ))}
+                      </div>
+                      <span className="text-[11px] font-bold" style={{ color: strength.color }}>{strength.label}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-3">
-                <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">Confirm Password</label>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
-                  placeholder="Re-enter your password"
-                />
+              {/* Confirm password */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Confirm Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => { setConfirmPassword(e.target.value); setPasswordError(''); }}
+                    className={`w-full px-4 py-3.5 bg-white/5 border rounded-2xl text-white placeholder-gray-600 outline-none focus:ring-1 transition-all font-medium text-sm ${
+                      confirmPassword && password !== confirmPassword
+                        ? 'border-red-500/40 focus:border-red-500/50 focus:ring-red-500/20'
+                        : confirmPassword && password === confirmPassword
+                        ? 'border-[#00FF88]/40 focus:border-[#00FF88]/50 focus:ring-[#00FF88]/20'
+                        : 'border-white/10 focus:border-[#00FF88]/50 focus:ring-[#00FF88]/20'
+                    }`}
+                    placeholder="Re-enter password"
+                    autoComplete="new-password"
+                  />
+                  {confirmPassword && (
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
+                      {password === confirmPassword
+                        ? <Check size={16} className="text-[#00FF88]" />
+                        : <AlertCircle size={16} className="text-red-400" />}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {passwordError && (
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3">
-                  <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
-                  <p className="text-sm text-red-400 font-medium">{passwordError}</p>
+                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                  <AlertCircle size={14} className="text-red-400 shrink-0" />
+                  <p className="text-xs text-red-400 font-medium">{passwordError}</p>
                 </div>
               )}
-
-              <div className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl space-y-2 shadow-sm">
-                <h4 className="text-xs font-black text-gray-950 dark:text-white uppercase tracking-wider">Password Requirements:</h4>
-                <ul className="space-y-1 text-xs text-gray-700 dark:text-gray-400 font-semibold">
-                  <li className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${password.length >= 8 ? 'bg-[#00FF88]' : 'bg-gray-600'}`} />
-                    At least 8 characters
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${/[A-Z]/.test(password) ? 'bg-[#00FF88]' : 'bg-gray-600'}`} />
-                    One uppercase letter
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${/[a-z]/.test(password) ? 'bg-[#00FF88]' : 'bg-gray-600'}`} />
-                    One lowercase letter
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${/[0-9]/.test(password) ? 'bg-[#00FF88]' : 'bg-gray-600'}`} />
-                    One number
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full ${/[^A-Za-z0-9]/.test(password) ? 'bg-[#00FF88]' : 'bg-gray-600'}`} />
-                    One special character
-                  </li>
-                </ul>
-              </div>
             </div>
 
-            <button 
-              onClick={handleStep2Next}
-              disabled={!password || !confirmPassword}
-              className="w-full p-6 bg-[#00FF88] text-black rounded-2xl flex items-center justify-center gap-4 text-sm font-black uppercase tracking-widest transition-all hover:scale-[1.03] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-              Continue to Verification <ArrowRight size={20} />
+            <div className="flex items-start gap-3 p-4 bg-blue-500/8 border border-blue-500/15 rounded-2xl">
+              <Lock size={14} className="text-blue-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-400/90 leading-relaxed font-medium">Your password is never sent to our servers. It only exists on your device.</p>
+            </div>
+
+            <button onClick={handleStep2Next} disabled={!password || !confirmPassword}
+              className="w-full mt-auto py-4 bg-[#00FF88] text-black rounded-2xl font-bold text-sm hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              Continue <ArrowRight size={16} />
             </button>
-
-            <div className="p-6 bg-blue-500/5 border border-blue-500/10 rounded-2xl flex gap-6">
-               <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-                  <Lock className="text-blue-500" size={20} />
-               </div>
-               <p className="text-xs text-blue-400/80 leading-relaxed font-bold">
-                 Your password encrypts your wallet locally. You'll need it every time you access your wallet. Make sure you remember it!
-               </p>
-            </div>
           </div>
         )}
 
-        {/* Step 3: Verify Mnemonic */}
+        {/* ── STEP 3: Verify Backup ── */}
         {step === 3 && (
-          <div className="space-y-8 max-w-2xl">
-            <div className="p-6 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl space-y-6 shadow-sm">
-              <p className="text-sm text-gray-800 dark:text-gray-300 font-semibold">
-                Please enter the words at the following positions from your mnemonic phrase:
+          <div className="flex flex-col flex-1 pt-4 space-y-6">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Verify Your Backup</h1>
+              <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+                Enter the words at the positions below. Start typing for suggestions.
               </p>
-              
+            </div>
+
+            <div className="space-y-4">
               {verificationPositions.map((pos, idx) => (
-                <div key={pos} className="space-y-2">
-                  <label className="text-xs font-black text-gray-950 dark:text-white uppercase tracking-wider">
+                <div key={pos} className="space-y-2 relative">
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                     Word #{pos + 1}
                   </label>
                   <input
                     type="text"
                     value={verificationInputs[idx]}
-                    onChange={(e) => {
-                      const newInputs = [...verificationInputs];
-                      newInputs[idx] = e.target.value;
-                      setVerificationInputs(newInputs);
-                      setVerificationError('');
-                    }}
-                    className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
-                    placeholder={`Enter word #${pos + 1}`}
+                    onChange={e => handleVerificationInput(idx, e.target.value)}
+                    onFocus={() => suggestions[idx].length > 0 && setActiveSuggestion(idx)}
+                    onBlur={() => setTimeout(() => setActiveSuggestion(null), 150)}
+                    className={`w-full pl-4 pr-10 py-3.5 bg-white/5 border rounded-2xl text-white placeholder-gray-600 outline-none focus:ring-1 transition-all font-medium text-sm ${
+                      !verificationInputs[idx]
+                        ? 'border-white/10 focus:border-white/30 focus:ring-white/10'
+                        : mnemonic[pos]?.toLowerCase() === verificationInputs[idx].toLowerCase().trim()
+                        ? 'border-[#00FF88]/50 focus:border-[#00FF88]/70 focus:ring-[#00FF88]/20 bg-[#00FF88]/5'
+                        : 'border-red-500/50 focus:border-red-500/70 focus:ring-red-500/20 bg-red-500/5'
+                    }`}
+                    placeholder={`Word #${pos + 1}`}
                     autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                   />
+
+                  {/* Per-word status icon */}
+                  {verificationInputs[idx] && (
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                      {mnemonic[pos]?.toLowerCase() === verificationInputs[idx].toLowerCase().trim()
+                        ? <Check size={16} className="text-[#00FF88]" strokeWidth={2.5} />
+                        : <AlertCircle size={16} className="text-red-400" />}
+                    </div>
+                  )}
+
+                  {/* Inline mismatch hint */}
+                  {verificationInputs[idx] && mnemonic[pos]?.toLowerCase() !== verificationInputs[idx].toLowerCase().trim() && (
+                    <p className="text-[11px] text-red-400 font-medium pl-1 pt-1">
+                      That's not word #{pos + 1} — check your backup
+                    </p>
+                  )}
+
+                  {/* Autocomplete dropdown */}
+                  {suggestions[idx].length > 0 && activeSuggestion === idx && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-gray-900 border border-white/10 rounded-2xl overflow-hidden z-20 shadow-xl">
+                      {suggestions[idx].map(word => (
+                        <button
+                          key={word}
+                          onMouseDown={() => applySuggestion(idx, word)}
+                          className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/5 flex items-center justify-between group transition-colors"
+                        >
+                          <span className="font-medium">{word}</span>
+                          <ArrowRight size={12} className="text-gray-600 group-hover:text-[#00FF88] transition-colors" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
-
-              {verificationError && (
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3">
-                  <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
-                  <p className="text-sm text-red-400 font-medium">{verificationError}</p>
-                </div>
-              )}
             </div>
 
-            <button 
-              onClick={handleVerification}
-              disabled={verificationInputs.some(input => !input.trim())}
-              className="w-full p-6 bg-[#00FF88] text-black rounded-2xl flex items-center justify-center gap-4 text-sm font-black uppercase tracking-widest transition-all hover:scale-[1.03] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-              Verify Backup <ArrowRight size={20} />
+            {verificationError && (
+              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                <AlertCircle size={14} className="text-red-400 shrink-0" />
+                <p className="text-xs text-red-400 font-medium">{verificationError}</p>
+              </div>
+            )}
+
+            <button onClick={handleVerification}
+              disabled={verificationInputs.some(i => !i.trim())}
+              className="w-full mt-auto py-4 bg-[#00FF88] text-black rounded-2xl font-bold text-sm hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              Confirm Backup <ArrowRight size={16} />
             </button>
-
-            <div className="p-6 bg-amber-500/5 border border-amber-500/10 rounded-2xl flex gap-6">
-               <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-                  <ShieldAlert className="text-amber-500" size={20} />
-               </div>
-               <p className="text-xs text-amber-500/80 leading-relaxed font-bold">
-                 This verification ensures you've correctly backed up your mnemonic phrase. Without it, you cannot recover your wallet.
-               </p>
-            </div>
           </div>
         )}
 
-        {/* Step 4: Final Confirmation */}
+        {/* ── STEP 4: Final Confirmation ── */}
         {step === 4 && (
-          <div className="space-y-8 max-w-2xl">
-            <div className="space-y-4">
-              {[
-                { title: "Physical Storage", desc: "I have written my phrase on a secure physical document." },
-                { title: "No Digital Records", desc: "I will not take a photo, screenshot, or store this in the cloud." },
-                { title: "Password Security", desc: "I understand my password encrypts my wallet and I must remember it." },
-                { title: "Personal Responsibility", desc: "I acknowledge that I am solely responsible for my account's security." }
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-6 p-6 bg-white dark:bg-white/5 rounded-[2rem] border-2 border-gray-300 dark:border-white/10 shadow-sm hover:border-[#00FF88] dark:hover:border-[#00FF88]/30 transition-all">
-                   <div className="w-10 h-10 rounded-xl bg-[#00FF88]/10 flex items-center justify-center text-[#00FF88] shrink-0">
-                     <Check size={20} />
-                   </div>
-                   <div>
-                     <h4 className="font-black text-sm text-gray-950 dark:text-white">{item.title}</h4>
-                     <p className="text-xs text-gray-700 dark:text-gray-500 font-semibold">{item.desc}</p>
-                   </div>
-                </div>
+          <div className="flex flex-col flex-1 pt-4 space-y-6">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Almost Done</h1>
+              <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+                Confirm you understand your responsibilities as a self-custodial wallet holder.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {([
+                { id: 'storage', label: 'Physical backup saved', desc: 'I\'ve written down my recovery phrase on paper.' },
+                { id: 'digital', label: 'No digital copies', desc: 'I have not taken a screenshot or stored it in the cloud.' },
+                { id: 'password', label: 'Password remembered', desc: 'I understand I need my password to access this wallet.' },
+                { id: 'responsibility', label: 'Self-custody understood', desc: 'I am solely responsible for my wallet and its assets.' }
+              ] as { id: keyof typeof confirmations; label: string; desc: string }[]).map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setConfirmations(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all ${
+                    confirmations[item.id]
+                      ? 'border-[#00FF88]/30 bg-[#00FF88]/8'
+                      : 'border-white/10 bg-white/3 hover:bg-white/5'
+                  }`}
+                >
+                  <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
+                    confirmations[item.id] ? 'bg-[#00FF88] border-[#00FF88]' : 'border-white/20'
+                  }`}>
+                    {confirmations[item.id] && <Check size={13} className="text-black font-bold" strokeWidth={3} />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">{item.label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{item.desc}</p>
+                  </div>
+                </button>
               ))}
             </div>
 
-            <button 
+            <button
               onClick={handleComplete}
-              disabled={isLoading}
-              className="w-full p-6 bg-white text-black rounded-2xl flex items-center justify-center gap-4 text-sm font-black uppercase tracking-widest transition-all hover:bg-[#00FF88] hover:scale-[1.03] disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading || !allConfirmed}
+              className="w-full mt-auto py-4 bg-[#00FF88] text-black rounded-2xl font-bold text-sm hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {isLoading ? (
-                <>
-                  <RefreshCw className="animate-spin" size={20} />
-                  Initializing...
-                </>
+                <><RefreshCw className="animate-spin" size={16} /> Creating wallet...</>
               ) : (
-                <>
-                  Initialize My Vault <ArrowRight size={20} />
-                </>
+                <><ShieldCheck size={16} /> Create Wallet</>
               )}
             </button>
           </div>

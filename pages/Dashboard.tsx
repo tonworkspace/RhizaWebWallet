@@ -21,7 +21,8 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Lock
+  Lock,
+  Layers
 } from 'lucide-react';
 import { MOCK_PORTFOLIO_HISTORY, getNetworkConfig, getExplorerUrl, getTransactionUrl } from '../constants';
 import { useWallet } from '../context/WalletContext';
@@ -34,7 +35,6 @@ import LanguageSelector from '../components/LanguageSelector';
 import ClaimActivationBonus from '../components/ClaimActivationBonus';
 import AirdropWidget from '../components/AirdropWidget';
 import { supabaseService } from '../services/supabaseService';
-
 interface ActionButtonProps {
   icon: any;
   label: string;
@@ -67,6 +67,7 @@ const Dashboard: React.FC = () => {
   const {
     tonBalance,
     tonPrice,
+    btcPrice,
     totalUsdValue,
     change24h,
     changePercent24h,
@@ -98,11 +99,11 @@ const Dashboard: React.FC = () => {
   // Calculate combined portfolio value (TON + RZC)
   const combinedPortfolioValue = totalUsdValue + rzcUsdValue;
 
-  // Currency conversion rates (mock data - should be fetched from API)
+  // Currency conversion rates (dynamically fetched from WDK provider)
   const conversionRates = {
     USD: 1,
-    BTC: 0.000015, // 1 USD = 0.000015 BTC (approx $66,666 per BTC)
-    TON: 0.408, // 1 USD = 0.408 TON (approx $2.45 per TON)
+    BTC: btcPrice > 0 ? 1 / btcPrice : 0.000015,
+    TON: tonPrice > 0 ? 1 / tonPrice : 0.408,
     USDT: 1, // 1 USD = 1 USDT (stablecoin)
     EUR: 0.92, // 1 USD = 0.92 EUR
   };
@@ -550,66 +551,137 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* System & Actions Carousel Shoutbox */}
-        <div key={currentAnnouncement.id} className="relative group cursor-pointer animate-in fade-in slide-in-from-right-4 duration-500" onClick={currentAnnouncement.onClick}>
-          <div className={`absolute -inset-0.5 bg-gradient-to-r ${currentTheme.glow} rounded-2xl blur-lg opacity-40 group-hover:opacity-60 transition-opacity duration-500`} />
-          <div className={`relative p-3 sm:p-4 rounded-xl bg-gradient-to-br ${currentTheme.bg} border-2 backdrop-blur-sm shadow-lg overflow-hidden transition-all w-full active:scale-[0.98]`}>
-            {/* Background design accents */}
-            <div className="absolute -right-10 -top-10 w-32 h-32 bg-white/5 rounded-full blur-2xl"></div>
-            
-            <div className="flex items-center gap-3 sm:gap-3.5">
-              <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br ${currentTheme.iconBg} flex items-center justify-center flex-shrink-0 shadow-md relative z-10 border border-white/10`}>
-                <CurrentIcon size={18} className="text-white drop-shadow-md" />
+        {/* Marquee Announcements Ticker - Auto-hide after 10s */}
+        {/* Marquee Announcements Ticker */}
+        {announcements.length > 0 && (
+          <div className="overflow-hidden rounded-xl bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800/50 dark:to-slate-900/50 border border-slate-200 dark:border-slate-700/50" style={{ contain: 'paint' }}>
+            <div className="flex items-stretch">
+              {/* Fixed Icon */}
+              <div className="flex-shrink-0 px-2 sm:px-3 bg-gradient-to-r from-emerald-500 to-cyan-500 flex items-center">
+                <Zap size={12} className="text-white" />
               </div>
-              
-              <div className="flex-1 min-w-0 relative z-10 flex flex-col justify-center">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <h3 className={`text-[10px] sm:text-[11px] font-black uppercase tracking-widest ${currentTheme.title} leading-none`}>{currentAnnouncement.title}</h3>
-                  <div className="flex items-center gap-1.5">
-                    {currentAnnouncement.ping && (
-                      <span className="relative flex h-2 w-2">
-                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${currentTheme.badgePing} opacity-75`}></span>
-                        <span className={`relative inline-flex rounded-full h-2 w-2 ${currentTheme.badgeDot}`}></span>
+
+              {/* Marquee track */}
+              <div className="flex-1 min-w-0 overflow-hidden py-1.5 sm:py-2" style={{ touchAction: 'pan-x' }}>
+                <div className="flex animate-marquee whitespace-nowrap gap-6 sm:gap-8 px-3 sm:px-4" style={{ width: 'max-content' }}>
+                  {/* Price tickers — shown first, repeated with announcements */}
+                  {[...Array(2)].map((_, pass) => (
+                    <React.Fragment key={`prices-${pass}`}>
+                      {/* Separator */}
+                      {pass === 0 && (
+                        <>
+                          {/* TON price */}
+                          {tonPrice > 0 && (
+                            <span className="inline-flex items-center gap-1 py-1">
+                              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">TON</span>
+                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">${tonPrice.toFixed(2)}</span>
+                            </span>
+                          )}
+                          {/* BTC price */}
+                          {btcPrice > 0 && (
+                            <span className="inline-flex items-center gap-1 py-1">
+                              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300">BTC</span>
+                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                            </span>
+                          )}
+                          {/* RZC price */}
+                          {rzcPrice > 0 && (
+                            <span className="inline-flex items-center gap-1 py-1">
+                              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">RZC</span>
+                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">${rzcPrice.toFixed(4)}</span>
+                            </span>
+                          )}
+                          <span className="text-slate-300 dark:text-slate-600 text-xs py-1">|</span>
+                        </>
+                      )}
+                    </React.Fragment>
+                  ))}
+
+                  {[...announcements, ...announcements].map((item, idx) => (
+                    <button
+                      key={`${item.id}-${idx}`}
+                      onClick={item.onClick}
+                      className="inline-flex items-center gap-1.5 sm:gap-2 py-1 hover:opacity-70 transition-opacity active:opacity-50 min-h-[32px]"
+                    >
+                      <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-full flex-shrink-0 ${
+                        item.theme === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' :
+                        item.theme === 'amber'   ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' :
+                        item.theme === 'red'     ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300' :
+                        item.theme === 'purple'  ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300' :
+                        'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+                      }`}>
+                        {item.badge}
                       </span>
-                    )}
-                    <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md leading-none shadow-sm border ${currentTheme.badgeBg}`}>
-                      {currentAnnouncement.badge}
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="w-full">
-                  <p className={`text-[11px] sm:text-[11.5px] font-bold ${currentTheme.message} leading-snug line-clamp-2 sm:truncate sm:whitespace-nowrap`}>
-                    {currentAnnouncement.message}
-                  </p>
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        {item.message.replace(/[✅⚠️⏳❌🔄🔒🚀]/g, '').trim()}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
-              
-              <div className="flex-shrink-0 pl-1 relative z-10 hidden sm:block">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`lucide lucide-chevron-right ${currentTheme.chevron} opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300`}><path d="m9 18 6-6-6-6"></path></svg>
+            </div>
+          </div>
+        )}
+
+        {/* Claim Missing Activation Bonus */}
+        <ClaimActivationBonus />
+          {/* RZC Early Bird CTA — compact */}
+        <div className="relative group cursor-pointer active:scale-[0.98] transition-all" onClick={() => navigate('/wallet/store')}>
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500/30 via-yellow-400/20 to-cyan-500/30 rounded-2xl blur-md opacity-60 group-hover:opacity-90 transition-opacity" />
+          <div className="relative rounded-xl overflow-hidden border border-emerald-500/30 dark:border-emerald-500/30 shadow-lg">
+
+            {/* Urgency strip */}
+            <div className="bg-gradient-to-r from-red-600 via-orange-500 to-red-600 px-3 py-1 flex items-center justify-between">
+              <span className="text-[8px] font-black text-white uppercase tracking-widest">⚠️ Pre-Sale — Price rises next round</span>
+              <span className="text-[8px] font-black text-yellow-200 animate-pulse">Don't miss out</span>
+            </div>
+
+            {/* Body */}
+            <div className="bg-gradient-to-br from-gray-900 via-emerald-950 to-gray-900 p-3 flex items-center gap-3">
+
+              {/* Icon */}
+              <div className="relative flex-shrink-0">
+                <div className="absolute inset-0 bg-yellow-400 rounded-lg blur-sm opacity-30 animate-pulse" />
+                <div className="relative w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-400 to-emerald-500 flex items-center justify-center shadow-md text-lg">🪙</div>
+              </div>
+
+              {/* Text */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-1.5 flex-wrap">
+                  <span className="text-sm font-black text-white">RZC</span>
+                  <span className="text-lg font-black text-yellow-400">$0.12</span>
+                  <span className="text-[9px] text-gray-400 line-through">$0.18</span>
+                  <span className="text-[8px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">Early Bird</span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <span className="text-[9px] text-gray-400">✓ Instant delivery</span>
+                  <span className="text-[9px] text-gray-400">✓ 10% referral</span>
+                  <span className="text-[9px] text-gray-400">✓ $100–$10K</span>
+                </div>
+              </div>
+
+              {/* CTA */}
+              <div className="flex-shrink-0 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 text-[10px] font-black text-white shadow-md shadow-emerald-500/20 group-hover:shadow-emerald-500/40 transition-all whitespace-nowrap">
+                Buy Now →
               </div>
             </div>
 
-            {/* Slide progress dots */}
-            <div className="flex items-center justify-center gap-1.5 mt-2.5 relative z-10">
-              {announcements.map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={(e) => { e.stopPropagation(); setCurrentAnnouncementIndex(idx); }}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentAnnouncementIndex ? 'w-4 bg-current opacity-80' : 'w-1.5 opacity-30 bg-current'}`}
-                  style={{ color: 'inherit' }}
-                  aria-label={`Slide ${idx + 1}`}
-                />
-              ))}
+            {/* Price ladder */}
+            <div className="bg-black/40 px-3 py-1.5 flex items-center gap-1 justify-between">
+              <div className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[8px] font-black text-emerald-400">R1 $0.12 ✅</span>
+              </div>
+              <span className="text-[8px] text-gray-600">→</span>
+              <span className="text-[8px] text-orange-400/70 font-bold">R2 $0.18 ⏳</span>
+              <span className="text-[8px] text-gray-600">→</span>
+              <span className="text-[8px] text-red-400/60 font-bold">R3 $0.25 🔒</span>
+              <span className="text-[8px] text-gray-600">→</span>
+              <span className="text-[8px] text-gray-500 font-bold">Exchange 🚀</span>
             </div>
           </div>
         </div>
 
-        {/* Claim Missing Activation Bonus */}
-        <ClaimActivationBonus />
-
-        {/* Social Airdrop Widget */}
-        <AirdropWidget />
 
         {/* Network Switcher - Compact */}
         <div className="flex items-center justify-between hidden">
@@ -674,13 +746,13 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Portfolio Terminal Card - Compact */}
+        {/* Portfolio Terminal Card - Enhanced with Token Breakdown */}
         <div className="relative group">
           <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-200/50 to-cyan-200/50 dark:from-primary/20 dark:to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-          <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden p-5 sm:p-6 shadow-lg">
+          <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden shadow-lg">
 
             {balanceError ? (
-              <div className="p-4 sm:p-5 bg-red-100 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/20 rounded-xl sm:rounded-2xl shadow-sm">
+              <div className="p-4 sm:p-5 bg-red-100 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/20 rounded-xl sm:rounded-2xl shadow-sm m-4 sm:m-6">
                 <div className="flex items-start gap-2.5 sm:gap-3">
                   <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
                   <div>
@@ -697,36 +769,36 @@ const Dashboard: React.FC = () => {
               </div>
             ) : (
               <>
-                <div className="flex items-start justify-between">
-                  <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
-                      <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
-                      <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">{t('dashboard.totalPortfolio')}</span>
-                    </div>
+                {/* Header Section */}
+                <div className="p-5 sm:p-6 pb-4">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
+                        <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
+                        <span className="text-[9px] sm:text-[10px] font-mono font-black uppercase tracking-widest truncate">{t('dashboard.totalPortfolio')}</span>
+                      </div>
 
-                    {balanceLoading ? (
-                      <LoadingSkeleton width={200} height={40} />
-                    ) : (
-                      <h2 className="text-3xl sm:text-4xl font-black tracking-tight-custom text-gray-950 dark:text-white">
-                        {balanceVisible ? (
-                          <>
-                            {selectedCurrency === 'USD' || selectedCurrency === 'USDT' || selectedCurrency === 'EUR' ? currencySymbols[selectedCurrency] : ''}
-                            {formatValue(convertedValue, selectedCurrency)}
-                            <span className="text-base sm:text-lg font-bold text-gray-600 dark:text-gray-600"> {selectedCurrency === 'BTC' || selectedCurrency === 'TON' ? selectedCurrency : ''}</span>
-                          </>
-                        ) : (
-                          <span className="text-gray-600 dark:text-gray-600">••••••</span>
-                        )}
-                      </h2>
-                    )}
+                      {balanceLoading ? (
+                        <LoadingSkeleton width={200} height={40} />
+                      ) : (
+                        <h2 className="text-3xl sm:text-4xl font-mono font-black tracking-tight-custom text-gray-950 dark:text-white">
+                          {balanceVisible ? (
+                            <>
+                              {selectedCurrency === 'USD' || selectedCurrency === 'USDT' || selectedCurrency === 'EUR' ? currencySymbols[selectedCurrency] : ''}
+                              {formatValue(convertedValue, selectedCurrency)}
+                              <span className="text-base sm:text-lg font-mono font-bold text-gray-600 dark:text-gray-600"> {selectedCurrency === 'BTC' || selectedCurrency === 'TON' ? selectedCurrency : ''}</span>
+                            </>
+                          ) : (
+                            <span className="text-gray-600 dark:text-gray-600">••••••</span>
+                          )}
+                        </h2>
+                      )}
 
-                    {balanceLoading ? (
-                      <LoadingSkeleton width={120} height={14} />
-                    ) : (
-                      <>
+                      {balanceLoading ? (
+                        <LoadingSkeleton width={120} height={14} />
+                      ) : (
                         <div className="flex items-center gap-1.5 sm:gap-2">
-                          <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs transition-colors duration-300 ${change24h >= 0 ? 'text-emerald-600 dark:text-emerald-500' : 'text-red-600 dark:text-red-500'
-                            }`}>
+                          <div className={`flex items-center gap-1.5 font-mono font-bold text-[10px] sm:text-xs transition-colors duration-300 ${change24h >= 0 ? 'text-emerald-600 dark:text-emerald-500' : 'text-red-600 dark:text-red-500'}`}>
                             <TrendingUp size={10} className={`transition-transform duration-300 ${change24h < 0 ? 'rotate-180' : ''}`} />
                             <span>
                               {balanceVisible ? (
@@ -736,78 +808,144 @@ const Dashboard: React.FC = () => {
                               )}
                             </span>
                           </div>
-                          <span className="text-[8px] text-gray-600 dark:text-gray-600 font-medium">24h</span>
-                        </div>
-                        {balanceVisible && (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-gray-700 dark:text-gray-500 font-medium">
-                              {tonBalance.toFixed(4)} TON
-                            </span>
-                            <span className="text-[10px] text-gray-600 dark:text-gray-600">•</span>
-                            <span className="text-[10px] text-emerald-700 dark:text-[#00FF88] font-medium">
-                              {rzcBalance.toLocaleString()} RZC
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="flex gap-1.5 sm:gap-2">
-                    {/* Currency Selector - Hidden on Mobile */}
-                    <div className="relative currency-selector">
-                      <button
-                        onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
-                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center shadow-sm"
-                        aria-label="Select currency"
-                      >
-                        {selectedCurrency}
-                      </button>
-
-                      {showCurrencyMenu && (
-                        <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
-                          {currencies.map((currency) => (
-                            <button
-                              key={currency}
-                              onClick={() => {
-                                setSelectedCurrency(currency);
-                                setShowCurrencyMenu(false);
-                              }}
-                              className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-2 ${selectedCurrency === currency
-                                ? 'bg-emerald-100 dark:bg-primary/10 text-emerald-700 dark:text-primary'
-                                : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
-                                }`}
-                            >
-                              <span>{currency}</span>
-                              {selectedCurrency === currency && (
-                                <span className="text-emerald-600 dark:text-primary">✓</span>
-                              )}
-                            </button>
-                          ))}
+                          <span className="text-[8px] font-mono text-gray-600 dark:text-gray-600 font-medium">24h</span>
                         </div>
                       )}
                     </div>
 
-                    <button
-                      onClick={() => setBalanceVisible(!balanceVisible)}
-                      className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 shadow-sm"
-                      aria-label={balanceVisible ? t('dashboard.hideBalance') : t('dashboard.showBalance')}
-                    >
-                      {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
-                    </button>
-                    <button
-                      onClick={handleRefresh}
-                      disabled={isRefreshing}
-                      className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 disabled:opacity-50 shadow-sm"
-                      aria-label={t('dashboard.refreshBalance')}
-                    >
-                      <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
-                    </button>
+                    <div className="flex gap-1.5 sm:gap-2">
+                      {/* Currency Selector */}
+                      <div className="relative currency-selector">
+                        <button
+                          onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
+                          className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center shadow-sm"
+                          aria-label="Select currency"
+                        >
+                          {selectedCurrency}
+                        </button>
+
+                        {showCurrencyMenu && (
+                          <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
+                            {currencies.map((currency) => (
+                              <button
+                                key={currency}
+                                onClick={() => {
+                                  setSelectedCurrency(currency);
+                                  setShowCurrencyMenu(false);
+                                }}
+                                className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-2 ${selectedCurrency === currency
+                                  ? 'bg-emerald-100 dark:bg-primary/10 text-emerald-700 dark:text-primary'
+                                  : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                                  }`}
+                              >
+                                <span>{currency}</span>
+                                {selectedCurrency === currency && (
+                                  <span className="text-emerald-600 dark:text-primary">✓</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => setBalanceVisible(!balanceVisible)}
+                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 shadow-sm"
+                        aria-label={balanceVisible ? t('dashboard.hideBalance') : t('dashboard.showBalance')}
+                      >
+                        {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                      </button>
+                      <button
+                        onClick={handleRefresh}
+                        disabled={isRefreshing}
+                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 disabled:opacity-50 shadow-sm"
+                        aria-label={t('dashboard.refreshBalance')}
+                      >
+                        <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-8 mb-2">
-                  <div className="flex bg-black/50 dark:bg-black/80 rounded-lg p-1 border border-black/10 dark:border-white/5 shadow-inner w-full mb-6">
+                {/* Compact Token Breakdown */}
+                <div className="px-4 sm:px-6 pb-4 sm:pb-5">
+                  {/* Single Row Token Cards */}
+                  <div className="flex gap-2">
+                    {/* TON Token - Compact */}
+                    <div className="flex-1 p-2.5 sm:p-3 rounded-xl bg-blue-50/80 dark:bg-blue-500/10 border border-blue-200/50 dark:border-blue-500/20 flex items-center gap-2 hover:bg-blue-100/50 dark:hover:bg-blue-500/15 transition-colors">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm flex-shrink-0">
+                        <svg viewBox="0 0 24 24" className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="currentColor">
+                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] sm:text-xs font-mono font-black text-blue-900 dark:text-blue-300">TON</span>
+                          <span className="text-[8px] font-mono font-bold text-blue-500 dark:text-blue-400 bg-blue-100/80 dark:bg-blue-500/20 px-1 py-0.5 rounded">
+                            {totalUsdValue > 0 ? ((totalUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm font-mono font-black text-blue-900 dark:text-white truncate">
+                          {balanceVisible ? tonBalance.toFixed(2) : '••••'}
+                        </p>
+                        <p className="text-[9px] sm:text-[10px] font-mono font-semibold text-blue-600 dark:text-blue-400">
+                          {balanceVisible ? `${currencySymbols[selectedCurrency]}${(totalUsdValue * conversionRates[selectedCurrency]).toFixed(2)}` : '••••'}
+                        </p>
+                      </div>
+                      {/* Inline Sparkline */}
+                      <svg viewBox="0 0 32 16" className="w-8 h-4 flex-shrink-0 opacity-60">
+                        <path d="M0 12 L6 10 L12 11 L18 8 L24 9 L32 4" fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeLinecap="round"></path>
+                      </svg>
+                    </div>
+                    
+                    {/* RZC Token - Compact */}
+                    <div className="flex-1 p-2.5 sm:p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-500/10 border border-emerald-200/50 dark:border-emerald-500/20 flex items-center gap-2 hover:bg-emerald-100/50 dark:hover:bg-emerald-500/15 transition-colors">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center shadow-sm flex-shrink-0">
+                        <span className="text-white text-[9px] sm:text-[10px] font-black">RZC</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] sm:text-xs font-mono font-black text-emerald-900 dark:text-emerald-300">RZC</span>
+                          <span className="text-[8px] font-mono font-bold text-emerald-500 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-500/20 px-1 py-0.5 rounded">
+                            {rzcUsdValue > 0 ? ((rzcUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm font-mono font-black text-emerald-900 dark:text-white truncate">
+                          {balanceVisible ? rzcBalance.toLocaleString() : '••••'}
+                        </p>
+                        <p className="text-[9px] sm:text-[10px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                          {balanceVisible ? `${currencySymbols[selectedCurrency]}${(rzcUsdValue * conversionRates[selectedCurrency]).toFixed(2)}` : '••••'}
+                        </p>
+                      </div>
+                      {/* Inline Sparkline */}
+                      <svg viewBox="0 0 32 16" className="w-8 h-4 flex-shrink-0 opacity-60">
+                        <path d="M0 10 L6 11 L12 8 L18 9 L24 5 L32 2" fill="none" stroke="#10b981" strokeWidth={1.5} strokeLinecap="round"></path>
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Slim Allocation Bar */}
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                      <div 
+                        className="bg-gradient-to-r from-blue-500 to-indigo-500"
+                        style={{ width: `${totalUsdValue > 0 ? (totalUsdValue / combinedPortfolioValue) * 100 : 50}%` }}
+                      />
+                      <div 
+                        className="bg-gradient-to-r from-emerald-500 to-cyan-500"
+                        style={{ width: `${rzcUsdValue > 0 ? (rzcUsdValue / combinedPortfolioValue) * 100 : 50}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 text-[8px] font-mono font-bold flex-shrink-0">
+                      <span className="text-blue-500">{totalUsdValue > 0 ? ((totalUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%</span>
+                      <span className="text-emerald-500">{rzcUsdValue > 0 ? ((rzcUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Price Projection Chart */}
+                <div className="px-5 sm:px-6 pb-5 sm:pb-6">
+                  <div className="flex bg-black/50 dark:bg-black/80 rounded-lg p-1 border border-black/10 dark:border-white/5 shadow-inner w-full mb-4">
                     {(['SEED', 'PRESALE', 'PUBLIC'] as const).map(t => (
                       <button
                         key={t}
@@ -822,7 +960,7 @@ const Dashboard: React.FC = () => {
                     ))}
                   </div>
 
-                  <div className="h-28 w-full relative mb-6">
+                  <div className="h-28 w-full relative mb-4">
                     {/* Start Marker */}
                     <div className="absolute left-0 bottom-[22px] w-2.5 h-2.5 bg-white rounded-full border-2 border-emerald-500 z-20 shadow-[0_0_10px_#10b981]" />
 
@@ -886,6 +1024,9 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
+                <AirdropWidget />
+
+
         {/* Functional Action Grid - Compact */}
         <div className="flex gap-2 sm:gap-2.5">
           <ActionButton
@@ -902,70 +1043,9 @@ const Dashboard: React.FC = () => {
           <ActionButton
             icon={ShoppingBag}
             label="BUY RZC"
-            onClick={() => navigate('/wallet/sales-package')}
+            onClick={() => navigate('/wallet/store')}
           />
         </div>
-
-        {/* Mining Nodes CTA - Links to Mining Tab */}
-        <div className="relative group">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
-          <div
-            onClick={() => navigate('/wallet/sales-package')}
-            className="relative p-4 rounded-xl bg-gradient-to-br from-emerald-50 via-cyan-50 to-emerald-50 dark:from-emerald-500/15 dark:via-cyan-500/15 dark:to-emerald-500/15 border-2 border-emerald-400 dark:border-emerald-500/30 cursor-pointer active:scale-[0.98] transition-all hover:border-emerald-500 dark:hover:border-emerald-400/50 shadow-xl hover:shadow-emerald-500/20"
-          >
-            <div className="absolute -top-2 -right-2 z-10">
-              <div className="relative">
-                <div className="absolute inset-0 bg-red-500 rounded-full blur-sm animate-pulse"></div>
-                <div className="relative px-2 py-1 bg-gradient-to-r from-red-600 to-orange-600 rounded-full border-2 border-white dark:border-gray-900 shadow-md">
-                  <span className="text-[8px] font-black text-white uppercase tracking-wider flex items-center gap-0.5">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clock" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
-                    Limited
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="relative flex-shrink-0">
-                      <div className="absolute inset-0 bg-gradient-to-br from-emerald-600 to-cyan-600 rounded-lg blur-sm opacity-50 animate-pulse"></div>
-                      <div className="relative w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-600 to-cyan-600 flex items-center justify-center flex-shrink-0 shadow-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-zap text-white" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></svg>
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-black text-emerald-900 dark:text-emerald-300 leading-tight mb-0.5">🚀 BUY RZC at $0.12!</h3>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-cyan-600 text-white px-1.5 py-0.5 rounded-full">Early Bird</span>
-                        <span className="text-[8px] font-black uppercase tracking-wider bg-red-600 text-white px-1.5 py-0.5 rounded-full animate-pulse">🔥 Hot</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mb-2 p-2 bg-gradient-to-r from-yellow-100 to-orange-100 dark:from-yellow-500/10 dark:to-orange-500/10 border-l-2 border-orange-500 rounded">
-                    <p className="text-[10px] font-black text-orange-900 dark:text-orange-300 leading-tight">⚡ Price Increases Soon! Instant RZC + 10% referral bonus</p>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <div className="flex items-center gap-1 text-[9px] font-black text-emerald-900 dark:text-emerald-300 bg-white/70 dark:bg-white/15 px-2 py-1 rounded-md">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sparkles text-yellow-500" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg>
-                      <span>Instant</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-[9px] font-black text-emerald-900 dark:text-emerald-300 bg-white/70 dark:bg-white/15 px-2 py-1 rounded-md">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-trending-up text-green-500" aria-hidden="true"><path d="M16 7h6v6"></path><path d="m22 7-8.5 8.5-5-5L2 17"></path></svg>
-                      <span>10% Bonus</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-[9px] font-black text-emerald-900 dark:text-emerald-300 bg-white/70 dark:bg-white/15 px-2 py-1 rounded-md">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-shield-check text-blue-500" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg>
-                      <span>$100-$10K</span>
-                    </div>
-                  </div>
-                </div>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-external-link text-emerald-600 dark:text-emerald-400 group-hover:translate-x-1 group-hover:scale-110 transition-all flex-shrink-0 mt-1" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
-            </div>
-          </div>
-        </div>
-
-        {/* Migration CTA */}
-
 
         {/* Transaction History - Compact */}
         <div className="space-y-3">

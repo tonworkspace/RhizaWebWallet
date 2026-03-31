@@ -1,26 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Send, 
-  Download, 
   ArrowUpRight,
   ArrowDownLeft,
   Copy,
   ExternalLink,
   TrendingUp,
+  TrendingDown,
   Info,
   RefreshCw,
-  MoreVertical,
-  Share2
+  Share2,
+  ShieldCheck,
+  Activity,
+  Globe,
+  Zap,
+  History,
+  Repeat,
+  Download,
+  ChevronDown,
+  X,
+  Check
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import { CHAIN_META } from '../constants';
 import { useTransactions } from '../hooks/useTransactions';
 import { useToast } from '../context/ToastContext';
 import { getExplorerUrl, getTransactionUrl } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
-import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import { tetherWdkService } from '../services/tetherWdkService';
+
+// CoinGecko coin IDs for supported assets
+const COINGECKO_IDS: Record<string, string> = {
+  TON: 'the-open-network',
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+};
+
+async function fetchCoinGeckoHistory(coinId: string): Promise<{ time: number; price: number }[]> {
+  const url =
+    `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart` +
+    `?vs_currency=usd&days=1&interval=hourly`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.prices as [number, number][]).map(([ts, price]) => ({ time: ts, price }));
+}
 
 interface AssetDetailProps {
   symbol: string;
@@ -32,62 +59,88 @@ interface AssetDetailProps {
   price?: number;
   verified?: boolean;
   address?: string;
-  type: 'TON' | 'RZC' | 'JETTON';
+  type: 'TON' | 'RZC' | 'JETTON' | 'BTC' | 'ETH' | 'EVM';
 }
 
 const AssetDetail: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
-  const { address, network } = useWallet();
+  const { address, network, refreshData, setIsNetworkModalOpen, multiChainBalances, isNetworkModalOpen } = useWallet();
   const { showToast } = useToast();
   const { transactions, isLoading: txLoading, refreshTransactions } = useTransactions();
   
-  // Get asset data from navigation state
   const assetData = location.state as AssetDetailProps;
   
-  const [showMenu, setShowMenu] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
-  // Mock price history data (replace with real API)
-  const priceHistory = Array.from({ length: 24 }, (_, i) => ({
-    time: i,
-    price: assetData.price ? assetData.price * (1 + (Math.random() - 0.5) * 0.1) : 0
-  }));
+  const [priceHistory, setPriceHistory] = useState<any[]>([]);
+  const [isChartLoading, setIsChartLoading] = useState(true);
+
+  const [evmChain, setEvmChain] = useState(tetherWdkService.getCurrentEvmChain());
+  const [activeBalance, setActiveBalance] = useState<string>(assetData?.balance || '0');
+  const [isNetworkSwitching, setIsNetworkSwitching] = useState(false);
 
   useEffect(() => {
-    if (!assetData) {
-      navigate('/wallet/assets');
+    setEvmChain(tetherWdkService.getCurrentEvmChain());
+    if (multiChainBalances) {
+      if (assetData?.symbol !== 'USDT' && (assetData?.type === 'EVM' || assetData?.type === 'ETH')) {
+        setActiveBalance(multiChainBalances.evm);
+      } else if (assetData?.symbol === 'USDT') {
+        setActiveBalance(multiChainBalances.usdt);
+      }
     }
+  }, [multiChainBalances, assetData]);
+
+  useEffect(() => {
+    if (!assetData || assetData.type === 'RZC' || assetData.type === 'JETTON') {
+      setPriceHistory(Array.from({ length: 24 }, (_, i) => ({
+        time: i,
+        price: assetData?.price ? assetData.price * (1 + (Math.random() - 0.5) * 0.05) : 0
+      })));
+      setIsChartLoading(false);
+      return;
+    }
+
+    const fetchHistory = async () => {
+      setIsChartLoading(true);
+      try {
+        const symbol = assetData.type === 'ETH' || assetData.type === 'EVM' ? 'ETH' : assetData.type === 'BTC' ? 'BTC' : 'TON';
+        const coinId = COINGECKO_IDS[symbol];
+        const history = await fetchCoinGeckoHistory(coinId);
+        if (history.length > 0) {
+          setPriceHistory(history);
+        } else throw new Error('Empty history');
+      } catch (err) {
+        console.error('Failed to fetch chart data:', err);
+        setPriceHistory(Array.from({ length: 24 }, (_, i) => ({ time: i, price: assetData.price || 0 })));
+      } finally {
+        setIsChartLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [assetData]);
+
+  useEffect(() => {
+    if (!assetData) navigate('/wallet/assets');
   }, [assetData, navigate]);
 
-  if (!assetData) {
-    return null;
-  }
+  if (!assetData) return null;
 
   const handleCopyAddress = () => {
-    if (assetData.address) {
-      navigator.clipboard.writeText(assetData.address);
+    const addr = assetData.address || address;
+    if (addr) {
+      navigator.clipboard.writeText(addr);
       showToast('Address copied!', 'success');
-    } else if (address) {
-      navigator.clipboard.writeText(address);
-      showToast('Wallet address copied!', 'success');
     }
   };
 
   const handleShare = async () => {
     const shareData = {
       title: `${assetData.name} (${assetData.symbol})`,
-      text: `Check out my ${assetData.symbol} balance: ${assetData.balance}`,
+      text: `My ${assetData.symbol} balance: ${activeBalance}`,
       url: window.location.href
     };
-
     if (navigator.share) {
-      try {
-        await navigator.share(shareData);
-      } catch (err) {
-        console.log('Share cancelled');
-      }
+      try { await navigator.share(shareData); } catch {}
     } else {
       handleCopyAddress();
     }
@@ -108,325 +161,454 @@ const AssetDetail: React.FC = () => {
     return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
-  const balanceNum = assetData.type === 'RZC' 
-    ? parseFloat(assetData.balance)
-    : Number(assetData.balance) / Math.pow(10, assetData.decimals);
-  
+  const balanceNum = assetData.type === 'RZC'
+    ? parseFloat(activeBalance)
+    : Number(activeBalance) / Math.pow(10, assetData.decimals);
+
   const usdValue = assetData.price ? balanceNum * assetData.price : 0;
 
-  // Filter transactions for this asset
   const assetTransactions = transactions.filter(tx => {
-    if (assetData.type === 'TON') {
-      return tx.asset === 'TON';
-    } else if (assetData.type === 'RZC') {
-      return tx.asset === 'RZC';
-    } else {
-      return tx.asset === assetData.symbol;
-    }
+    if (assetData.type === 'TON') return tx.asset === 'TON';
+    if (assetData.type === 'RZC') return tx.asset === 'RZC';
+    return tx.asset === assetData.symbol;
   });
 
+  const isPositive = (priceHistory[priceHistory.length - 1]?.price || 0) >= (priceHistory[0]?.price || 0);
+  const priceChange = priceHistory.length > 1
+    ? (((priceHistory[priceHistory.length - 1]?.price || 0) - (priceHistory[0]?.price || 0)) / (priceHistory[0]?.price || 1)) * 100
+    : 0;
+
+  // Logo resolution
+  const getAssetLogo = () => {
+    if (assetData.image) return assetData.image;
+    if (assetData.symbol === 'USDT') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png';
+    if (assetData.type === 'TON') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png';
+    if (assetData.type === 'BTC') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png';
+    if (assetData.type === 'ETH' || assetData.type === 'EVM') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
+    return null;
+  };
+
+  const logo = getAssetLogo();
+
+  const evmLabel = evmChain.charAt(0).toUpperCase() + evmChain.slice(1);
+
+  // Network label
+  const networkLabel = assetData.type === 'BTC' ? 'Bitcoin Mainnet'
+    : assetData.type === 'ETH' || assetData.type === 'EVM' ? `${evmLabel} Network`
+    : assetData.type === 'RZC' ? 'Rhiza Community'
+    : assetData.type === 'JETTON' ? 'TON Jetton'
+    : 'TON Network';
+
+  // Accent colors per asset type
+  const accent = assetData.type === 'BTC' ? 'orange'
+    : assetData.type === 'ETH' || assetData.type === 'EVM' ? 'blue'
+    : assetData.type === 'RZC' ? 'emerald'
+    : assetData.type === 'JETTON' ? 'violet'
+    : 'sky';
+
+  const accentClasses: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+    orange: { bg: 'bg-orange-500/10', border: 'border-orange-500/20', text: 'text-orange-500 dark:text-orange-400', badge: 'bg-orange-500' },
+    blue:   { bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   text: 'text-blue-500 dark:text-blue-400',   badge: 'bg-blue-600' },
+    emerald:{ bg: 'bg-emerald-500/10',border: 'border-emerald-500/20',text: 'text-emerald-500 dark:text-emerald-400',badge: 'bg-emerald-500' },
+    violet: { bg: 'bg-violet-500/10', border: 'border-violet-500/20', text: 'text-violet-500 dark:text-violet-400', badge: 'bg-violet-600' },
+    sky:    { bg: 'bg-sky-500/10',    border: 'border-sky-500/20',    text: 'text-sky-500 dark:text-sky-400',    badge: 'bg-sky-600' },
+  };
+
+  const ac = accentClasses[accent];
+
   return (
-    <div className="max-w-xl mx-auto space-y-5 sm:space-y-6 page-enter px-3 sm:px-4 md:px-0 pb-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <button 
+    <div className="min-h-screen bg-gray-50 dark:bg-[#050505] text-gray-900 dark:text-white pb-28">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#050505]/80 backdrop-blur-md border-b border-gray-200 dark:border-white/5 px-4 py-3 flex items-center justify-between">
+        <button
           onClick={() => navigate('/wallet/assets')}
-          className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 active:scale-95"
+          className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white transition-all active:scale-95"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={18} />
         </button>
-        <div className="flex gap-2">
-          <button 
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 active:scale-95 disabled:opacity-50"
-          >
-            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
-          </button>
-          <div className="relative">
-            <button 
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 active:scale-95"
-            >
-              <MoreVertical size={18} />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[180px] animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="flex flex-col items-center">
+          <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+            {assetData.name}
+          </h2>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${isPositive ? 'bg-emerald-500' : 'bg-rose-500'} ${isNetworkSwitching ? 'animate-bounce' : 'animate-pulse'}`} />
+            
+            {assetData.type === 'ETH' || assetData.type === 'EVM' ? (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-medium text-gray-400 dark:text-zinc-500">Live ·</span>
                 <button
-                  onClick={() => {
-                    handleCopyAddress();
-                    setShowMenu(false);
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 flex items-center gap-3"
+                  onClick={() => setIsNetworkModalOpen(true)}
+                  disabled={isNetworkModalOpen}
+                  className="flex items-center gap-1.5 bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 px-2 py-1 rounded-md border border-gray-100 dark:border-white/5 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors shadow-sm"
                 >
-                  <Copy size={16} />
-                  Copy Address
+                  <img src={CHAIN_META[evmChain]?.logo || CHAIN_META.ethereum.logo} alt="Network" className="w-3.5 h-3.5 rounded-full object-cover" />
+                  <span className="text-[10px] font-bold">{CHAIN_META[evmChain]?.name || 'Unknown'}</span>
+                  <ChevronDown size={12} className="text-gray-500" />
                 </button>
-                <button
-                  onClick={() => {
-                    handleShare();
-                    setShowMenu(false);
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 flex items-center gap-3"
-                >
-                  <Share2 size={16} />
-                  Share
-                </button>
-                {assetData.address && (
-                  <button
-                    onClick={() => {
-                      window.open(getExplorerUrl(assetData.address!, network), '_blank');
-                      setShowMenu(false);
-                    }}
-                    className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 flex items-center gap-3"
-                  >
-                    <ExternalLink size={16} />
-                    View in Explorer
-                  </button>
-                )}
               </div>
+            ) : (
+              <span className="text-[10px] font-medium text-gray-400 dark:text-zinc-500">
+                Live · {networkLabel}
+              </span>
             )}
           </div>
         </div>
+        <button
+          onClick={handleRefresh}
+          className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white transition-all active:scale-95"
+        >
+          <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      {/* Asset Info Card */}
-      <div className="relative group">
-        <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-200/50 to-cyan-200/50 dark:from-primary/20 dark:to-secondary/20 rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-[2rem] overflow-hidden p-6 sm:p-8 shadow-lg">
-          {/* Token Icon & Name */}
-          <div className="flex flex-col items-center text-center space-y-4 mb-6">
-            <div className="w-20 h-20 rounded-3xl flex items-center justify-center text-4xl bg-slate-100 dark:bg-white/5 border-2 border-slate-200 dark:border-white/5 shadow-xl">
-              {assetData.image ? (
-                <img src={assetData.image} alt={assetData.symbol} className="w-full h-full object-cover rounded-3xl" />
+      <div className="max-w-xl mx-auto px-4 space-y-5 pt-6">
+
+        {/* Hero Card */}
+        <div className={`rounded-3xl ${ac.bg} border ${ac.border} p-6 flex flex-col items-center text-center space-y-4`}>
+          <div className="relative">
+            <div className={`w-20 h-20 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 flex items-center justify-center shadow-lg overflow-hidden`}>
+              {logo ? (
+                <img src={assetData.type === 'ETH' || assetData.type === 'EVM' ? (assetData.symbol === 'USDT' ? logo : CHAIN_META[evmChain]?.logo || logo) : logo} alt={assetData.symbol} className={`${(assetData.type === 'ETH' || assetData.type === 'EVM') && assetData.symbol !== 'USDT' ? 'w-full h-full object-cover p-2' : 'w-14 h-14 object-contain'}`} />
               ) : (
-                <span>{assetData.emoji || '🪙'}</span>
+                <span className="text-4xl">{assetData.emoji || '🪙'}</span>
               )}
             </div>
-            <div>
-              <div className="flex items-center justify-center gap-2 mb-1">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">{assetData.name}</h2>
-                {assetData.verified && (
-                  <span className="text-green-500 text-sm">✓</span>
-                )}
+            {assetData.verified && assetData.symbol !== 'USDT' && (
+              <div className="absolute -bottom-2 -right-2 bg-emerald-500 rounded-full p-1 border-2 border-white dark:border-[#050505]">
+                <ShieldCheck size={12} className="text-white" />
               </div>
-              <p className="text-sm text-slate-500 dark:text-gray-500 font-bold">{assetData.symbol}</p>
-            </div>
-          </div>
-
-          {/* Balance */}
-          <div className="text-center space-y-2 mb-6">
-            <h3 className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
-              {assetData.type === 'RZC' 
-                ? parseFloat(assetData.balance).toLocaleString()
-                : formatBalance(assetData.balance, assetData.decimals)
-              }
-            </h3>
-            <p className="text-sm text-slate-500 dark:text-gray-500 font-bold">
-              {assetData.symbol}
-            </p>
-            {assetData.price && (
-              <div className="space-y-1">
-                <p className="text-2xl font-bold text-slate-700 dark:text-gray-300">
-                  ${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-slate-400 dark:text-gray-600">
-                  @ ${assetData.price.toFixed(assetData.price < 0.01 ? 4 : 2)} per {assetData.symbol}
-                </p>
+            )}
+            {assetData.symbol === 'USDT' && (
+              <div className="absolute -bottom-2 -right-2 bg-white dark:bg-[#050505] rounded-full p-[3px] border border-gray-100 dark:border-white/10 shadow-lg">
+                <img src={CHAIN_META[evmChain]?.logo || CHAIN_META.ethereum.logo} alt="Network" className="w-6 h-6 rounded-full object-cover" />
               </div>
             )}
           </div>
+          <div>
+            <h1 className={`text-4xl font-bold tracking-tight text-gray-900 dark:text-white transition-opacity duration-300 ${isNetworkModalOpen ? 'opacity-30' : 'opacity-100'}`}>
+              {assetData.type === 'RZC'
+                ? parseFloat(activeBalance).toLocaleString()
+                : formatBalance(activeBalance, assetData.decimals)
+              }
+              {' '}
+              <span className="text-gray-400 dark:text-zinc-400 text-3xl">{(assetData.type === 'ETH' || assetData.type === 'EVM') && assetData.symbol !== 'USDT' ? (CHAIN_META[evmChain]?.symbol || 'ETH') : assetData.symbol}</span>
+            </h1>
+            {assetData.price && (
+              <p className="text-base font-semibold text-gray-500 dark:text-zinc-400 mt-1">
+                ≈ ${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            )}
+            {assetData.price && (
+              <div className={`inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-full text-xs font-bold ${
+                isPositive
+                  ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400'
+              }`}>
+                {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                {isPositive ? '+' : ''}{priceChange.toFixed(2)}% (24h)
+              </div>
+            )}
+          </div>
+        </div>
 
-          {/* Price Chart */}
-          {assetData.price && priceHistory.length > 0 && (
-            <div className="h-32 w-full mb-6 opacity-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={priceHistory}>
-                  <defs>
-                    <linearGradient id="assetChartFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#00FF88" stopOpacity={0.15}/>
-                      <stop offset="100%" stopColor="#00FF88" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <Area 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke="#00FF88" 
-                    strokeWidth={2}
-                    fill="url(#assetChartFill)" 
-                    animationDuration={1500}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+        {/* Action Buttons */}
+        <div className="grid grid-cols-3 gap-3">
+          <button
+            onClick={() => navigate('/wallet/transfer', {
+              state: {
+                asset: assetData.type === 'JETTON' ? 'JETTON'
+                  : assetData.type === 'RZC' ? 'RZC'
+                  : assetData.type === 'BTC' ? 'BTC'
+                  : assetData.type === 'ETH' || assetData.type === 'EVM'
+                    ? (assetData.symbol === 'USDT' ? 'USDT' : 'EVM')
+                  : 'TON',
+                ...(assetData.type === 'JETTON' && {
+                  jettonAddress: assetData.address,
+                  jettonName: assetData.name,
+                  jettonSymbol: assetData.symbol,
+                  jettonDecimals: assetData.decimals,
+                  jettonBalance: assetData.balance,
+                  jettonWalletAddress: assetData.address
+                })
+              }
+            })}
+            className="flex flex-col items-center gap-2 p-4 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-all group shadow-sm"
+          >
+            <div className="w-11 h-11 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-[0_4px_14px_rgba(59,130,246,0.4)] group-hover:scale-110 transition-transform">
+              <ArrowUpRight size={18} />
             </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex gap-3">
-            <button
-              onClick={() => navigate('/wallet/transfer', { 
-                state: { 
-                  asset: assetData.type,
-                  ...(assetData.type === 'JETTON' && {
-                    jettonAddress: assetData.address,
-                    jettonName: assetData.name,
-                    jettonSymbol: assetData.symbol,
-                    jettonDecimals: assetData.decimals,
-                    jettonBalance: assetData.balance
-                  })
-                } 
-              })}
-              className="flex-1 py-4 bg-primary text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-primary/90 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-xl"
-            >
-              <Send size={18} />
-              Send
-            </button>
-            <button
-              onClick={() => navigate('/wallet/receive')}
-              className="flex-1 py-4 bg-white dark:bg-white/10 border-2 border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-slate-50 dark:hover:bg-white/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-            >
-              <Download size={18} />
-              Receive
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Transaction History */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-2">
-          <h3 className="text-sm font-black uppercase tracking-wider text-slate-500 dark:text-gray-600">
-            Transactions
-          </h3>
-          {assetTransactions.length > 0 && (
-            <button
-              onClick={() => navigate('/wallet/history')}
-              className="text-xs font-bold text-primary hover:underline"
-            >
-              View All
-            </button>
-          )}
+            <span className="text-xs font-bold text-gray-600 dark:text-zinc-400">Send</span>
+          </button>
+          <button
+            onClick={() => navigate('/wallet/receive')}
+            className="flex flex-col items-center gap-2 p-4 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-all group shadow-sm"
+          >
+            <div className="w-11 h-11 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-[0_4px_14px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform">
+              <ArrowDownLeft size={18} />
+            </div>
+            <span className="text-xs font-bold text-gray-600 dark:text-zinc-400">Receive</span>
+          </button>
+          <button
+            onClick={() => navigate('/wallet/swap')}
+            className="flex flex-col items-center gap-2 p-4 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-all group shadow-sm"
+          >
+            <div className="w-11 h-11 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-[0_4px_14px_rgba(245,158,11,0.4)] group-hover:scale-110 transition-transform">
+              <Repeat size={18} />
+            </div>
+            <span className="text-xs font-bold text-gray-600 dark:text-zinc-400">Swap</span>
+          </button>
         </div>
 
-        {txLoading ? (
-          <div className="space-y-2">
-            <LoadingSkeleton height={80} />
-            <LoadingSkeleton height={80} />
-            <LoadingSkeleton height={80} />
-          </div>
-        ) : assetTransactions.length === 0 ? (
-          <div className="p-12 text-center bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-2xl">
-            <Info size={32} className="mx-auto mb-3 text-slate-300 dark:text-gray-700" />
-            <h4 className="font-bold text-slate-900 dark:text-white mb-1">No transactions yet</h4>
-            <p className="text-sm text-slate-500 dark:text-gray-400">
-              Your {assetData.symbol} transactions will appear here
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
-            {assetTransactions.slice(0, 10).map((tx) => {
-              const isIncoming = tx.type === 'receive' || tx.type === 'purchase';
-              const isRZC = tx.asset === 'RZC';
-              const canOpenExplorer = !isRZC && !!tx.hash;
-
-              const typeLabel = tx.type === 'purchase' ? 'Received' :
-                                tx.type === 'receive' ? 'Received' :
-                                tx.type === 'send' ? 'Sent' : tx.type;
-
-              const subLabel = tx.counterpartyUsername
-                ? `@${tx.counterpartyUsername}`
-                : tx.comment
-                  ? tx.comment
-                  : new Date(tx.timestamp).toLocaleDateString('en-US', {
-                      month: 'short', day: 'numeric',
-                      hour: '2-digit', minute: '2-digit'
-                    });
-
-              return (
-                <div
-                  key={tx.id}
-                  onClick={() => canOpenExplorer && window.open(getTransactionUrl(tx.hash!, network), '_blank')}
-                  className={`p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-white/5 transition-all group ${canOpenExplorer ? 'cursor-pointer' : 'cursor-default'}`}
+        {/* Price Chart */}
+        {assetData.price && priceHistory.length > 0 && (
+          <div className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-3xl p-5 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity size={15} className="text-blue-500" />
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white">Price Performance</h3>
+              </div>
+              <span className="text-xs font-medium text-gray-400 dark:text-zinc-500">24h</span>
+            </div>
+            <div className="h-[160px] w-full">
+              {isChartLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <RefreshCw size={22} className="animate-spin text-gray-300 dark:text-zinc-700" />
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={priceHistory}>
+                    <defs>
+                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor={isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <YAxis domain={['auto', 'auto']} hide />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--tw-bg, #fff)',
+                        border: '1px solid rgba(0,0,0,0.08)',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+                      }}
+                      itemStyle={{ color: '#374151' }}
+                      formatter={(value: number) => [`$${value.toFixed(4)}`, 'Price']}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="price"
+                      stroke={isPositive ? "#10b981" : "#f43f5e"}
+                      fillOpacity={1}
+                      fill="url(#colorPrice)"
+                      strokeWidth={2.5}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-white/5">
+              {['1H', '1D', '1W', '1M', '1Y', 'ALL'].map((period) => (
+                <button
+                  key={period}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
+                    period === '1D'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-400 dark:text-zinc-600 hover:text-gray-700 dark:hover:text-zinc-300'
+                  }`}
                 >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
-                      isIncoming
-                        ? 'bg-emerald-500/10 text-emerald-500'
-                        : 'bg-red-500/10 text-red-500'
-                    }`}>
-                      {isIncoming ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
+                  {period}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Asset Info */}
+        {(assetData.address || assetData.type !== 'JETTON') && (
+          <div className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-3xl overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-gray-100 dark:border-white/5 flex items-center gap-2">
+              <Zap size={15} className="text-blue-500" />
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Asset Information</h3>
+            </div>
+            <div className="divide-y divide-gray-100 dark:divide-white/5">
+              {/* Network */}
+              <div className="px-5 py-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Globe size={13} className="text-gray-400" />
+                  <span className="text-sm text-gray-500 dark:text-zinc-400 font-medium">Network</span>
+                </div>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">{networkLabel}</span>
+              </div>
+              {/* Status */}
+              <div className="px-5 py-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={13} className="text-gray-400" />
+                  <span className="text-sm text-gray-500 dark:text-zinc-400 font-medium">Status</span>
+                </div>
+                <span className={`text-sm font-bold ${assetData.verified ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {assetData.verified ? '✓ Verified' : 'Unverified'}
+                </span>
+              </div>
+              {/* Price */}
+              {assetData.price && (
+                <div className="px-5 py-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp size={13} className="text-gray-400" />
+                    <span className="text-sm text-gray-500 dark:text-zinc-400 font-medium">Unit Price</span>
+                  </div>
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">
+                    ${assetData.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                  </span>
+                </div>
+              )}
+              {/* Contract address */}
+              {assetData.address && (
+                <div className="px-5 py-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Copy size={13} className="text-gray-400" />
+                    <span className="text-sm text-gray-500 dark:text-zinc-400 font-medium">Contract</span>
+                  </div>
+                  <button
+                    onClick={handleCopyAddress}
+                    className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    {assetData.address.slice(0, 6)}…{assetData.address.slice(-6)}
+                  </button>
+                </div>
+              )}
+              {/* Explorer */}
+              {assetData.address && (
+                <div className="px-5 py-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ExternalLink size={13} className="text-gray-400" />
+                    <span className="text-sm text-gray-500 dark:text-zinc-400 font-medium">Explorer</span>
+                  </div>
+                  <button
+                    onClick={() => window.open(getExplorerUrl(assetData.address!, network), '_blank')}
+                    className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    View on Tonscan ↗
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Quick Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleCopyAddress}
+            className="flex-1 flex items-center justify-center gap-2 py-3 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-2xl text-sm font-bold text-gray-700 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-all shadow-sm active:scale-95"
+          >
+            <Copy size={15} />
+            Copy Address
+          </button>
+          <button
+            onClick={handleShare}
+            className="flex-1 flex items-center justify-center gap-2 py-3 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-2xl text-sm font-bold text-gray-700 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-all shadow-sm active:scale-95"
+          >
+            <Share2 size={15} />
+            Share
+          </button>
+        </div>
+
+        {/* Transaction History */}
+        <div className="space-y-3 pb-4">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <History size={15} className="text-gray-400" />
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Transaction History</h3>
+            </div>
+            {assetTransactions.length > 0 && (
+              <button
+                onClick={() => navigate('/wallet/history')}
+                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                View All
+              </button>
+            )}
+          </div>
+
+          {txLoading ? (
+            <div className="space-y-2">
+              <LoadingSkeleton height={72} />
+              <LoadingSkeleton height={72} />
+              <LoadingSkeleton height={72} />
+            </div>
+          ) : assetTransactions.length === 0 ? (
+            <div className="py-12 flex flex-col items-center text-center bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-3xl shadow-sm">
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 dark:bg-white/5 flex items-center justify-center mb-3">
+                <History size={24} className="text-gray-300 dark:text-zinc-600" />
+              </div>
+              <h4 className="text-sm font-bold text-gray-700 dark:text-white mb-1">No transactions yet</h4>
+              <p className="text-xs text-gray-400 dark:text-zinc-500">
+                Your {assetData.symbol} transactions will appear here
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-3xl overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-white/5">
+              {assetTransactions.slice(0, 10).map((tx) => {
+                const isIncoming = tx.type === 'receive' || tx.type === 'purchase';
+                const isRZC = tx.asset === 'RZC';
+                const canOpenExplorer = !isRZC && !!tx.hash;
+
+                const typeLabel = tx.type === 'purchase' ? 'Received'
+                  : tx.type === 'receive' ? 'Received'
+                  : tx.type === 'send' ? 'Sent' : tx.type;
+
+                const subLabel = tx.counterpartyUsername
+                  ? `@${tx.counterpartyUsername}`
+                  : tx.comment
+                    ? tx.comment
+                    : new Date(tx.timestamp).toLocaleDateString('en-US', {
+                        month: 'short', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                      });
+
+                return (
+                  <div
+                    key={tx.id}
+                    onClick={() => canOpenExplorer && window.open(getTransactionUrl(tx.hash!, network), '_blank')}
+                    className={`px-5 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-all group ${
+                      canOpenExplorer ? 'cursor-pointer' : 'cursor-default'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        isIncoming
+                          ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                      }`}>
+                        {isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-900 dark:text-white capitalize">{typeLabel}</p>
+                        <p className="text-xs text-gray-400 dark:text-zinc-500 truncate mt-0.5">{subLabel}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                        {typeLabel}
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-gray-500 truncate">
-                        {subLabel}
-                      </p>
-                      {tx.counterpartyUsername && (
-                        <p className="text-[10px] text-slate-400 dark:text-gray-600 truncate">
-                          {new Date(tx.timestamp).toLocaleDateString('en-US', {
-                            month: 'short', day: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
-                          })}
+                    <div className="text-right flex items-center gap-2">
+                      <div>
+                        <p className={`text-sm font-bold ${
+                          isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                        }`}>
+                          {isIncoming ? '+' : '-'}{tx.amount}
                         </p>
+                        <p className="text-xs text-gray-400 dark:text-zinc-500 mt-0.5">{tx.asset}</p>
+                      </div>
+                      {canOpenExplorer && (
+                        <ExternalLink size={13} className="text-gray-300 dark:text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
                       )}
                     </div>
                   </div>
-                  <div className="text-right flex items-center gap-2">
-                    <div>
-                      <div className={`font-black text-sm ${
-                        isIncoming ? 'text-emerald-500' : 'text-slate-900 dark:text-white'
-                      }`}>
-                        {isIncoming ? '+' : '-'}{tx.amount}
-                      </div>
-                      <p className="text-xs text-slate-400 dark:text-gray-600">
-                        {tx.asset}
-                      </p>
-                    </div>
-                    {canOpenExplorer && (
-                      <ExternalLink size={14} className="text-slate-400 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Asset Info */}
-      {assetData.address && (
-        <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-2xl p-5 space-y-3">
-          <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-gray-600">
-            Token Information
-          </h4>
-          <div className="space-y-2">
-            <div className="flex justify-between items-start">
-              <span className="text-sm text-slate-500 dark:text-gray-500 font-medium">Contract Address</span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-900 dark:text-white font-mono text-right">
-                  {assetData.address.slice(0, 6)}...{assetData.address.slice(-4)}
-                </span>
-                <button
-                  onClick={handleCopyAddress}
-                  className="p-1 hover:bg-slate-100 dark:hover:bg-white/10 rounded transition-colors"
-                >
-                  <Copy size={14} className="text-slate-400 dark:text-gray-500" />
-                </button>
-              </div>
+                );
+              })}
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-slate-500 dark:text-gray-500 font-medium">Decimals</span>
-              <span className="text-sm text-slate-900 dark:text-white font-bold">{assetData.decimals}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-slate-500 dark:text-gray-500 font-medium">Network</span>
-              <span className="text-sm text-slate-900 dark:text-white font-bold capitalize">{network}</span>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

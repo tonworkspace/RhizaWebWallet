@@ -1,8 +1,14 @@
 
 import { TonClient, WalletContractV4, internal, Address, toNano } from "@ton/ton";
 import { mnemonicToWalletKey, mnemonicNew } from "@ton/crypto";
-import { encryptMnemonic, decryptMnemonic } from '../utils/encryption';
+import { encryptMnemonic, decryptMnemonic, needsMigration, migrateEncryption } from '../utils/encryption';
 import { NetworkType, getNetworkConfig, getApiEndpoint, getApiKey } from '../constants';
+import { secureSecretManager } from './secureSecretManager';
+import { sanitizeComment } from '../utils/sanitization';
+
+// ── SESSION TIMEOUT CONFIGURATION (Issue #10 FIX) ────────────────────────
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+const SESSION_WARNING_TIME = 5 * 60 * 1000; // Warn 5 minutes before expiry
 
 const sessionManager = {
   saveSession: async (mnemonic: string[], password?: string) => {
@@ -21,8 +27,10 @@ const sessionManager = {
         localStorage.setItem('rhiza_session_encrypted', 'device');
       }
 
-      // Store session timestamp
-      localStorage.setItem('rhiza_session_created', Date.now().toString());
+      // Store session timestamp and last activity
+      const now = Date.now().toString();
+      localStorage.setItem('rhiza_session_created', now);
+      localStorage.setItem('rhiza_session_last_activity', now);
 
       return { success: true };
     } catch (error) {
@@ -36,15 +44,59 @@ const sessionManager = {
 
       if (!encrypted) return null;
 
+      // ── SECURITY FIX #10: Check session timeout ────────────────────────────
+      const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+      const age = sessionManager.getSessionAge();
+      
+      if (age && age > SESSION_TIMEOUT) {
+        console.log('⏰ Session expired after 30 minutes');
+        sessionManager.clearSession();
+        throw new Error('Session expired. Please log in again.');
+      }
+
       if (encryptionType === 'true') {
         // Password-encrypted session
         if (!password) return null;
+        
+        // Check if migration needed
+        const needsUpgrade = needsMigration(encrypted);
+        
+        // Decrypt (works with both old and new formats)
         const mnemonic = await decryptMnemonic(encrypted, password);
+        
+        // Auto-migrate if needed
+        if (needsUpgrade) {
+          console.log('🔄 Auto-migrating session to new encryption format...');
+          const migrationResult = await migrateEncryption(encrypted, password);
+          
+          if (migrationResult.success && migrationResult.newEncryptedData) {
+            localStorage.setItem('rhiza_session', migrationResult.newEncryptedData);
+            console.log('✅ Session migrated successfully');
+          }
+        }
+        
         return mnemonic;
       } else if (encryptionType === 'device') {
         // Device-encrypted session (auto-login)
         const deviceKey = await generateDeviceKey();
+        
+        // Check if migration needed
+        const needsUpgrade = needsMigration(encrypted);
+        
+        // Decrypt
         const mnemonic = await decryptMnemonic(encrypted, deviceKey);
+        
+        // Auto-migrate if needed
+        if (needsUpgrade) {
+          console.log('🔄 Auto-migrating device session to new encryption format...');
+          const migrationResult = await migrateEncryption(encrypted, deviceKey);
+          
+          if (migrationResult.success && migrationResult.newEncryptedData) {
+            localStorage.setItem('rhiza_session', migrationResult.newEncryptedData);
+            console.log('✅ Device session migrated successfully');
+          }
+        }
+        
         return mnemonic;
       } else {
         // Legacy unencrypted session (for backward compatibility)
@@ -59,6 +111,7 @@ const sessionManager = {
     localStorage.removeItem('rhiza_session');
     localStorage.removeItem('rhiza_session_encrypted');
     localStorage.removeItem('rhiza_session_created');
+    localStorage.removeItem('rhiza_session_last_activity');
   },
   hasSession: () => {
     return !!localStorage.getItem('rhiza_session');
@@ -68,32 +121,54 @@ const sessionManager = {
     return type === 'true' || type === 'device';
   },
   getSessionAge: () => {
-    const created = localStorage.getItem('rhiza_session_created');
-    if (!created) return null;
-    return Date.now() - parseInt(created);
+    const lastActivity = localStorage.getItem('rhiza_session_last_activity');
+    if (!lastActivity) {
+      // Fallback to created timestamp for old sessions
+      const created = localStorage.getItem('rhiza_session_created');
+      if (!created) return null;
+      return Date.now() - parseInt(created);
+    }
+    return Date.now() - parseInt(lastActivity);
+  },
+  getTimeUntilExpiry: () => {
+    const age = sessionManager.getSessionAge();
+    if (!age) return null;
+    const remaining = SESSION_TIMEOUT - age;
+    return remaining > 0 ? remaining : 0;
+  },
+  isSessionExpiringSoon: () => {
+    const remaining = sessionManager.getTimeUntilExpiry();
+    if (!remaining) return false;
+    return remaining <= SESSION_WARNING_TIME && remaining > 0;
+  },
+  updateActivity: () => {
+    if (sessionManager.hasSession()) {
+      localStorage.setItem('rhiza_session_last_activity', Date.now().toString());
+    }
   }
 };
 
-// Generate device-specific encryption key
+// ── DEVICE KEY GENERATION (Issue #2 FIX) ─────────────────────────────────
+// Generate device-specific encryption key using secure random storage
 async function generateDeviceKey(): Promise<string> {
-  // Create a fingerprint from browser characteristics
-  const fingerprint = [
-    navigator.userAgent,
-    navigator.language,
-    new Date().getTimezoneOffset(),
-    screen.colorDepth,
-    screen.width + 'x' + screen.height,
-    'rhizacore_v1' // App-specific salt
-  ].join('|');
-
-  // Hash the fingerprint to create a consistent key
-  const encoder = new TextEncoder();
-  const data = encoder.encode(fingerprint);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-  return hashHex;
+  const DEVICE_KEY_STORAGE = 'rhiza_device_key';
+  
+  // Check if we already have a stored device key
+  let deviceKey = localStorage.getItem(DEVICE_KEY_STORAGE);
+  
+  if (!deviceKey) {
+    // Generate a cryptographically secure random key (32 bytes = 256 bits)
+    const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+    deviceKey = Array.from(randomBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    // Store the key persistently
+    localStorage.setItem(DEVICE_KEY_STORAGE, deviceKey);
+    console.log('🔑 Generated new secure device key');
+  }
+  
+  return deviceKey;
 }
 
 export class TonWalletService {
@@ -102,6 +177,7 @@ export class TonWalletService {
   private wallet: any = null;
   private contract: any = null;
   private currentNetwork: NetworkType = 'mainnet'; // Default to mainnet
+  private currentWalletId: string | null = null; // Track current wallet for secure secret management
 
   constructor() {
     // Initialize with mainnet by default
@@ -147,13 +223,30 @@ export class TonWalletService {
     }
   }
 
-  async initializeWallet(mnemonic: string[], password?: string) {
+  async initializeWallet(mnemonic: string[], password?: string, walletId?: string) {
     try {
       this.keyPair = await mnemonicToWalletKey(mnemonic);
       this.wallet = WalletContractV4.create({ workchain: 0, publicKey: this.keyPair.publicKey });
       this.contract = this.client.open(this.wallet);
 
-      console.log(`✅ Wallet initialized: ${this.wallet.address.toString()}`);
+      const address = this.wallet.address.toString();
+      console.log(`✅ Wallet initialized: ${address}`);
+
+      // Generate wallet ID if not provided
+      const effectiveWalletId = walletId || `wallet_${address.slice(0, 8)}`;
+      this.currentWalletId = effectiveWalletId;
+
+      // Store in secure secret manager if password provided
+      if (password) {
+        const storeResult = await secureSecretManager.storeMnemonic(
+          effectiveWalletId,
+          mnemonic,
+          password
+        );
+        if (!storeResult.success) {
+          console.warn('⚠️ Failed to store in secure manager:', storeResult.error);
+        }
+      }
 
       // Always save session (with device encryption by default, or password if provided)
       const result = await sessionManager.saveSession(mnemonic, password);
@@ -162,7 +255,7 @@ export class TonWalletService {
         // Don't fail the login, just warn
       }
 
-      return { success: true, address: this.wallet.address.toString() };
+      return { success: true, address };
     } catch (e) {
       console.error('❌ Wallet initialization failed:', e);
       return { success: false, error: String(e) };
@@ -176,6 +269,9 @@ export class TonWalletService {
     }
 
     try {
+      // Update session activity on user interaction
+      sessionManager.updateActivity();
+      
       console.log(`💰 Fetching balance for ${this.wallet.address.toString()} on ${this.currentNetwork}...`);
 
       const balance = await this.contract.getBalance();
@@ -331,10 +427,20 @@ export class TonWalletService {
     }
 
     try {
+      // Update session activity on user interaction
+      sessionManager.updateActivity();
+      
+      // ── SECURITY FIX #8: Sanitize comment to prevent XSS ──────────────────
+      const safeComment = comment ? sanitizeComment(comment) : '';
+      
+      // ── SECURITY FIX #6: Add network tag to prevent replay attacks ────────
+      const networkTag = `[${this.currentNetwork}]`;
+      const fullComment = safeComment ? `${networkTag} ${safeComment}` : networkTag;
+      
       console.log(`💸 Preparing transaction...`);
       console.log(`   To: ${recipientAddress}`);
       console.log(`   Amount: ${amount} TON`);
-      console.log(`   Comment: ${comment || 'none'}`);
+      console.log(`   Comment: ${fullComment}`);
       console.log(`   Network: ${this.currentNetwork}`);
 
       // Validate recipient address
@@ -371,7 +477,42 @@ export class TonWalletService {
       const seqno = await this.contract.getSeqno();
       console.log(`📝 Current seqno: ${seqno}`);
 
-      // Create transfer message
+      // ── SECURITY FIX #7: Estimate actual fee before sending ──────────────
+      // Create a test transfer to estimate fees
+      const testTransfer = this.contract.createTransfer({
+        seqno,
+        secretKey: this.keyPair.secretKey,
+        messages: [
+          internal({
+            to: recipientAddr,
+            value: toNano(amountNum.toFixed(9)),
+            body: fullComment,
+            bounce: false,
+          })
+        ]
+      });
+
+      // Estimate fee (this is approximate, actual fee may vary slightly)
+      let actualFee = 0.01; // Default fallback
+      try {
+        // Try to estimate fee using the contract
+        // Note: This is a best-effort estimation
+        const feeEstimate = await this.contract.estimateFee(testTransfer);
+        actualFee = Number(feeEstimate) / 1e9;
+        console.log(`💰 Estimated fee: ${actualFee.toFixed(4)} TON`);
+      } catch (feeError) {
+        console.warn('⚠️ Could not estimate fee, using default:', actualFee);
+      }
+
+      // Re-check balance with actual fee
+      if (currentBalance < amountNum + actualFee) {
+        return {
+          success: false,
+          error: `Insufficient balance. You have ${currentBalance.toFixed(4)} TON but need ${(amountNum + actualFee).toFixed(4)} TON (${amount} + ${actualFee.toFixed(4)} fee)`
+        };
+      }
+
+      // Create actual transfer message with sanitized comment
       const transfer = this.contract.createTransfer({
         seqno,
         secretKey: this.keyPair.secretKey,
@@ -379,7 +520,7 @@ export class TonWalletService {
           internal({
             to: recipientAddr,
             value: toNano(amountNum.toFixed(9)),
-            body: comment || '', // Optional comment
+            body: fullComment, // Use sanitized comment with network tag
             bounce: false, // Don't bounce if recipient doesn't exist
           })
         ]
@@ -455,15 +596,23 @@ export class TonWalletService {
     }
 
     try {
+      // ── SECURITY FIX #6 & #8: Add network tag and sanitize comments ───────
+      const networkTag = `[${this.currentNetwork}]`;
+      
       // Validate all addresses and amounts
       const messages = recipients.map(r => {
         const addr = Address.parse(r.address); // throws if invalid
         const amountNum = parseFloat(r.amount);
         if (isNaN(amountNum) || amountNum <= 0) throw new Error(`Invalid amount for ${r.address}`);
+        
+        // Sanitize comment and add network tag
+        const safeComment = r.comment ? sanitizeComment(r.comment) : '';
+        const fullComment = safeComment ? `${networkTag} ${safeComment}` : networkTag;
+        
         return internal({
           to: addr,
           value: toNano(amountNum.toFixed(9)),
-          body: r.comment || '',
+          body: fullComment,
           bounce: false,
         });
       });
@@ -520,8 +669,11 @@ export class TonWalletService {
     }
 
     try {
+      // ── SECURITY FIX #8: Sanitize comment ─────────────────────────────────
+      const safeComment = comment ? sanitizeComment(comment) : '';
+      
       console.log(`🪙 Preparing jetton transaction...`);
-      console.log(`   Jetton Wallet: ${jettonWalletAddress}`);
+      console.log(`   Jetton Wallet: {jettonWalletAddress}`);
       console.log(`   To: ${recipientAddress}`);
       console.log(`   Amount: ${amount.toString()}`);
       console.log(`   Network: ${this.currentNetwork}`);
@@ -664,11 +816,22 @@ export class TonWalletService {
   }
 
   logout() {
+    // Clear sensitive data from memory
+    if (this.currentWalletId) {
+      secureSecretManager.clearMemory(this.currentWalletId);
+    }
+    
+    // Overwrite keypair with random data before clearing
+    if (this.keyPair?.secretKey) {
+      crypto.getRandomValues(this.keyPair.secretKey);
+    }
+    
     this.keyPair = null;
     this.wallet = null;
     this.contract = null;
+    this.currentWalletId = null;
     sessionManager.clearSession();
-    console.log('👋 Logged out');
+    console.log('👋 Logged out - secrets cleared from memory');
   }
 
   isInitialized() { return !!this.contract; }

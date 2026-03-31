@@ -1,10 +1,10 @@
-
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { tonWalletService } from '../services/tonWalletService';
 import { NetworkType, getNetworkConfig } from '../constants';
 import { supabaseService } from '../services/supabaseService';
 import { transactionSyncService } from '../services/transactionSync';
 import { notificationService } from '../services/notificationService';
+import type { EvmChain } from '../services/tetherWdkService';
 
 interface UserProfile {
   id: string;
@@ -49,8 +49,13 @@ interface WalletState {
   toggleTheme: () => void;
   switchNetwork: (network: NetworkType) => Promise<void>;
   refreshData: () => Promise<void>;
-  login: (mnemonic: string[], password?: string) => Promise<boolean>;
+  login: (mnemonic: string[], password?: string, type?: 'primary' | 'secondary') => Promise<boolean>;
   logout: () => void;
+  multiChainBalances: { evm: string, btc: string, ton: string, usdt: string } | null;
+  isNetworkModalOpen: boolean;
+  setIsNetworkModalOpen: (open: boolean) => void;
+  currentEvmChain: EvmChain;
+  setCurrentEvmChain: (chain: EvmChain) => void;
 }
 
 const WalletContext = createContext<WalletState | undefined>(undefined);
@@ -76,6 +81,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('rhiza_theme');
     return (saved as 'dark' | 'light') || 'dark';
+  });
+  const [multiChainBalances, setMultiChainBalances] = useState<{ evm: string, btc: string, ton: string, usdt: string } | null>(null);
+  const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
+  const [currentEvmChain, setCurrentEvmChain] = useState<EvmChain>(() => {
+    const saved = localStorage.getItem('rhiza_evm_chain') as EvmChain;
+    const valid = ['ethereum','polygon','arbitrum','bsc','avalanche','plasma','stable','sepolia'];
+    return (saved && valid.includes(saved)) ? saved : 'polygon';
   });
 
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -137,11 +149,52 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [theme]);
 
   const refreshData = async () => {
-    if (!tonWalletService.isInitialized()) return;
-    const res = await tonWalletService.getBalance();
-    if (res.success && res.balance) setBalance(res.balance);
+    let addr = tonWalletService.getWalletAddress();
+    const useWdk = !tonWalletService.isInitialized();
+
+    if (useWdk) {
+      const { tetherWdkService } = await import('../services/tetherWdkService');
+      if (!tetherWdkService.isInitialized()) return;
+      
+      const balances = await tetherWdkService.getBalances();
+      if (balances) setBalance(balances.tonBalance);
+      
+      const addresses = await tetherWdkService.getAddresses();
+      if (addresses) addr = addresses.tonAddress;
+    } else {
+      const res = await tonWalletService.getBalance();
+      if (res.success && res.balance) setBalance(res.balance);
+    }
     
-    const addr = tonWalletService.getWalletAddress();
+    // Auto-initialize WDK to keep multi-chain balances synced, regardless of active wallet
+    try {
+      const { tetherWdkService } = await import('../services/tetherWdkService');
+      
+      if (!tetherWdkService.isInitialized() && tetherWdkService.hasStoredWallet() && !tetherWdkService.isEncrypted()) {
+        const savedPhrase = await tetherWdkService.getStoredWallet('');
+        if (savedPhrase) {
+          await tetherWdkService.initializeManagers(savedPhrase);
+        }
+      }
+      
+      const allWallets = (await import('../utils/walletManager')).WalletManager.getWallets();
+      const hasSecondary = allWallets.some(w => w.type === 'secondary');
+      
+      if (tetherWdkService.isInitialized()) {
+        const bals = await tetherWdkService.getBalances();
+        if (bals) {
+          const usdtBal = await tetherWdkService.getErc20TokenBalance('0xc2132D05D31c914a87C6611C10748AEb04B58e8F');
+          setMultiChainBalances({ evm: bals.evmBalance, btc: bals.btcBalance, ton: bals.tonBalance, usdt: usdtBal });
+        }
+      } else if (hasSecondary) {
+        setMultiChainBalances({ evm: '0.0000', btc: '0.00000000', ton: '0.0000', usdt: '0.00' });
+      } else {
+        setMultiChainBalances(null);
+      }
+    } catch (e) {
+      console.error('Failed to sync WDK balances:', e);
+    }
+
     if (addr) {
         const jRes = await tonWalletService.getJettons(addr);
         if (jRes.success) setJettons(jRes.jettons);
@@ -170,19 +223,44 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const login = async (mnemonic: string[], password?: string) => {
+  const login = async (mnemonic: string[], password?: string, type: 'primary' | 'secondary' = 'primary') => {
     setIsLoading(true);
-    const res = await tonWalletService.initializeWallet(mnemonic, password);
-    if (res.success && res.address) {
-      setAddress(res.address);
+    let addressToUse: string | null = null;
+    let loginSuccess = false;
+
+    if (type === 'primary') {
+      const res = await tonWalletService.initializeWallet(mnemonic, password);
+      if (res.success && res.address) {
+        addressToUse = res.address;
+        loginSuccess = true;
+      }
+    } else {
+      try {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const addrs = await tetherWdkService.initializeManagers(mnemonic.join(' '));
+        if (addrs && addrs.tonAddress) {
+          addressToUse = addrs.tonAddress;
+          await tetherWdkService.saveWallet(mnemonic.join(' '), password);
+          loginSuccess = true;
+        }
+      } catch (e) {
+        console.error('Secondary wallet login failed', e);
+      }
+    }
+
+    if (loginSuccess && addressToUse) {
+      setAddress(addressToUse);
       setIsLoggedIn(true);
+      
+      // Store the active wallet type so it persists on reload
+      localStorage.setItem('rhiza_active_wallet_type', type);
       
       // Create Supabase auth session for wallet user
       if (supabaseService.isConfigured()) {
         console.log('🔐 Creating Supabase auth session for wallet...');
         try {
           const { authService } = await import('../services/authService');
-          const authResult = await authService.signInWithWallet(res.address);
+          const authResult = await authService.signInWithWallet(addressToUse);
           if (authResult.success) {
             console.log('✅ Supabase auth session created');
           } else {
@@ -199,7 +277,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (supabaseService.isConfigured()) {
         console.log('💾 Loading user profile from Supabase...');
         
-        const profileResult = await supabaseService.getProfile(res.address);
+        const profileResult = await supabaseService.getProfile(addressToUse);
         
         if (profileResult.success && profileResult.data) {
           setUserProfile(profileResult.data);
@@ -221,7 +299,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             if (claimResult.success && claimResult.claimed && claimResult.claimed > 0) {
               console.log(`🎁 Auto-claimed ${claimResult.claimed} missing referral bonuses (${claimResult.amount} RZC)`);
               // Reload profile to get updated balance
-              const updatedProfile = await supabaseService.getProfile(res.address);
+              const updatedProfile = await supabaseService.getProfile(addressToUse);
               if (updatedProfile.success && updatedProfile.data) {
                 setUserProfile(updatedProfile.data);
               }
@@ -232,7 +310,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           
           // Log session activity
           await notificationService.logActivity(
-            res.address,
+            addressToUse,
             'login',
             'User logged in',
             {
@@ -245,15 +323,15 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           
           // Track login event
           await supabaseService.trackEvent('wallet_login', {
-            wallet_address: res.address,
+            wallet_address: addressToUse,
             network
           });
         } else {
           // Profile doesn't exist - create it (for existing wallets)
           console.log('📝 Creating profile for existing wallet...');
           const newProfile = await supabaseService.createOrUpdateProfile({
-            wallet_address: res.address,
-            name: `Rhiza User #${res.address.slice(-4)}`,
+            wallet_address: addressToUse,
+            name: `Rhiza User #${addressToUse.slice(-4)}`,
             avatar: '🌱'
           });
           
@@ -263,7 +341,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             // Generate referral code
             const referralResult = await supabaseService.createReferralCode(
               newProfile.data.id,
-              res.address
+              addressToUse
             );
             if (referralResult.success && referralResult.data) {
               setReferralData(referralResult.data);
@@ -275,13 +353,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await refreshData();
       
       // Start automatic transaction sync
-      if (res.address && userProfile?.id) {
+      if (addressToUse && userProfile?.id) {
         console.log('🔄 Starting automatic transaction sync...');
         if (syncIntervalRef.current) {
           clearInterval(syncIntervalRef.current);
         }
         syncIntervalRef.current = transactionSyncService.startAutoSync(
-          res.address,
+          addressToUse,
           userProfile.id,
           30000 // Sync every 30 seconds
         );
@@ -326,6 +404,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clearInterval(syncIntervalRef.current);
     }
     
+    // Clear active wallet type on logout
+    localStorage.removeItem('rhiza_active_wallet_type');
+    
     // Broadcast logout to other tabs
     if (sessionChannelRef.current) {
       sessionChannelRef.current.postMessage({ type: 'logout' });
@@ -337,18 +418,39 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Set network on tonWalletService
       tonWalletService.setNetwork(network);
       
-      // Check if there's a stored session - auto-login for persistent sessions
-      if (tonWalletService.hasStoredSession()) {
-        console.log('🔐 Found stored session, attempting auto-login...');
-        
-        // Try to restore session (works for both encrypted and unencrypted)
-        const savedMnemonic = await tonWalletService.getStoredSession('');
-        if (savedMnemonic) {
-          console.log('✅ Session restored, logging in...');
-          await login(savedMnemonic);
-        } else {
-          console.log('⚠️ Session restore failed, clearing session');
-          tonWalletService.logout();
+      const activeType = localStorage.getItem('rhiza_active_wallet_type') || 'primary';
+      
+      if (activeType === 'secondary') {
+        try {
+          const { tetherWdkService } = await import('../services/tetherWdkService');
+          if (tetherWdkService.hasStoredWallet()) {
+            console.log('🔐 Found stored secondary session, attempting auto-login...');
+            const savedPhrase = await tetherWdkService.getStoredWallet('');
+            if (savedPhrase) {
+              console.log('✅ Secondary session restored, logging in...');
+              await login(savedPhrase.split(' '), undefined, 'secondary');
+            } else {
+              console.log('⚠️ Secondary session restore failed, clearing session');
+              tetherWdkService.logout();
+            }
+          }
+        } catch (e) {
+          console.error('Failed to restore secondary wallet:', e);
+        }
+      } else {
+        // Check if there's a stored session - auto-login for persistent sessions
+        if (tonWalletService.hasStoredSession()) {
+          console.log('🔐 Found stored session, attempting auto-login...');
+          
+          // Try to restore session (works for both encrypted and unencrypted)
+          const savedMnemonic = await tonWalletService.getStoredSession('');
+          if (savedMnemonic) {
+            console.log('✅ Session restored, logging in...');
+            await login(savedMnemonic, undefined, 'primary');
+          } else {
+            console.log('⚠️ Session restore failed, clearing session');
+            tonWalletService.logout();
+          }
         }
       }
       setIsLoading(false);
@@ -374,7 +476,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       switchNetwork,
       refreshData, 
       login, 
-      logout
+      logout,
+      multiChainBalances,
+      isNetworkModalOpen,
+      setIsNetworkModalOpen,
+      currentEvmChain,
+      setCurrentEvmChain
     }}>
       {children}
     </WalletContext.Provider>

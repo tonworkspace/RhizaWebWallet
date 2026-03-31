@@ -47,6 +47,9 @@ import More from './pages/More';
 import RzcUtility from './pages/RzcUtility';
 import Swap from './pages/Swap';
 import WalletMigration from './pages/WalletMigration';
+import SecondaryWallet from './pages/SecondaryWallet';
+import RzcStore from './pages/RzcStore';
+import { SecondaryWalletProvider } from './context/SecondaryWalletContext';
 import BalanceVerification from './components/BalanceVerification';
 import { Layout } from './components/Layout';
 import { WalletProvider, useWallet } from './context/WalletContext';
@@ -54,6 +57,7 @@ import { ToastProvider } from './context/ToastContext';
 import { AirdropProvider, useAirdrop } from './context/AirdropContext';
 import { SettingsModalProvider } from './context/SettingsModalContext';
 import { VerificationFormProvider } from './context/VerificationFormContext';
+import { ActivationModalProvider } from './context/ActivationModalContext';
 import { notificationService } from './services/notificationService';
 import WalletLockOverlay from './components/WalletLockOverlay';
 import GlobalAirdropModal from './components/GlobalAirdropModal';
@@ -63,6 +67,7 @@ import VerificationFormModal from './components/VerificationFormModal';
 import { supabaseService } from './services/supabaseService';
 import { PurchaseModalProvider } from './context/PurchaseModalContext';
 import GlobalPurchaseModal from './components/GlobalPurchaseModal';
+import GlobalNetworkModal from './components/GlobalNetworkModal';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, isLoading } = useWallet();
@@ -223,6 +228,9 @@ const AppContent: React.FC = () => {
       {/* Global Purchase Modal */}
       <GlobalPurchaseModal />
 
+      {/* Global Network Selector */}
+      <GlobalNetworkModal />
+
       {/* Global Airdrop FAB - Shows on wallet pages when logged in */}
       {isLoggedIn && isWalletMode && (
         <AirdropTrigger variant="fab" size="lg" />
@@ -285,8 +293,10 @@ const AppContent: React.FC = () => {
           <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
           <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
           <Route path="/wallet/sales-package" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
+          <Route path="/wallet/store" element={<ProtectedRoute><RzcStore /></ProtectedRoute>} />
           <Route path="/wallet/swap" element={<ProtectedRoute><Swap /></ProtectedRoute>} />
           <Route path="/wallet/migration" element={<ProtectedRoute><WalletMigration /></ProtectedRoute>} />
+          <Route path="/wallet/multi-chain" element={<ProtectedRoute><SecondaryWallet /></ProtectedRoute>} />
           <Route path="/wallet/verification" element={<ProtectedRoute><div className="max-w-xl mx-auto px-3 sm:px-4 md:px-0 py-6 space-y-4 page-enter"><div className="flex items-center gap-2 mb-2"><h1 className="text-xl font-black text-slate-900 dark:text-white">Balance Verification</h1></div><BalanceVerification /></div></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -301,15 +311,19 @@ const App: React.FC = () => {
     <Router>
       <ToastProvider>
         <WalletProvider>
+          <SecondaryWalletProvider>
           <AirdropProvider>
             <SettingsModalProvider>
               <PurchaseModalProvider>
                 <VerificationFormProvider>
-                  <AppContent />
+                  <ActivationModalProvider>
+                    <AppContent />
+                  </ActivationModalProvider>
                 </VerificationFormProvider>
               </PurchaseModalProvider>
             </SettingsModalProvider>
           </AirdropProvider>
+          </SecondaryWalletProvider>
         </WalletProvider>
       </ToastProvider>
     </Router>

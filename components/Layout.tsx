@@ -23,9 +23,13 @@ import {
   XCircle,
   Clock,
   ArrowRight,
-  Pencil
+  Pencil,
+  Layers,
+  Lock,
+  Activity
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import { useActivationModal } from '../context/ActivationModalContext';
 import AirdropTrigger from './AirdropTrigger';
 import LanguageSelector from './LanguageSelector';
 import { SOCIAL_LINKS } from '../constants';
@@ -36,48 +40,82 @@ interface LayoutProps {
   isWalletMode: boolean;
 }
 
-const SidebarItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => (
-  <NavLink
-    to={to}
-    className={({ isActive }) => `
-      flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300
-      ${isActive
-        ? 'bg-black/5 dark:bg-white/10 text-primary border border-black/5 dark:border-white/10 shadow-[0_4px_12px_rgba(0,0,0,0.05)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.1)]'
-        : 'text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'}
-    `}
-  >
-    <Icon size={18} />
-    <span className="font-semibold text-sm tracking-tight">{label}</span>
-  </NavLink>
-);
+const SidebarItem = ({ to, icon: Icon, label, requiresActivation = false }: { to: string, icon: any, label: string, requiresActivation?: boolean }) => {
+  const { isActivated } = useWallet();
+  const { showActivationModal } = useActivationModal();
 
-const MobileNavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => (
-  <NavLink
-    to={to}
-    className={({ isActive }) => `
-      flex flex-col items-center justify-center gap-1.5 flex-1 py-1.5 px-2 rounded-2xl transition-all duration-300 active:scale-95
-      ${isActive ? 'text-primary' : 'text-slate-500 dark:text-gray-500'}
-    `}
-  >
-    {({ isActive }: { isActive: boolean }) => (
-      <>
-        <div className={`relative p-2 rounded-xl transition-all duration-300 ${isActive
+  const handleClick = (e: React.MouseEvent) => {
+    if (requiresActivation && !isActivated) {
+      e.preventDefault();
+      showActivationModal();
+    }
+  };
+
+  return (
+    <NavLink
+      to={to}
+      onClick={handleClick}
+      className={({ isActive }) => `
+        flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300
+        ${isActive
+          ? 'bg-black/5 dark:bg-white/10 text-primary border border-black/5 dark:border-white/10 shadow-[0_4px_12px_rgba(0,0,0,0.05)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.1)]'
+          : 'text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'}
+      `}
+    >
+      <Icon size={18} />
+      <span className="font-semibold text-sm tracking-tight">{label}</span>
+      {requiresActivation && !isActivated && (
+        <Lock size={12} className="ml-auto text-amber-500" />
+      )}
+    </NavLink>
+  );
+};
+
+const MobileNavItem = ({ to, icon: Icon, label, requiresActivation = false }: { to: string, icon: any, label: string, requiresActivation?: boolean }) => {
+  const { isActivated } = useWallet();
+  const { showActivationModal } = useActivationModal();
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (requiresActivation && !isActivated) {
+      e.preventDefault();
+      showActivationModal();
+    }
+  };
+
+  return (
+    <NavLink
+      to={to}
+      onClick={handleClick}
+      className={({ isActive }) => `
+        flex flex-col items-center justify-center gap-1.5 flex-1 py-1.5 px-2 rounded-2xl transition-all duration-300 active:scale-95
+        ${isActive ? 'text-primary' : 'text-slate-500 dark:text-gray-500'}
+      `}
+    >
+      {({ isActive }: { isActive: boolean }) => (
+        <>
+          <div className={`relative p-2 rounded-xl transition-all duration-300 ${isActive
             ? 'bg-primary/10 shadow-lg shadow-primary/20'
             : 'hover:bg-slate-100 dark:hover:bg-white/5'
-          }`}>
-          <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-          {isActive && (
-            <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
-          )}
-        </div>
-        <span className={`text-[10px] font-bold tracking-tight transition-all duration-300 ${isActive ? 'scale-105' : ''
-          }`}>
-          {label}
-        </span>
-      </>
-    )}
-  </NavLink>
-);
+            }`}>
+            <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+            {isActive && (
+              <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
+            )}
+            {requiresActivation && !isActivated && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full flex items-center justify-center">
+                <Lock size={8} className="text-white" />
+              </div>
+            )}
+          </div>
+          <span className={`text-[10px] font-bold tracking-tight transition-all duration-300 ${isActive ? 'scale-105' : ''
+            }`}>
+            {label}
+          </span>
+        </>
+      )}
+    </NavLink>
+  );
+};
 
 export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
   const { t } = useTranslation();
@@ -218,12 +256,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
         <nav className="flex flex-col gap-1">
           <SidebarItem to="/wallet/dashboard" icon={LayoutDashboard} label={t('nav.dashboard')} />
           <SidebarItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
-          <SidebarItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" />
+          <SidebarItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" requiresActivation />
           <SidebarItem to="/wallet/sales-package" icon={Package} label="Nodes" />
           <SidebarItem to="/wallet/migration" icon={TrendingUp} label="Migrate" />
+          <SidebarItem to="/wallet/multi-chain" icon={Layers} label="Multi-Chain" requiresActivation />
           <SidebarItem to="/wallet/history" icon={History} label={t('nav.history')} />
-          <SidebarItem to="/wallet/referral" icon={Users} label={t('nav.referral')} />
-          
+          <SidebarItem to="/wallet/history" icon={Activity} label="Activity" requiresActivation />
+
           {/* Airdrop Trigger */}
           <div className="px-4 py-2">
             <AirdropTrigger variant="button" size="md" className="w-full justify-center" />
@@ -402,7 +441,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 lg:ml-72 relative min-h-screen pb-safe">
+      <main className="flex-1 lg:ml-72 relative min-h-screen pb-safe overflow-x-hidden">
         {/* Header - Transparent Glass */}
         <header className="h-20 lg:h-16 flex items-center justify-between px-4 sm:px-6 sticky top-0 bg-white/60 dark:bg-[#020202]/60 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-white/5 transition-colors">
           {/* Left: Logo - Mobile Only */}
@@ -558,7 +597,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   {/* Network Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">Network</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">TON Network</span>
                     </div>
                     <button
                       onClick={() => {
@@ -566,12 +605,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                         setShowMobileMenu(false);
                       }}
                       className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${network === 'mainnet'
-                          ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                          : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                        ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                         }`}
                     >
-                      <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                      <span className="flex-1">Mainnet</span>
+                      <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                      <span className="flex-1">TON Mainnet</span>
                       {network === 'mainnet' && <span className="text-emerald-600 dark:text-emerald-400">✓</span>}
                     </button>
                     <button
@@ -580,14 +619,38 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                         setShowMobileMenu(false);
                       }}
                       className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${network === 'testnet'
-                          ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                          : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                        ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                        : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                         }`}
                     >
-                      <div className={`w-2 h-2 rounded-full ${network === 'testnet' ? 'bg-amber-500' : 'bg-gray-400'}`} />
-                      <span className="flex-1">Testnet</span>
+                      <div className={`w-2 h-2 rounded-full ${network === 'testnet' ? 'bg-amber-500 animate-pulse' : 'bg-gray-400'}`} />
+                      <span className="flex-1">TON Testnet</span>
                       {network === 'testnet' && <span className="text-amber-600 dark:text-amber-400">✓</span>}
                     </button>
+                  </div>
+                  
+                  {/* WDK Multi-Chain Networks */}
+                  <div className="border-b-2 border-gray-200 dark:border-white/10">
+                    <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">WDK Networks</span>
+                    </div>
+                    <div className="px-3 py-2 text-[10px] text-gray-500 dark:text-gray-600">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+                        <span className="font-semibold">EVM (Polygon)</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                        <span className="font-semibold">TON</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                        <span className="font-semibold">BTC (Bitcoin)</span>
+                      </div>
+                      <p className="mt-2 text-[9px] italic">
+                        Multi-chain support via WDK. Network follows TON setting above.
+                      </p>
+                    </div>
                   </div>
 
                   {/* Language Switcher */}
@@ -635,7 +698,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   {/* Network Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">Network</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">TON Network</span>
                     </div>
                     <button
                       onClick={() => {
@@ -643,12 +706,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                         setShowDesktopMenu(false);
                       }}
                       className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${network === 'mainnet'
-                          ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                          : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                        ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                         }`}
                     >
-                      <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                      <span className="flex-1">Mainnet</span>
+                      <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                      <span className="flex-1">TON Mainnet</span>
                       {network === 'mainnet' && <span className="text-emerald-600 dark:text-emerald-400">✓</span>}
                     </button>
                     <button
@@ -657,14 +720,38 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                         setShowDesktopMenu(false);
                       }}
                       className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center gap-2 ${network === 'testnet'
-                          ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                          : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                        ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                        : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                         }`}
                     >
-                      <div className={`w-2 h-2 rounded-full ${network === 'testnet' ? 'bg-amber-500' : 'bg-gray-400'}`} />
-                      <span className="flex-1">Testnet</span>
+                      <div className={`w-2 h-2 rounded-full ${network === 'testnet' ? 'bg-amber-500 animate-pulse' : 'bg-gray-400'}`} />
+                      <span className="flex-1">TON Testnet</span>
                       {network === 'testnet' && <span className="text-amber-600 dark:text-amber-400">✓</span>}
                     </button>
+                  </div>
+                  
+                  {/* WDK Multi-Chain Networks */}
+                  <div className="border-b-2 border-gray-200 dark:border-white/10">
+                    <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 dark:text-gray-500">WDK Networks</span>
+                    </div>
+                    <div className="px-3 py-2 text-[10px] text-gray-500 dark:text-gray-600">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+                        <span className="font-semibold">EVM (Polygon)</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                        <span className="font-semibold">TON</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                        <span className="font-semibold">BTC (Bitcoin)</span>
+                      </div>
+                      <p className="mt-2 text-[9px] italic">
+                        Multi-chain support via WDK. Network follows TON setting above.
+                      </p>
+                    </div>
                   </div>
 
                   {/* Language Switcher */}
@@ -699,7 +786,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
         </header>
 
         {/* Content Container */}
-        <div className="max-w-4xl mx-auto pb-20 sm:p-5 lg:p-10 page-enter">
+        <div className="max-w-4xl mx-auto pb-20 sm:p-5 lg:p-10 page-enter overflow-x-hidden">
           {children}
         </div>
 
@@ -708,9 +795,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
           <div className="flex items-center justify-around px-1 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
             <MobileNavItem to="/wallet/dashboard" icon={LayoutDashboard} label={t('nav.dashboard')} />
             <MobileNavItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
-            <MobileNavItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" />
-            <MobileNavItem to="/wallet/referral" icon={Users} label={t('nav.referral')} />
-            <MobileNavItem to="/wallet/more" icon={MoreHorizontal} label={t('nav.more')} />
+            <MobileNavItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" requiresActivation />
+            <MobileNavItem to="/wallet/history" icon={Activity} label="Activity" requiresActivation />
+            <MobileNavItem to="/wallet/settings" icon={Settings} label={t('nav.settings')} />
           </div>
         </nav>
       </main>

@@ -32,7 +32,8 @@ import {
   Copy,
   Check,
   Edit,
-  Crown
+  Crown,
+  Layers
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 
@@ -139,6 +140,14 @@ const More: React.FC = () => {
           path: '/wallet/migration',
           badge: 'New',
           color: 'from-violet-500 to-purple-500'
+        },
+        {
+          title: 'Multi-Chain Wallet',
+          description: 'Manage EVM + TON from one 12-word phrase',
+          icon: Layers,
+          path: '/wallet/multi-chain',
+          badge: 'WDK',
+          color: 'from-violet-600 to-indigo-600'
         },
         {
           title: 'History',

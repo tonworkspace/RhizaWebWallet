@@ -201,7 +201,7 @@ const WalletSwitcher: React.FC = () => {
           <p className="text-xs text-gray-500 mt-1">Manage and switch between your wallets</p>
         </div>
         <button
-          onClick={() => navigate('/import-wallet')}
+          onClick={() => navigate('/onboarding')}
           className="px-4 py-2 bg-[#00FF88] text-black rounded-xl font-black text-xs uppercase tracking-wider hover:scale-105 transition-all flex items-center gap-2"
         >
           <Plus size={14} />

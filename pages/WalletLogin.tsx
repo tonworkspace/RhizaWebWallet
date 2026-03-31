@@ -1,22 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { 
-  ChevronLeft, 
-  ArrowRight, 
-  Eye, 
-  EyeOff, 
-  Wallet, 
-  Clock,
-  Plus,
-  RefreshCw,
-  AlertCircle,
-  Gift,
-  Users
+import {
+  ChevronLeft, ArrowRight, Eye, EyeOff, Wallet, Clock,
+  Plus, RefreshCw, AlertCircle, Gift, Users, ShieldOff, Lock, Check
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { WalletManager, WalletMetadata } from '../utils/walletManager';
 import { useToast } from '../context/ToastContext';
+import { supabaseService } from '../services/supabaseService';
+
+// ─── Security constants ────────────────────────────────────────────────────
+const MAX_ATTEMPTS = 5;        // Max failed attempts before lockout
+const LOCKOUT_SECONDS = 300;   // Lockout duration in seconds (5 minutes)
+const MIN_ATTEMPT_DELAY = 600; // Min ms before showing result (prevents timing attacks)
+
+// ──────────────────────────────────────────────────────────────────────────
 
 const WalletLogin: React.FC = () => {
   const { t } = useTranslation();
@@ -24,10 +23,8 @@ const WalletLogin: React.FC = () => {
   const { login } = useWallet();
   const { showToast } = useToast();
   const [searchParams] = useSearchParams();
-  
-  // Get referral code from URL parameter
   const referralCode = searchParams.get('ref');
-  
+
   const [wallets, setWallets] = useState<WalletMetadata[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [password, setPassword] = useState('');
@@ -35,123 +32,297 @@ const WalletLogin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Brute-force protection state
+  const [attemptCount, setAttemptCount] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [lockCountdown, setLockCountdown] = useState(0);
+  const lockTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ─── Load wallets + check server-side rate limit ─────────────────────────
   useEffect(() => {
-    // Load wallets
     const loadedWallets = WalletManager.getWallets();
     setWallets(loadedWallets);
-    
-    // Auto-select last used wallet
+
     const activeWallet = WalletManager.getActiveWallet();
-    if (activeWallet) {
-      setSelectedWallet(activeWallet.id);
-    } else if (loadedWallets.length > 0) {
-      // Select most recently used
-      const sorted = [...loadedWallets].sort((a, b) => b.lastUsed - a.lastUsed);
-      setSelectedWallet(sorted[0].id);
+    const defaultId = activeWallet?.id
+      ?? (loadedWallets.length > 0
+        ? [...loadedWallets].sort((a, b) => b.lastUsed - a.lastUsed)[0].id
+        : null);
+
+    if (defaultId) {
+      setSelectedWallet(defaultId);
+      // Check server-side rate limit status
+      checkRateLimitStatus(defaultId);
     }
   }, []);
 
-  const handleUnlock = async () => {
-    if (!selectedWallet || !password) {
-      setError('Please select a wallet and enter your password');
-      return;
+  // ─── Check server-side rate limit status ──────────────────────────────────
+  const checkRateLimitStatus = async (walletId: string) => {
+    const wallet = wallets.find(w => w.id === walletId);
+    if (!wallet || !supabaseService.isConfigured()) return;
+
+    try {
+      const result = await supabaseService.attemptWalletLogin(
+        wallet.address,
+        MAX_ATTEMPTS,
+        LOCKOUT_SECONDS
+      );
+
+      if (result.success && result.locked) {
+        setLockedUntil(new Date(result.lockedUntil!).getTime());
+        setAttemptCount(MAX_ATTEMPTS);
+      } else if (result.success && result.allowed) {
+        setAttemptCount(MAX_ATTEMPTS - (result.attemptsRemaining || MAX_ATTEMPTS));
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to check rate limit status:', error);
     }
+  };
+
+  // ─── Lockout countdown timer ──────────────────────────────────────────────
+  useEffect(() => {
+    if (lockedUntil && lockedUntil > Date.now()) {
+      const tick = () => {
+        const remaining = Math.ceil((lockedUntil - Date.now()) / 1000);
+        if (remaining <= 0) {
+          setLockCountdown(0);
+          setLockedUntil(null);
+          setAttemptCount(0);
+          setError(null);
+          if (lockTimerRef.current) clearInterval(lockTimerRef.current);
+        } else {
+          setLockCountdown(remaining);
+        }
+      };
+      tick();
+      lockTimerRef.current = setInterval(tick, 1000);
+      return () => { if (lockTimerRef.current) clearInterval(lockTimerRef.current); };
+    }
+  }, [lockedUntil]);
+
+  // ─── When wallet selection changes, check server-side rate limit ─────────
+  const handleSelectWallet = (id: string) => {
+    if (lockTimerRef.current) clearInterval(lockTimerRef.current);
+    setSelectedWallet(id);
+    setError(null);
+    setPassword('');
+    setAttemptCount(0);
+    setLockedUntil(null);
+    
+    // Check server-side rate limit for this wallet
+    checkRateLimitStatus(id);
+  };
+
+  // ─── Unlock handler with server-side rate limiting ────────────────────────
+  const handleUnlock = useCallback(async () => {
+    if (!selectedWallet || !password) return;
+
+    // Check lockout
+    if (lockedUntil && lockedUntil > Date.now()) return;
+
+    const wallet = wallets.find(w => w.id === selectedWallet);
+    if (!wallet) return;
 
     setIsLoading(true);
     setError(null);
 
+    // ── Step 1: Check server-side rate limit (if Supabase configured) ────────
+    if (supabaseService.isConfigured()) {
+      try {
+        const rateLimitCheck = await supabaseService.attemptWalletLogin(
+          wallet.address,
+          MAX_ATTEMPTS,
+          LOCKOUT_SECONDS
+        );
+
+        if (rateLimitCheck.success && !rateLimitCheck.allowed) {
+          // Account is locked server-side
+          if (rateLimitCheck.locked && rateLimitCheck.lockedUntil) {
+            const lockExpiry = new Date(rateLimitCheck.lockedUntil).getTime();
+            setLockedUntil(lockExpiry);
+            setAttemptCount(MAX_ATTEMPTS);
+            setError(null);
+            setPassword('');
+            showToast('Account locked due to too many failed attempts', 'error');
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Rate limit check failed, continuing with local validation:', error);
+      }
+    }
+
+    // ── Step 2: Enforce minimum delay (prevents timing attacks) ──────────────
+    const startTime = Date.now();
+
+    let success = false;
+    let mnemonic: string[] | undefined;
+
     try {
-      // Get mnemonic with password
       const result = await WalletManager.getWalletMnemonic(selectedWallet, password);
-      
-      if (!result.success || !result.mnemonic) {
-        setError(result.error || 'Failed to decrypt wallet');
-        showToast('Invalid password', 'error');
-        setIsLoading(false);
-        return;
+      if (result.success && result.mnemonic) {
+        mnemonic = result.mnemonic;
+        success = true;
+      }
+    } catch {
+      success = false;
+    }
+
+    // Constant-time: always wait the minimum delay before responding
+    const elapsed = Date.now() - startTime;
+    if (elapsed < MIN_ATTEMPT_DELAY) {
+      await new Promise(resolve => setTimeout(resolve, MIN_ATTEMPT_DELAY - elapsed));
+    }
+
+    // ── Step 3: Handle success or failure ─────────────────────────────────────
+    if (success && mnemonic) {
+      // ── Success: reset server-side counter, log in ──────────────────────────
+      if (supabaseService.isConfigured()) {
+        try {
+          await supabaseService.resetLoginAttempts(wallet.address);
+        } catch (error) {
+          console.warn('⚠️ Failed to reset server-side attempts:', error);
+        }
       }
 
-      // Login with mnemonic
-      const success = await login(result.mnemonic, password);
-      
-      if (success) {
-        // Set as active wallet
+      setAttemptCount(0);
+      setLockedUntil(null);
+
+      const activeWalletMeta = wallets.find(w => w.id === selectedWallet);
+      const walletType = activeWalletMeta?.type || 'primary';
+
+      const loginSuccess = await login(mnemonic, password, walletType);
+      if (loginSuccess) {
         WalletManager.setActiveWallet(selectedWallet);
-        showToast('Wallet unlocked successfully', 'success');
+        showToast('Wallet unlocked', 'success');
         navigate('/wallet/dashboard');
       } else {
-        setError('Failed to initialize wallet');
-        showToast('Failed to initialize wallet', 'error');
+        setError('Failed to initialize wallet session. Please try again.');
       }
-    } catch (err) {
-      setError('An unexpected error occurred');
-      showToast('An unexpected error occurred', 'error');
+    } else {
+      // ── Failed: record server-side failure ──────────────────────────────────
+      let serverLocked = false;
+      let serverAttemptsRemaining = MAX_ATTEMPTS - attemptCount - 1;
+
+      if (supabaseService.isConfigured()) {
+        try {
+          const failureResult = await supabaseService.recordFailedLogin(
+            wallet.address,
+            MAX_ATTEMPTS,
+            LOCKOUT_SECONDS
+          );
+
+          if (failureResult.success) {
+            serverLocked = failureResult.locked;
+            serverAttemptsRemaining = failureResult.attemptsRemaining;
+
+            if (serverLocked && failureResult.lockedUntil) {
+              const lockExpiry = new Date(failureResult.lockedUntil).getTime();
+              setLockedUntil(lockExpiry);
+              setAttemptCount(MAX_ATTEMPTS);
+              setError(null);
+              setPassword('');
+              showToast('Too many failed attempts. Account locked.', 'error');
+              setIsLoading(false);
+              return;
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to record server-side failure:', error);
+        }
+      }
+
+      // Update local state
+      const newCount = attemptCount + 1;
+      setAttemptCount(newCount);
+
+      if (serverLocked || newCount >= MAX_ATTEMPTS) {
+        // Lock out locally as fallback
+        const lockExpiry = Date.now() + LOCKOUT_SECONDS * 1000;
+        setLockedUntil(lockExpiry);
+        setError(null);
+        setPassword('');
+        showToast('Too many failed attempts. Wallet locked.', 'error');
+      } else {
+        const remaining = serverAttemptsRemaining >= 0 ? serverAttemptsRemaining : MAX_ATTEMPTS - newCount;
+
+        if (remaining <= 2) {
+          setError(`Incorrect password. ${remaining} attempt${remaining > 1 ? 's' : ''} remaining before lockout.`);
+        } else {
+          setError('Incorrect password. Please try again.');
+        }
+        showToast('Incorrect password', 'error');
+      }
     }
 
     setIsLoading(false);
-  };
+  }, [selectedWallet, password, attemptCount, lockedUntil, login, navigate, showToast, wallets]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && selectedWallet && password) {
+    if (e.key === 'Enter' && selectedWallet && password && !isLoading && !lockedUntil) {
       handleUnlock();
     }
   };
 
   const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
+    const diffMs = Date.now() - timestamp;
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return new Date(timestamp).toLocaleDateString();
   };
 
-  const shortenAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-6)}`;
-  };
+  const shortenAddress = (address: string) =>
+    `${address.slice(0, 6)}...${address.slice(-6)}`;
 
+  const isLocked = !!(lockedUntil && lockedUntil > Date.now());
+  const attemptsLeft = MAX_ATTEMPTS - attemptCount;
+
+  // ─── Empty state ──────────────────────────────────────────────────────────
   if (wallets.length === 0) {
     return (
-      <div className="min-h-screen bg-transparent flex items-center justify-center p-8">
-        <div className="max-w-md w-full text-center space-y-6">
-          {/* Referral Banner */}
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md w-full text-center space-y-10">
           {referralCode && (
-            <div className="p-4 bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 rounded-2xl shadow-sm">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Gift size={20} className="text-emerald-700 dark:text-[#00FF88]" />
-                <h3 className="text-sm font-black text-emerald-700 dark:text-[#00FF88] uppercase tracking-wider">
-                  You've Been Invited!
-                </h3>
-              </div>
-              <p className="text-xs text-gray-700 dark:text-gray-400 font-semibold">
-                Create a wallet to claim your welcome bonus
+            <div className="flex items-center gap-4 p-4 bg-[#00FF88]/10 border border-[#00FF88]/20 rounded-2xl shadow-[0_0_20px_rgba(0,255,136,0.15)] transition-all">
+              <Gift size={20} className="text-[#00FF88] shrink-0" />
+              <p className="text-sm text-[#00FF88] font-medium text-left">
+                You've been invited! Create a wallet to claim your <span className="font-bold">welcome bonus</span>.
               </p>
             </div>
           )}
-          
-          <div className="w-20 h-20 bg-gray-100 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto">
-            <Wallet className="text-gray-500 dark:text-gray-500" size={40} />
+
+          <div className="space-y-6">
+            {/* Icon with glow */}
+            <div className="relative w-28 h-28 mx-auto">
+              <div className="absolute inset-0 rounded-[2rem] bg-[#00FF88]/15 blur-2xl animate-pulse" />
+              <div className="relative w-full h-full rounded-[2rem] bg-gradient-to-br from-white/10 to-white/5 border border-white/20 flex items-center justify-center backdrop-blur-sm shadow-xl">
+                <Wallet className="text-gray-300" size={50} strokeWidth={1.5} />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 tracking-tight">No Wallets Found</h2>
+              <p className="text-gray-400 text-base mt-3 leading-relaxed max-w-[260px] mx-auto font-medium">
+                Create a new wallet or import an existing one to begin.
+              </p>
+            </div>
           </div>
-          <h2 className="text-2xl font-black text-gray-950 dark:text-white">No Wallets Found</h2>
-          <p className="text-gray-700 dark:text-gray-400 leading-relaxed font-semibold">
-            You don't have any wallets yet. Create a new wallet or import an existing one to get started.
-          </p>
-          <div className="flex flex-col gap-3 pt-4">
+
+          <div className="flex flex-col gap-4">
             <button
               onClick={() => navigate(referralCode ? `/create-wallet?ref=${referralCode}` : '/create-wallet')}
-              className="w-full p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all shadow-lg"
+              className="w-full py-4 bg-[#00FF88] text-black rounded-2xl font-extrabold text-base hover:brightness-110 active:scale-[0.98] transition-all duration-200 shadow-[0_0_20px_rgba(0,255,136,0.3)] hover:shadow-[0_0_30px_rgba(0,255,136,0.4)]"
             >
               Create New Wallet
             </button>
             <button
               onClick={() => navigate('/import-wallet')}
-              className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 text-gray-950 dark:text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-gray-50 dark:hover:bg-white/10 transition-all shadow-sm"
+              className="w-full py-4 bg-white/5 border border-white/10 text-white rounded-2xl font-bold text-base hover:bg-white/10 hover:border-white/20 active:scale-[0.98] transition-all duration-200"
             >
               Import Existing Wallet
             </button>
@@ -162,166 +333,231 @@ const WalletLogin: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-transparent flex flex-col items-center justify-center p-8 page-enter">
-      <div className="w-full max-w-2xl space-y-8">
-        
-        <button 
-          onClick={() => navigate('/onboarding')}
-          className="flex items-center gap-3 text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white transition-colors text-xs font-black uppercase tracking-widest"
-        >
-          <ChevronLeft size={16} /> Back
-        </button>
+    <div className="min-h-screen flex flex-col" style={{ background: 'transparent' }}>
 
-        {/* Referral Banner */}
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 pt-6 pb-2">
+        <button
+          onClick={() => navigate('/onboarding')}
+          className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00FF88]/8 border border-[#00FF88]/15 rounded-full">
+          <Lock size={9} className="text-[#00FF88]" />
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#00FF88]/80">AES-256-GCM</span>
+        </div>
+        <div className="w-9" />
+      </div>
+
+      <div className="flex-1 flex flex-col px-6 pb-8 max-w-lg mx-auto w-full space-y-5 pt-4">
+
+        {/* Referral banner */}
         {referralCode && (
-          <div className="p-4 bg-gradient-to-br from-emerald-50 to-white dark:from-[#00FF88]/10 dark:via-[#00FF88]/5 dark:to-transparent border-2 border-emerald-200 dark:border-[#00FF88]/20 rounded-2xl shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-emerald-200 dark:bg-[#00FF88]/20 flex items-center justify-center shrink-0">
-                <Users size={24} className="text-emerald-700 dark:text-[#00FF88]" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-black text-emerald-700 dark:text-[#00FF88] uppercase tracking-wider">
-                  You've Been Invited!
-                </h3>
-                <p className="text-xs text-gray-700 dark:text-gray-400 font-semibold mt-0.5">
-                  Join with referral code: <span className="font-mono text-emerald-700 dark:text-[#00FF88]">{referralCode}</span>
-                </p>
-              </div>
+          <div className="flex items-center gap-3 p-4 bg-[#00FF88]/10 border border-[#00FF88]/25 rounded-2xl shadow-[0_0_15px_rgba(0,255,136,0.1)]">
+            <Users size={18} className="text-[#00FF88] shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm text-[#00FF88] font-bold">
+                Referral: <span className="font-mono bg-[#00FF88]/20 px-1.5 py-0.5 rounded text-[#00FF88] ml-1">{referralCode}</span>
+              </p>
+              <p className="text-xs text-[#00FF88]/80 mt-1 font-medium">Create a new wallet to claim your bonus</p>
             </div>
           </div>
         )}
 
-        <div className="space-y-4">
-          <h1 className="text-4xl font-black text-gray-950 dark:text-white tracking-tight-custom">
+        {/* Title */}
+        <div className="pb-3 text-center sm:text-left">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 tracking-tight">
             {t('auth.welcomeBack')}
           </h1>
-          <p className="text-gray-700 dark:text-gray-400 text-lg font-semibold leading-relaxed">
+          <p className="text-gray-400 text-sm sm:text-base mt-2 font-medium">
             {t('auth.enterPassword')}
           </p>
         </div>
 
-        {/* Wallet Selection */}
-        <div className="space-y-4">
-          <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">
-            Select Wallet
-          </label>
-          <div className="space-y-3">
-            {wallets.map((wallet) => (
-              <button
-                key={wallet.id}
-                onClick={() => {
-                  setSelectedWallet(wallet.id);
-                  setError(null);
-                }}
-                className={`w-full p-5 rounded-2xl border-2 transition-all text-left shadow-sm ${
-                  selectedWallet === wallet.id
-                    ? 'bg-[#00FF88]/10 border-[#00FF88] shadow-lg'
-                    : 'bg-white dark:bg-white/5 border-gray-300 dark:border-white/10 hover:border-[#00FF88]/50 dark:hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                      selectedWallet === wallet.id
-                        ? 'bg-[#00FF88]/20 text-[#00FF88]'
-                        : 'bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400'
-                    }`}>
-                      <Wallet size={24} />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-gray-950 dark:text-white text-base">{wallet.name}</h3>
-                      <p className="text-xs text-gray-600 dark:text-gray-500 font-mono mt-1">
-                        {shortenAddress(wallet.address)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-500 font-semibold">
-                    <Clock size={12} />
-                    {formatDate(wallet.lastUsed)}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Password Input */}
+        {/* Wallet cards */}
         <div className="space-y-3">
-          <label className="text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">
-            {t('auth.password')}
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setError(null);
-              }}
-              onKeyDown={handleKeyDown}
-              className="w-full p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-2xl text-gray-950 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 outline-none focus:border-[#00FF88] transition-all font-semibold shadow-sm"
-              placeholder={t('auth.password')}
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400 hover:text-gray-950 dark:hover:text-white transition-colors"
-            >
-              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
+          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Your Wallets</label>
+          <div className="space-y-3">
+            {wallets.map((wallet, idx) => {
+              const isSelected = selectedWallet === wallet.id;
+              // Generate a stable color from wallet address
+              const colors = [
+                { bg: 'bg-violet-500/20', text: 'text-violet-400', glow: '#8b5cf6' },
+                { bg: 'bg-blue-500/20', text: 'text-blue-400', glow: '#3b82f6' },
+                { bg: 'bg-amber-500/20', text: 'text-amber-400', glow: '#f59e0b' },
+                { bg: 'bg-rose-500/20', text: 'text-rose-400', glow: '#f43f5e' },
+                { bg: 'bg-cyan-500/20', text: 'text-cyan-400', glow: '#06b6d4' },
+              ];
+              const color = colors[idx % colors.length];
+              const initials = wallet.name.slice(0, 2).toUpperCase();
+
+              return (
+                <button
+                  key={wallet.id}
+                  onClick={() => handleSelectWallet(wallet.id)}
+                  style={isSelected ? { boxShadow: `0 0 0 1.5px ${color.glow}55, 0 0 24px ${color.glow}20` } : {}}
+                  className={`w-full p-4 rounded-2xl border text-left transition-all duration-300 ${
+                    isSelected
+                      ? `bg-white/10 border-white/30 backdrop-blur-md`
+                      : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    {/* Avatar */}
+                    <div className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 font-black text-base shadow-inner ${color.bg} ${color.text}`}>
+                      {initials}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={`font-bold text-base tracking-wide ${isSelected ? 'text-white' : 'text-gray-300'}`}>{wallet.name}</p>
+                        {wallet.type === 'secondary' ? (
+                          <span className="px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 text-[9px] font-bold uppercase tracking-wider">Multi-Chain</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 text-[9px] font-bold uppercase tracking-wider">TON Vault</span>
+                        )}
+                      </div>
+                      <p className={`text-[13px] font-mono mt-0.5 truncate ${isSelected ? 'text-gray-400' : 'text-gray-500'}`}>{shortenAddress(wallet.address)}</p>
+                    </div>
+
+                    {/* Meta */}
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right hidden sm:block">
+                        <div className={`flex items-center gap-1.5 text-[11px] font-medium justify-end ${isSelected ? 'text-gray-400' : 'text-gray-500'}`}>
+                          <Clock size={12} /> {formatDate(wallet.lastUsed)}
+                        </div>
+                      </div>
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                        isSelected ? 'bg-[#00FF88] border-[#00FF88] shadow-[0_0_10px_rgba(0,255,136,0.5)]' : 'border-white/20'
+                      }`}>
+                        {isSelected && <Check size={14} className="text-black" strokeWidth={3.5} />}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {error && (
-          <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3">
-            <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
-            <p className="text-sm text-red-400 font-medium">{error}</p>
+        {/* Lockout panel */}
+        {isLocked ? (
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/5 overflow-hidden">
+            <div className="p-5 flex flex-col items-center text-center gap-3">
+              <div className="relative w-16 h-16">
+                {/* Animated ring */}
+                <svg className="absolute inset-0 w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+                  <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(239,68,68,0.15)" strokeWidth="4" />
+                  <circle
+                    cx="32" cy="32" r="28" fill="none" stroke="#ef4444" strokeWidth="4"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 28}`}
+                    strokeDashoffset={`${2 * Math.PI * 28 * (1 - lockCountdown / LOCKOUT_SECONDS)}`}
+                    style={{ transition: 'stroke-dashoffset 1s linear' }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <ShieldOff size={20} className="text-red-400" />
+                </div>
+              </div>
+              <div>
+                <p className="text-base font-bold text-red-400">Wallet Locked</p>
+                <p className="text-sm text-gray-400 mt-1 font-medium">{MAX_ATTEMPTS} failed attempts detected</p>
+              </div>
+              <div className="px-6 py-3 bg-red-500/10 rounded-xl border border-red-500/20 shadow-inner">
+                <p className="text-3xl font-bold text-white font-mono tabular-nums tracking-wider">{lockCountdown}<span className="text-base text-gray-500 ml-1.5 uppercase tracking-wider font-sans">sec</span></p>
+              </div>
+              <p className="text-xs text-gray-500 font-medium">Password entry will resume after the cooldown (5 minutes)</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6 pt-2">
+            {/* Password input */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
+                  {t('auth.password')}
+                </label>
+                {attemptCount >= 2 && (
+                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shadow-sm ${
+                    attemptsLeft <= 2
+                      ? 'text-red-400 bg-red-500/15 border border-red-500/30'
+                      : 'text-amber-400 bg-amber-500/15 border border-amber-500/30'
+                  }`}>
+                    {attemptsLeft} attempt{attemptsLeft !== 1 ? 's' : ''} left
+                  </span>
+                )}
+              </div>
+              <div className="relative group">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setError(null); }}
+                  onKeyDown={handleKeyDown}
+                  disabled={isLocked}
+                  className={`w-full px-5 py-4 bg-white/5 border rounded-2xl text-white placeholder-gray-500 outline-none focus:ring-2 transition-all font-medium text-base shadow-inner ${
+                    error
+                      ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/20'
+                      : 'border-white/10 group-hover:border-white/20 focus:border-[#00FF88] focus:ring-[#00FF88]/20 focus:bg-white/10'
+                  }`}
+                  placeholder="Enter your password to unlock"
+                  autoFocus
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+
+              {error && (
+                <div className={`flex items-center gap-3 p-3.5 rounded-xl border shadow-sm animate-in fade-in slide-in-from-top-2 ${
+                  attemptsLeft <= 2
+                    ? 'bg-red-500/15 border-red-500/40'
+                    : 'bg-red-500/10 border-red-500/20'
+                }`}>
+                  <AlertCircle size={16} className="text-red-400 shrink-0" />
+                  <p className="text-sm text-red-300 font-semibold">{error}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Unlock button */}
+            <button
+              onClick={handleUnlock}
+              disabled={!selectedWallet || !password || isLoading}
+              className="w-full py-4 bg-[#00FF88] text-black rounded-2xl font-extrabold text-base hover:brightness-110 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,255,136,0.2)] hover:shadow-[0_0_30px_rgba(0,255,136,0.3)] disabled:shadow-none flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <><RefreshCw className="animate-spin" size={18} /> Unlocking...</>
+              ) : (
+                <>{t('auth.login')} <ArrowRight size={18} strokeWidth={2.5} /></>
+              )}
+            </button>
           </div>
         )}
 
-        {/* Actions */}
-        <div className="space-y-4">
-          <button 
-            onClick={handleUnlock}
-            disabled={!selectedWallet || !password || isLoading}
-            className="w-full p-6 bg-[#00FF88] text-black rounded-2xl flex items-center justify-center gap-4 text-sm font-black uppercase tracking-widest transition-all hover:scale-[1.03] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-2xl"
+        {/* Add wallet actions */}
+        <div className="grid grid-cols-2 gap-3 pt-6 pb-4">
+          <button
+            onClick={() => navigate(referralCode ? `/create-wallet?ref=${referralCode}` : '/create-wallet')}
+            className="py-3.5 bg-white/5 border border-white/10 text-gray-300 rounded-xl flex items-center justify-center gap-2 text-sm font-bold hover:bg-white/10 hover:text-white hover:border-white/20 transition-all duration-200 shadow-sm"
           >
-            {isLoading ? (
-              <>
-                <RefreshCw className="animate-spin" size={20} />
-                {t('common.loading')}
-              </>
-            ) : (
-              <>
-                {t('auth.login')} <ArrowRight size={20} />
-              </>
-            )}
+            <Plus size={16} strokeWidth={2.5} /> New Wallet
           </button>
-
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => navigate(referralCode ? `/create-wallet?ref=${referralCode}` : '/create-wallet')}
-              className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 text-gray-950 dark:text-white rounded-2xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all shadow-sm"
-            >
-              <Plus size={16} />
-              Create Wallet
-            </button>
-            <button
-              onClick={() => navigate('/import-wallet')}
-              className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 text-gray-950 dark:text-white rounded-2xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-gray-50 hover:border-[#00FF88] dark:hover:bg-white/10 dark:hover:border-[#00FF88]/30 transition-all shadow-sm"
-            >
-              <Plus size={16} />
-              Import Wallet
-            </button>
-          </div>
+          <button
+            onClick={() => navigate('/import-wallet')}
+            className="py-3.5 bg-white/5 border border-white/10 text-gray-300 rounded-xl flex items-center justify-center gap-2 text-sm font-bold hover:bg-white/10 hover:text-white hover:border-white/20 transition-all duration-200 shadow-sm"
+          >
+            <Plus size={16} strokeWidth={2.5} /> Import Wallet
+          </button>
         </div>
 
-        <div className="text-center pt-4">
-          <p className="text-[10px] text-gray-600 dark:text-gray-700 font-black uppercase tracking-widest">
-            Secured by AES-256-GCM Encryption
-          </p>
-        </div>
       </div>
     </div>
   );

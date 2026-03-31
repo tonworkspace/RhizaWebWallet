@@ -1,152 +1,150 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '../context/WalletContext';
-import { getApiEndpoint, getApiKey } from '../constants';
+import { getPriceOverrides } from '../utils/priceConfig';
 
 interface BalanceData {
   tonBalance: number;
   tonPrice: number;
+  btcPrice: number;
+  ethPrice: number;
   totalUsdValue: number;
   change24h: number;
   changePercent24h: number;
 }
 
-// Price cache to avoid unnecessary API calls
-let priceCache: { price: number; change: number; timestamp: number } | null = null;
-const CACHE_DURATION = 10000; // 10 seconds cache
+interface PriceCache {
+  tonPrice: number;
+  btcPrice: number;
+  ethPrice: number;
+  change: number;
+  timestamp: number;
+}
+
+// Module-level price cache — survives re-renders
+let priceCache: PriceCache | null = null;
+const CACHE_DURATION = 30_000; // 30 seconds
+
+// Read admin-configured fallbacks (or built-in defaults)
+function getFallbacks() {
+  const o = getPriceOverrides();
+  return { ton: o.ton, btc: o.btc, eth: o.eth };
+}
+
+/**
+ * Fetch TON/BTC/ETH prices from CoinGecko's public API.
+ * CoinGecko supports browser CORS requests — no API key required for basic usage.
+ */
+async function fetchCoinGeckoPrices(signal: AbortSignal): Promise<PriceCache> {
+  const url =
+    'https://api.coingecko.com/api/v3/simple/price' +
+    '?ids=the-open-network,bitcoin,ethereum' +
+    '&vs_currencies=usd' +
+    '&include_24hr_change=true';
+
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+
+  const data = await res.json();
+  const fb = getFallbacks();
+
+  const tonPrice: number = data['the-open-network']?.usd ?? fb.ton;
+  const btcPrice: number = data['bitcoin']?.usd ?? fb.btc;
+  const ethPrice: number = data['ethereum']?.usd ?? fb.eth;
+  const change: number = data['the-open-network']?.usd_24h_change ?? 0;
+
+  return { tonPrice, btcPrice, ethPrice, change, timestamp: Date.now() };
+}
 
 export const useBalance = () => {
   const { balance: tonBalanceStr, network } = useWallet();
-  
-  const [balanceData, setBalanceData] = useState<BalanceData>({
-    tonBalance: 0,
-    tonPrice: 0,
-    totalUsdValue: 0,
-    change24h: 0,
-    changePercent24h: 0
+
+  const [balanceData, setBalanceData] = useState<BalanceData>(() => {
+    const fb = getFallbacks();
+    return {
+      tonBalance: 0,
+      tonPrice: fb.ton,
+      btcPrice: fb.btc,
+      ethPrice: fb.eth,
+      totalUsdValue: 0,
+      change24h: 0,
+      changePercent24h: 0,
+    };
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const fetchBalance = useCallback(async (skipCache = false) => {
-    // Cancel any pending requests
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      // Get real TON balance from wallet
-      const tonBalance = parseFloat(tonBalanceStr) || 0;
-      
-      // Check cache first
-      const now = Date.now();
-      if (!skipCache && priceCache && (now - priceCache.timestamp) < CACHE_DURATION) {
-        const totalUsdValue = tonBalance * priceCache.price;
-        const change24h = totalUsdValue * (priceCache.change / 100);
-        
+  const fetchBalance = useCallback(
+    async (skipCache = false) => {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const tonBalance = parseFloat(tonBalanceStr) || 0;
+        const now = Date.now();
+
+        let prices: PriceCache;
+
+        // Return valid cache if still fresh
+        if (!skipCache && priceCache && now - priceCache.timestamp < CACHE_DURATION) {
+          prices = priceCache;
+        } else {
+          try {
+            prices = await fetchCoinGeckoPrices(controller.signal);
+            priceCache = prices;
+            console.log(
+              `✅ Prices (CoinGecko) — TON: $${prices.tonPrice.toFixed(2)}, BTC: $${prices.btcPrice.toFixed(0)}, ETH: $${prices.ethPrice.toFixed(2)}`
+            );
+          } catch (priceErr: any) {
+            if (priceErr.name === 'AbortError') return;
+            console.warn('⚠️ Price fetch failed, using cache/fallback:', priceErr.message);
+            // Prefer stale cache over hardcoded fallback
+            prices = priceCache ?? (() => {
+              const fb = getFallbacks();
+              return {
+                tonPrice: fb.ton,
+                btcPrice: fb.btc,
+                ethPrice: fb.eth,
+                change: 0,
+                timestamp: now,
+              };
+            })();
+          }
+        }
+
+        const totalUsdValue = tonBalance * prices.tonPrice;
+        const change24h = totalUsdValue * (prices.change / 100);
+
         setBalanceData({
           tonBalance,
-          tonPrice: priceCache.price,
+          tonPrice: prices.tonPrice,
+          btcPrice: prices.btcPrice,
+          ethPrice: prices.ethPrice,
           totalUsdValue,
           change24h,
-          changePercent24h: priceCache.change
+          changePercent24h: prices.change,
         });
-        
+      } catch (err) {
+        setError('Failed to fetch balance');
+        console.error('❌ useBalance error:', err);
+      } finally {
         setIsLoading(false);
-        return;
+        abortControllerRef.current = null;
       }
-      
-      // Fetch real TON price from CoinGecko API with timeout
-      let tonPrice = 2.45; // Fallback price
-      let change24hPercent = 0;
-      
-      try {
-        abortControllerRef.current = new AbortController();
-        const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 5000); // 5s timeout
-        
-        const priceResponse = await fetch(
-          'https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd&include_24hr_change=true',
-          { signal: abortControllerRef.current.signal }
-        );
-        
-        clearTimeout(timeoutId);
-        
-        if (priceResponse.ok) {
-          const priceData = await priceResponse.json();
-          const fetchedPrice = priceData['the-open-network']?.usd;
-          const fetchedChange = priceData['the-open-network']?.usd_24h_change;
-          
-          // Validate fetched price before using it
-          if (fetchedPrice && fetchedPrice > 0 && isFinite(fetchedPrice) && !isNaN(fetchedPrice)) {
-            tonPrice = fetchedPrice;
-          } else {
-            console.warn('⚠️ Invalid price data from API, using fallback');
-          }
-          
-          if (fetchedChange && isFinite(fetchedChange) && !isNaN(fetchedChange)) {
-            change24hPercent = fetchedChange;
-          }
-          
-          // Update cache only with valid data
-          priceCache = {
-            price: tonPrice,
-            change: change24hPercent,
-            timestamp: Date.now()
-          };
-          
-          console.log(`✅ Price updated: $${tonPrice.toFixed(2)} (${change24hPercent >= 0 ? '+' : ''}${change24hPercent.toFixed(2)}%)`);
-        } else {
-          throw new Error('Price API unavailable');
-        }
-      } catch (priceError: any) {
-        if (priceError.name === 'AbortError') {
-          console.warn('⚠️ Price fetch timeout, using cached/fallback data');
-        } else {
-          console.warn('⚠️ Failed to fetch TON price:', priceError.message);
-        }
-        
-        // Use cached data if available and valid
-        if (priceCache && priceCache.price > 0 && isFinite(priceCache.price)) {
-          tonPrice = priceCache.price;
-          change24hPercent = priceCache.change;
-        }
-        // Otherwise keep the fallback price of 2.45
-      }
-      
-      const totalUsdValue = tonBalance * tonPrice;
-      const change24h = totalUsdValue * (change24hPercent / 100);
-      
-      setBalanceData({
-        tonBalance,
-        tonPrice,
-        totalUsdValue,
-        change24h,
-        changePercent24h: change24hPercent
-      });
-      
-    } catch (err) {
-      setError('Failed to fetch balance');
-      console.error('❌ Error fetching balance:', err);
-    } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
-    }
-  }, [tonBalanceStr, network]);
+    },
+    [tonBalanceStr, network]
+  );
 
   useEffect(() => {
     fetchBalance();
-    
-    // Refresh balance every 15 seconds (faster updates)
-    const interval = setInterval(() => fetchBalance(false), 15000);
-    
+    const interval = setInterval(() => fetchBalance(false), 30_000);
     return () => {
       clearInterval(interval);
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      abortControllerRef.current?.abort();
     };
   }, [fetchBalance]);
 
@@ -154,6 +152,6 @@ export const useBalance = () => {
     ...balanceData,
     isLoading,
     error,
-    refreshBalance: () => fetchBalance(true) // Force refresh bypasses cache
+    refreshBalance: () => fetchBalance(true),
   };
 };

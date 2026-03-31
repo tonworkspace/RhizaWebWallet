@@ -18,12 +18,14 @@ import {
   Mail,
   User,
   Coins,
-  Zap
+  Zap,
+  RefreshCw
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
 import { adminService, AdminUser } from '../services/adminService';
 import { supabaseService } from '../services/supabaseService';
+import { getPriceOverrides, setPriceOverrides, clearPriceOverrides, PriceOverrides } from '../utils/priceConfig';
 
 const AdminPanel: React.FC = () => {
   const { address } = useWallet();
@@ -51,6 +53,34 @@ const AdminPanel: React.FC = () => {
     rzc_balance: 0
   });
   const [editReason, setEditReason] = useState('');
+
+  // Coin rate overrides
+  const [rateForm, setRateForm] = useState<PriceOverrides>(() => getPriceOverrides());
+  const [rateSaved, setRateSaved] = useState(false);
+  const [fetchingRates, setFetchingRates] = useState(false);
+
+  const handleFetchLiveRates = async () => {
+    setFetchingRates(true);
+    try {
+      const res = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price' +
+        '?ids=the-open-network,bitcoin,ethereum&vs_currencies=usd'
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setRateForm(prev => ({
+        ...prev,
+        ton: data['the-open-network']?.usd ?? prev.ton,
+        btc: data['bitcoin']?.usd ?? prev.btc,
+        eth: data['ethereum']?.usd ?? prev.eth,
+      }));
+      success('✅ Live prices fetched — review and save to apply');
+    } catch (err: any) {
+      error(`❌ Failed to fetch live prices: ${err.message}`);
+    } finally {
+      setFetchingRates(false);
+    }
+  };
 
   const pageSize = 20;
 
@@ -229,6 +259,23 @@ const AdminPanel: React.FC = () => {
       error(`❌ Failed to update user: ${result.error}`);
     }
     setProcessing(false);
+  };
+
+  const handleSaveRates = () => {
+    setPriceOverrides({
+      ...rateForm,
+      updatedAt: new Date().toISOString(),
+      updatedBy: address || 'admin',
+    });
+    setRateSaved(true);
+    setTimeout(() => setRateSaved(false), 2500);
+    success('✅ Fallback coin rates saved');
+  };
+
+  const handleResetRates = () => {
+    clearPriceOverrides();
+    setRateForm(getPriceOverrides());
+    success('↩️ Coin rates reset to defaults');
   };
 
   if (loading && !isAdmin) {
@@ -716,6 +763,114 @@ const AdminPanel: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Coin Rate Overrides */}
+      <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-black text-gray-950 dark:text-white">Fallback Coin Rates</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Used when CoinGecko is unreachable. Live prices always take priority.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleFetchLiveRates}
+              disabled={fetchingRates}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-500/20 rounded-xl text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-all disabled:opacity-50"
+            >
+              {fetchingRates ? (
+                <Loader size={13} className="animate-spin" />
+              ) : (
+                <RefreshCw size={13} />
+              )}
+              {fetchingRates ? 'Fetching...' : 'Fetch Live Prices'}
+            </button>
+            {rateForm.updatedAt && (
+              <p className="text-[10px] text-gray-400 dark:text-gray-600 text-right">
+                Last saved<br />{new Date(rateForm.updatedAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* TON */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">💎</span> TON (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.ton}
+                onChange={(e) => setRateForm({ ...rateForm, ton: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* BTC */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">₿</span> BTC (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={rateForm.btc}
+                onChange={(e) => setRateForm({ ...rateForm, btc: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* ETH */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">⟠</span> ETH (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={rateForm.eth}
+                onChange={(e) => setRateForm({ ...rateForm, eth: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={handleSaveRates}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              rateSaved
+                ? 'bg-emerald-500 text-white'
+                : 'bg-primary text-black hover:bg-[#00dd77]'
+            }`}
+          >
+            <Save size={15} />
+            {rateSaved ? 'Saved!' : 'Save Rates'}
+          </button>
+          <button
+            onClick={handleResetRates}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gray-200 dark:bg-white/10 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-bold hover:bg-gray-300 dark:hover:bg-white/20 transition-all"
+          >
+            <X size={15} />
+            Reset to Defaults
+          </button>
+        </div>
       </div>
 
       {/* Edit User Modal */}

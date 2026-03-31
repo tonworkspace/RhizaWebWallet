@@ -1559,6 +1559,240 @@ class SupabaseService {
   }
 
   // ============================================================================
+  // SERVER-SIDE RATE LIMITING (Security Issue #3)
+  // ============================================================================
+
+  /**
+   * Check if login attempt is allowed (server-side rate limiting)
+   */
+  async attemptWalletLogin(
+    walletAddress: string,
+    maxAttempts: number = 5,
+    lockoutDuration: number = 300
+  ): Promise<{
+    success: boolean;
+    allowed: boolean;
+    locked: boolean;
+    attemptsRemaining?: number;
+    secondsRemaining?: number;
+    lockedUntil?: string;
+    message: string;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return {
+        success: false,
+        allowed: false,
+        locked: false,
+        message: 'Database not configured',
+        error: 'Supabase not configured'
+      };
+    }
+
+    try {
+      console.log('🔒 Checking login rate limit for:', walletAddress);
+
+      const { data, error } = await this.client.rpc('attempt_wallet_login', {
+        p_wallet_address: walletAddress,
+        p_max_attempts: maxAttempts,
+        p_lockout_duration: lockoutDuration
+      });
+
+      if (error) throw error;
+
+      const result = data as any;
+
+      return {
+        success: true,
+        allowed: result.allowed || false,
+        locked: result.locked || false,
+        attemptsRemaining: result.attempts_remaining,
+        secondsRemaining: result.seconds_remaining,
+        lockedUntil: result.locked_until,
+        message: result.message || 'Unknown status'
+      };
+    } catch (error: any) {
+      console.error('❌ Rate limit check error:', error);
+      return {
+        success: false,
+        allowed: false,
+        locked: false,
+        message: 'Failed to check rate limit',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Record a failed login attempt
+   */
+  async recordFailedLogin(
+    walletAddress: string,
+    maxAttempts: number = 5,
+    lockoutDuration: number = 300
+  ): Promise<{
+    success: boolean;
+    locked: boolean;
+    attempts: number;
+    attemptsRemaining: number;
+    lockedUntil?: string;
+    message: string;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return {
+        success: false,
+        locked: false,
+        attempts: 0,
+        attemptsRemaining: 0,
+        message: 'Database not configured',
+        error: 'Supabase not configured'
+      };
+    }
+
+    try {
+      console.log('❌ Recording failed login for:', walletAddress);
+
+      const { data, error } = await this.client.rpc('record_failed_login', {
+        p_wallet_address: walletAddress,
+        p_max_attempts: maxAttempts,
+        p_lockout_duration: lockoutDuration
+      });
+
+      if (error) throw error;
+
+      const result = data as any;
+
+      // Log the attempt for audit trail
+      await this.logLoginAttempt(walletAddress, 'failed');
+
+      return {
+        success: result.success || false,
+        locked: result.locked || false,
+        attempts: result.attempts || 0,
+        attemptsRemaining: result.attempts_remaining || 0,
+        lockedUntil: result.locked_until,
+        message: result.message || 'Failed attempt recorded'
+      };
+    } catch (error: any) {
+      console.error('❌ Record failed login error:', error);
+      return {
+        success: false,
+        locked: false,
+        attempts: 0,
+        attemptsRemaining: 0,
+        message: 'Failed to record attempt',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Reset login attempts on successful login
+   */
+  async resetLoginAttempts(walletAddress: string): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return {
+        success: false,
+        message: 'Database not configured',
+        error: 'Supabase not configured'
+      };
+    }
+
+    try {
+      console.log('✅ Resetting login attempts for:', walletAddress);
+
+      const { data, error } = await this.client.rpc('reset_login_attempts', {
+        p_wallet_address: walletAddress
+      });
+
+      if (error) throw error;
+
+      const result = data as any;
+
+      // Log successful login for audit trail
+      await this.logLoginAttempt(walletAddress, 'success');
+
+      return {
+        success: result.success || false,
+        message: result.message || 'Attempts reset'
+      };
+    } catch (error: any) {
+      console.error('❌ Reset login attempts error:', error);
+      return {
+        success: false,
+        message: 'Failed to reset attempts',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Log login attempt for security audit
+   */
+  async logLoginAttempt(
+    walletAddress: string,
+    attemptType: 'success' | 'failed' | 'locked',
+    metadata?: any
+  ): Promise<void> {
+    if (!this.client) return;
+
+    try {
+      await this.client.rpc('log_login_attempt', {
+        p_wallet_address: walletAddress,
+        p_attempt_type: attemptType,
+        p_ip_address: null, // Could be populated from request
+        p_user_agent: navigator.userAgent,
+        p_metadata: metadata || null
+      });
+    } catch (error) {
+      // Don't throw - logging failures shouldn't break login flow
+      console.warn('⚠️ Failed to log login attempt:', error);
+    }
+  }
+
+  /**
+   * Get login attempt history (admin only)
+   */
+  async getLoginAttempts(
+    walletAddress?: string,
+    limit: number = 100
+  ): Promise<{
+    success: boolean;
+    data?: any[];
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      let query = this.client
+        .from('wallet_login_attempts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (walletAddress) {
+        query = query.eq('wallet_address', walletAddress);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      return { success: true, data: data || [] };
+    } catch (error: any) {
+      console.error('❌ Get login attempts error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================================
   // WALLET ACTIVATION
   // ============================================================================
 

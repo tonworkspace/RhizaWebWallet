@@ -128,17 +128,49 @@ const GlobalPurchaseModal: React.FC = () => {
       }
 
       let paymentResult: { success: boolean; txHash?: string; error?: string };
+      const { tetherWdkService } = await import('../services/tetherWdkService');
+      const useWdk = !tonWalletService.isInitialized() && tetherWdkService.isInitialized();
+
       if (referrerWalletAddress && tonCommissionAmount > 0) {
-        paymentResult = await tonWalletService.sendMultiTransaction([
-           { address: paymentAddress, amount: platformAmountTON.toFixed(4), comment: `RhizaCore ${pkg.tierName} Purchase` },
-           { address: referrerWalletAddress, amount: tonCommissionAmount.toFixed(6), comment: `RhizaCore 10% Referral Commission` },
-        ]);
+        if (useWdk) {
+          // Send platform amount first
+          paymentResult = await tetherWdkService.sendTonTransaction(
+            paymentAddress,
+            platformAmountTON.toFixed(4),
+            `RhizaCore ${pkg.tierName} Purchase`
+          );
+          // If successful, try to send commission
+          if (paymentResult.success) {
+            try {
+              await tetherWdkService.sendTonTransaction(
+                referrerWalletAddress,
+                tonCommissionAmount.toFixed(6),
+                `RhizaCore 10% Referral Commission`
+              );
+            } catch (e) {
+              console.warn('WDK commission send failed', e);
+            }
+          }
+        } else {
+          paymentResult = await tonWalletService.sendMultiTransaction([
+             { address: paymentAddress, amount: platformAmountTON.toFixed(4), comment: `RhizaCore ${pkg.tierName} Purchase` },
+             { address: referrerWalletAddress, amount: tonCommissionAmount.toFixed(6), comment: `RhizaCore 10% Referral Commission` },
+          ]);
+        }
       } else {
-        paymentResult = await tonWalletService.sendTransaction(
-          paymentAddress,
-          totalCostTON.toFixed(4),
-          `RhizaCore ${pkg.tierName} Purchase`
-        );
+        if (useWdk) {
+          paymentResult = await tetherWdkService.sendTonTransaction(
+            paymentAddress,
+            totalCostTON.toFixed(4),
+            `RhizaCore ${pkg.tierName} Purchase`
+          );
+        } else {
+          paymentResult = await tonWalletService.sendTransaction(
+            paymentAddress,
+            totalCostTON.toFixed(4),
+            `RhizaCore ${pkg.tierName} Purchase`
+          );
+        }
       }
 
       if (!paymentResult.success || !paymentResult.txHash) {

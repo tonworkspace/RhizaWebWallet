@@ -12,12 +12,7 @@ const Onboarding: React.FC = () => {
   const [showWelcome, setShowWelcome] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
 
-  // Redirect to dashboard if already logged in
-  useEffect(() => {
-    if (!isLoading && isLoggedIn) {
-      navigate('/wallet/dashboard', { replace: true });
-    }
-  }, [isLoggedIn, isLoading, navigate]);
+  // ─── Redirect removed so logged in users can reach onboarding to add wallets ─────────
 
   useEffect(() => {
     // Check if user has existing wallets
@@ -211,11 +206,11 @@ const Onboarding: React.FC = () => {
         {/* Back Button */}
         <div className="relative z-10 w-full max-w-6xl mx-auto p-6 pt-8">
           <Link 
-            to="/" 
+            to={isLoggedIn ? "/wallet/dashboard" : "/"} 
             className="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors group"
           >
             <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            <span className="font-black text-sm uppercase tracking-wider">Back to Home</span>
+            <span className="font-black text-sm uppercase tracking-wider">{isLoggedIn ? "Back to Dashboard" : "Back to Home"}</span>
           </Link>
         </div>
 

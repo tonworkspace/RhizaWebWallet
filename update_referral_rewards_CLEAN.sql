@@ -126,7 +126,7 @@ DECLARE
   v_user RECORD;
   v_team_sales NUMERIC;
   v_commission_rzc NUMERIC;
-  v_rzc_price NUMERIC := 0.12; -- $0.10 per RZC
+  v_rzc_price NUMERIC := 0.12; -- $0.12 per RZC
 BEGIN
   -- Loop through all users
   FOR v_user IN 

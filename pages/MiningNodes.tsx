@@ -29,6 +29,7 @@ import { useBalance } from '../hooks/useBalance';
 import { usePurchaseModal } from '../context/PurchaseModalContext';
 import { SalesPackage } from '../types';
 import StoreUI from '../components/StoreUI';
+import { useSalesPackages } from '../hooks/useSalesPackages';
 
 
 
@@ -76,200 +77,7 @@ const MiningNodes: React.FC = () => {
     }
   }, [address]);
 
-  const salesPackages: SalesPackage[] = [
-    // Test Package (Only visible in testnet or development)
-    ...(network === 'testnet' || import.meta.env.DEV ? [{
-      id: 'test-001',
-      tier: 'starter' as const,
-      tierName: 'Test Package',
-      pricePoint: 0,
-      activationFee: 0.01, // Always 0.2 TON for testing
-      rzcReward: 10,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['Test Activation', '10 RZC Instant', 'For Testing Only', '0.2 TON Only'],
-      gradient: 'from-green-600 to-emerald-600',
-      icon: Package,
-      badge: 'Test'
-    }] : []),
-
-    // Activation Only - $18 One-Time Fee
-    {
-      id: 'activation-only',
-      tier: 'starter',
-      tierName: 'Wallet Activation',
-      pricePoint: 0,
-      activationFee: 18,
-      rzcReward: 42, // $5 worth at $0.12/RZC
-      directReferralBonus: 10,
-      teamSalesBonus: 0,
-      features: [
-        'Unlock Full Wallet Access',
-        '$5 Welcome Bonus (42 RZC)',
-        '10% Referral Commission Earned',
-        'One-Time Payment',
-        'Access All Features',
-        'Lifetime Activation'
-      ],
-      gradient: 'from-blue-600 to-indigo-600',
-      icon: Shield,
-      badge: 'Activation'
-    },
-
-    // Starter Tier - Entry Level Packages
-    {
-      id: 'starter-100',
-      tier: 'starter',
-      tierName: 'Bronze Package',
-      pricePoint: 100,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 833,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['833 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Standard Support'],
-      gradient: 'from-amber-600 to-orange-600',
-      icon: Package
-    },
-    {
-      id: 'starter-200',
-      tier: 'starter',
-      tierName: 'Bronze+ Package',
-      pricePoint: 200,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 2083,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['2,083 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Standard Support'],
-      gradient: 'from-amber-600 to-orange-600',
-      icon: Package,
-      badge: 'Popular'
-    },
-    {
-      id: 'starter-300',
-      tier: 'starter',
-      tierName: 'Silver Package',
-      pricePoint: 300,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 3333,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['3,333 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Priority Support'],
-      gradient: 'from-gray-400 to-gray-600',
-      icon: Package
-    },
-    {
-      id: 'starter-400',
-      tier: 'starter',
-      tierName: 'Silver+ Package',
-      pricePoint: 400,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 5000,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['5,000 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Priority Support'],
-      gradient: 'from-gray-400 to-gray-600',
-      icon: Package
-    },
-
-    // Professional Tier - Mid-Level Packages
-    {
-      id: 'pro-500',
-      tier: 'professional',
-      tierName: 'Gold Package',
-      pricePoint: 500,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 8333,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['8,333 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Premium Support', 'Early Beta Access'],
-      gradient: 'from-yellow-500 to-amber-600',
-      icon: TrendingUp,
-      badge: 'Best Value'
-    },
-    {
-      id: 'pro-600',
-      tier: 'professional',
-      tierName: 'Gold+ Package',
-      pricePoint: 600,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 10833,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['10,833 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Premium Support', 'Early Beta Access'],
-      gradient: 'from-yellow-500 to-amber-600',
-      icon: TrendingUp
-    },
-    {
-      id: 'pro-700',
-      tier: 'professional',
-      tierName: 'Platinum Package',
-      pricePoint: 700,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 13333,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['13,333 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'VIP Support', 'Early Beta Access'],
-      gradient: 'from-cyan-500 to-blue-600',
-      icon: TrendingUp
-    },
-    {
-      id: 'pro-1000',
-      tier: 'professional',
-      tierName: 'Platinum+ Package',
-      pricePoint: 1000,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 20833,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['20,833 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'VIP Support', 'Early Beta Access'],
-      gradient: 'from-cyan-500 to-blue-600',
-      icon: TrendingUp
-    },
-
-    // Enterprise Tier - Premium Packages
-    {
-      id: 'enterprise-2000',
-      tier: 'enterprise',
-      tierName: 'Diamond Package',
-      pricePoint: 2000,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 33333,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['33,333 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'White-Glove Support', 'Exclusive Airdrops', 'Private Community'],
-      gradient: 'from-purple-600 to-pink-600',
-      icon: Crown,
-      badge: 'Premium'
-    },
-    {
-      id: 'enterprise-5000',
-      tier: 'enterprise',
-      tierName: 'Elite Package',
-      pricePoint: 5000,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 100000,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['100,000 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Dedicated Support', 'Priority Airdrops', 'Strategy Calls'],
-      gradient: 'from-purple-600 to-pink-600',
-      icon: Crown,
-      badge: 'Elite'
-    },
-    {
-      id: 'enterprise-10000',
-      tier: 'enterprise',
-      tierName: 'Ultimate Package',
-      pricePoint: 10000,
-      activationFee: isActivated ? 0 : 18,
-      rzcReward: 250000,
-      directReferralBonus: 10,
-      teamSalesBonus: 1,
-      features: ['250,000 RZC Instant', '10% Direct Referral Bonus', '1% Weekly Team Sales', 'Core Team Access', 'Guaranteed Airdrops', 'Quarterly Calls'],
-      gradient: 'from-purple-600 to-pink-600',
-      icon: Crown,
-      badge: 'Ultimate'
-    }
-  ];
+  const salesPackages = useSalesPackages();
 
   // Show all tier packages conditionally. Hide activation package if already activated. Hide test package.
   const filteredPackages = salesPackages.filter(pkg => {
@@ -327,7 +135,7 @@ const MiningNodes: React.FC = () => {
 
       {/* Activation Status Card - Show when activated */}
       {showActivationBanner && isActivated && activatedAt && (
-        <div className="relative overflow-hidden p-6 bg-gradient-to-br from-[#0a1510] to-[#042013] border border-emerald-500/30 rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.1)] group">
+        <div className="hidden relative overflow-hidden p-6 bg-gradient-to-br from-[#0a1510] to-[#042013] border border-emerald-500/30 rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.1)] group">
           <button onClick={() => setShowActivationBanner(false)} className="absolute top-4 right-4 text-emerald-500/50 hover:text-emerald-400 z-10 transition-colors">
             <X size={18} />
           </button>

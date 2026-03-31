@@ -407,3 +407,28 @@ body {
     --text-muted: #cbd5e1;
     --text-subtle: #94a3b8;
 }
+
+/* Marquee Animation for Announcements */
+@keyframes marquee {
+    0% {
+        transform: translateX(0%);
+    }
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
+.animate-marquee {
+    animation: marquee 30s linear infinite;
+}
+
+/* Faster scroll on narrow screens */
+@media (max-width: 640px) {
+    .animate-marquee {
+        animation-duration: 18s;
+    }
+}
+
+.animate-marquee:hover {
+    animation-play-state: paused;
+}

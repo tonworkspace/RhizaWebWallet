@@ -1,5 +1,15 @@
-
 import { Asset, Transaction, PortfolioData } from './types';
+
+export const CHAIN_META: Record<string, { name: string, logo: string, symbol: string }> = {
+  ethereum: { name: 'Ethereum', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
+  polygon: { name: 'Polygon', symbol: 'MATIC', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png' },
+  arbitrum: { name: 'Arbitrum', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png' },
+  bsc: { name: 'BNB Smart Chain', symbol: 'BNB', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png' },
+  avalanche: { name: 'Avalanche', symbol: 'AVAX', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png' },
+  plasma: { name: 'Plasma', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
+  stable: { name: 'Stable', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
+  sepolia: { name: 'Sepolia Testnet', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
+};
 
 export const COLORS = {
   primary: '#00FF88',

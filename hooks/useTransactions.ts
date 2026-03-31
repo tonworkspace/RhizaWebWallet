@@ -44,20 +44,59 @@ export const useTransactions = () => {
 
       console.log(`📜 Fetching transactions for ${address} on ${network}...`);
 
-      // Fetch TON on-chain transactions and RZC Supabase transactions in parallel
-      const [tonResponse, rzcResult] = await Promise.allSettled([
+      // Setup baseline tracking targets
+      const fetchPromises: Promise<any>[] = [
         fetch(`${tonApiEndpoint}/blockchain/accounts/${address}/transactions?limit=50`, {
           headers: { 'Authorization': `Bearer ${config.TONAPI_KEY}` }
         }),
         userId
-          ? supabaseService.getClient()
-              ?.from('rzc_transactions')
-              .select('*')
-              .eq('user_id', userId)
-              .order('created_at', { ascending: false })
-              .limit(50) ?? Promise.resolve({ data: [], error: null })
+          ? (async () => {
+              const client = supabaseService.getClient();
+              if (!client) return { data: [], error: null };
+              return await client.from('rzc_transactions')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(50);
+            })()
           : Promise.resolve({ data: [], error: null })
-      ]);
+      ];
+
+      // Integrate WDK Indexer REST API for Multi-Chain workflows dynamically
+      const { WalletManager } = await import('../utils/walletManager');
+      const allWallets = WalletManager.getWallets();
+      const multiWallet = allWallets.find(w => w.address === address && w.type === 'secondary');
+      
+      const WDK_INDEXER_URL = 'https://api.tether.to/wdk/v1'; // Standard fallback WDK indexer
+      const WDK_API_KEY = 'bd95c7a9502bb3a1a274b47325f844825daef409a21cc3ce1f3fe02a4e7d1e7e';
+
+      const indexerHeaders = {
+        'Accept': 'application/json',
+        'x-api-key': WDK_API_KEY,
+        'Authorization': `Bearer ${WDK_API_KEY}`,
+        'api-key': WDK_API_KEY
+      };
+
+      if (multiWallet && multiWallet.addresses) {
+        if (multiWallet.addresses.evm) {
+          fetchPromises.push(
+            fetch(`${WDK_INDEXER_URL}/address/${multiWallet.addresses.evm}/transactions?chain=ethereum&limit=20`, { headers: indexerHeaders })
+              .then(res => res.ok ? res.json() : { transactions: [] })
+              .catch(() => ({ transactions: [] }))
+          );
+        }
+        if (multiWallet.addresses.btc) {
+          fetchPromises.push(
+            fetch(`${WDK_INDEXER_URL}/address/${multiWallet.addresses.btc}/transactions?chain=bitcoin&limit=20`, { headers: indexerHeaders })
+              .then(res => res.ok ? res.json() : { transactions: [] })
+              .catch(() => ({ transactions: [] }))
+          );
+        }
+      }
+
+      const results = await Promise.allSettled(fetchPromises);
+      const tonResponse = results[0];
+      const rzcResult = results[1];
 
       // --- TON transactions ---
       const tonTransactions: Transaction[] = [];
@@ -157,8 +196,31 @@ export const useTransactions = () => {
         console.error('❌ RZC fetch promise rejected:', rzcResult.reason);
       }
 
+      // --- Multi-Chain WDK Indexer transactions ---
+      const multiChainTransactions: Transaction[] = [];
+      const processIndexerResult = (result: PromiseSettledResult<any>, asset: string) => {
+        if (result.status === 'fulfilled' && result.value?.transactions) {
+          const wdkData = result.value.transactions;
+          for (const tx of wdkData) {
+            multiChainTransactions.push({
+              id: tx.hash || tx.id || Math.random().toString(),
+              type: tx.direction === 'out' || tx.from === multiWallet?.addresses?.evm ? 'send' : 'receive',
+              amount: tx.amount ? (Number(tx.amount) / (asset === 'BTC' ? 1e8 : 1e18)).toFixed(asset === 'BTC' ? 8 : 4) : '0',
+              asset: asset,
+              timestamp: tx.timestamp ? new Date(tx.timestamp).getTime() : Date.now(),
+              status: tx.status === 'success' || tx.status === 'completed' ? 'completed' : 'pending',
+              address: tx.direction === 'out' ? tx.to : tx.from,
+              hash: tx.hash
+            });
+          }
+        }
+      };
+
+      if (results.length > 2) processIndexerResult(results[2], 'ETH/Polygon');
+      if (results.length > 3) processIndexerResult(results[3], 'BTC');
+
       // Merge and sort by timestamp descending
-      const merged = [...tonTransactions, ...rzcTransactions].sort(
+      const merged = [...tonTransactions, ...rzcTransactions, ...multiChainTransactions].sort(
         (a, b) => b.timestamp - a.timestamp
       );
 

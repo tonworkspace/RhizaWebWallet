@@ -3,7 +3,8 @@
  * Manages multiple encrypted wallets with switching capability
  */
 
-import { encryptMnemonic, decryptMnemonic } from './encryption';
+import { encryptMnemonic, decryptMnemonic, needsMigration, migrateEncryption } from './encryption';
+import { sanitizeWalletName } from './sanitization';
 
 export interface StoredWallet {
   id: string;
@@ -13,6 +14,8 @@ export interface StoredWallet {
   createdAt: number;
   lastUsed: number;
   isActive: boolean;
+  type?: 'primary' | 'secondary';
+  addresses?: { evm?: string; ton?: string; btc?: string };
 }
 
 export interface WalletMetadata {
@@ -21,6 +24,8 @@ export interface WalletMetadata {
   address: string;
   createdAt: number;
   lastUsed: number;
+  type?: 'primary' | 'secondary';
+  addresses?: { evm?: string; ton?: string; btc?: string };
 }
 
 const STORAGE_KEY = 'rhiza_wallets';
@@ -41,7 +46,9 @@ export class WalletManager {
         name: w.name,
         address: w.address,
         createdAt: w.createdAt,
-        lastUsed: w.lastUsed
+        lastUsed: w.lastUsed,
+        type: w.type || 'primary',
+        addresses: w.addresses
       }));
     } catch (error) {
       console.error('Failed to get wallets:', error);
@@ -74,9 +81,18 @@ export class WalletManager {
     mnemonic: string[],
     password: string,
     address: string,
-    name?: string
+    name?: string,
+    type: 'primary' | 'secondary' = 'primary',
+    addresses?: { evm?: string; ton?: string; btc?: string }
   ): Promise<{ success: boolean; walletId?: string; error?: string }> {
     try {
+      // ── SECURITY FIX #19: Sanitize wallet name ────────────────────────────
+      const safeName = name ? sanitizeWalletName(name) : `Wallet ${this.getWallets().length + 1}`;
+      
+      if (!safeName) {
+        return { success: false, error: 'Invalid wallet name' };
+      }
+      
       // Encrypt mnemonic
       const encryptedMnemonic = await encryptMnemonic(mnemonic, password);
       
@@ -86,12 +102,14 @@ export class WalletManager {
       // Create wallet object
       const wallet: StoredWallet = {
         id: walletId,
-        name: name || `Wallet ${this.getWallets().length + 1}`,
+        name: safeName,
         address,
         encryptedMnemonic,
         createdAt: Date.now(),
         lastUsed: Date.now(),
-        isActive: false
+        isActive: false,
+        type,
+        addresses
       };
       
       // Get existing wallets
@@ -117,11 +135,12 @@ export class WalletManager {
 
   /**
    * Get wallet mnemonic (requires password)
+   * Automatically migrates legacy wallets to new encryption format
    */
   static async getWalletMnemonic(
     walletId: string,
     password: string
-  ): Promise<{ success: boolean; mnemonic?: string[]; error?: string }> {
+  ): Promise<{ success: boolean; mnemonic?: string[]; error?: string; migrated?: boolean }> {
     try {
       const wallets = this.getAllWallets();
       const wallet = wallets.find(w => w.id === walletId);
@@ -130,10 +149,33 @@ export class WalletManager {
         return { success: false, error: 'Wallet not found' };
       }
       
-      // Decrypt mnemonic
+      // Check if wallet needs migration
+      const needsUpgrade = needsMigration(wallet.encryptedMnemonic);
+      
+      // Decrypt mnemonic (works with both old and new formats)
       const mnemonic = await decryptMnemonic(wallet.encryptedMnemonic, password);
       
-      return { success: true, mnemonic };
+      // Auto-migrate if needed
+      if (needsUpgrade) {
+        console.log('🔄 Auto-migrating wallet to new encryption format...');
+        
+        const migrationResult = await migrateEncryption(wallet.encryptedMnemonic, password);
+        
+        if (migrationResult.success && migrationResult.newEncryptedData) {
+          // Update wallet with new encrypted data
+          wallet.encryptedMnemonic = migrationResult.newEncryptedData;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
+          
+          console.log('✅ Wallet migrated successfully');
+          return { success: true, mnemonic, migrated: true };
+        } else {
+          console.warn('⚠️ Migration failed, but wallet still accessible:', migrationResult.error);
+          // Still return success since decryption worked
+          return { success: true, mnemonic, migrated: false };
+        }
+      }
+      
+      return { success: true, mnemonic, migrated: false };
     } catch (error) {
       return { success: false, error: 'Invalid password or corrupted data' };
     }
@@ -197,12 +239,20 @@ export class WalletManager {
    */
   static renameWallet(walletId: string, newName: string): boolean {
     try {
+      // ── SECURITY FIX #19: Sanitize wallet name ────────────────────────────
+      const safeName = sanitizeWalletName(newName);
+      
+      if (!safeName) {
+        console.error('Invalid wallet name after sanitization');
+        return false;
+      }
+      
       const wallets = this.getAllWallets();
       const wallet = wallets.find(w => w.id === walletId);
       
       if (!wallet) return false;
       
-      wallet.name = newName;
+      wallet.name = safeName;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
       
       return true;
