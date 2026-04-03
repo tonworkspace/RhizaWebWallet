@@ -53,6 +53,32 @@
     <meta name="msapplication-TileColor" content="#00FF88">
     <meta name="msapplication-navbutton-color" content="#020202">
     
+    <!-- Security: Content Security Policy (Issue #11 FIX) -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' data: https://fonts.gstatic.com;
+      img-src 'self' data: https: blob:;
+      connect-src 'self' 
+        https://tonapi.io 
+        https://testnet.tonapi.io 
+        https://toncenter.com 
+        https://testnet.toncenter.com 
+        https://*.supabase.co 
+        https://rpc.ankr.com 
+        https://rpc-mumbai.maticvigil.com 
+        wss://electrum.blockstream.info:50004 
+        wss://electrum.blockstream.info:60004
+        https://api.ipify.org
+        https://api.coingecko.com;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      upgrade-insecure-requests;
+    ">
+    
     <!-- Favicons -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23000' /><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-weight='900' font-size='90' fill='%2300FF00'>R</text></svg>">
     <link rel="apple-touch-icon" sizes="180x180" href="/RhizaWebWallet/apple-touch-icon.png">
@@ -121,8 +147,8 @@
       }
     }
     </script>
-  <script type="module" crossorigin src="/RhizaWebWallet/assets/index-CvGtgPQ9.js"></script>
-  <link rel="stylesheet" crossorigin href="/RhizaWebWallet/assets/index-DLY-PIv4.css">
+  <script type="module" crossorigin src="/RhizaWebWallet/assets/index-BlRxpUSm.js"></script>
+  <link rel="stylesheet" crossorigin href="/RhizaWebWallet/assets/index-X35mrji7.css">
 </head>
 <body>
     <div class="bg-retro">

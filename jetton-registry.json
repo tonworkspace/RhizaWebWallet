@@ -1,0 +1,126 @@
+{
+  "version": 2,
+  "updatedAt": "2026-03-27",
+  "tokens": [
+    {
+      "address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+      "symbol": "USDT",
+      "name": "Tether USD",
+      "decimals": 6,
+      "image": "https://cache.tonapi.io/imgproxy/T3PB4s7oprNVaJkwqbGg54nexKE0zzKhcrPv8jcWYzU/rs:fill:200:200:1/g:no/aHR0cHM6Ly90ZXRoZXIudG8vaW1hZ2VzL2xvZ29DaXJjbGUucG5n.webp",
+      "emoji": "💵",
+      "verified": true,
+      "rateUsd": 1.0
+    },
+    {
+      "address": "EQC_1YoM8RBixN95lz7odcF3Vrkc_N8Ne7gQi7Abtlet_Efi",
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "decimals": 6,
+      "image": "https://cache.tonapi.io/imgproxy/yb2_6-_tVGiHbfiMvC8-_Gu-Hs_TpTlhCWrVe-ZTQIQ/rs:fill:200:200:1/g:no/aHR0cHM6Ly9jZW50cmUuaW8vYXNzZXRzL2ltYWdlcy91c2RjLWxvZ28ucG5n.webp",
+      "emoji": "💲",
+      "verified": true,
+      "rateUsd": 1.0
+    },
+    {
+      "address": "EQBynBO23ywHy_CgarY9NK9FTz0yDsG82PtcbSTQgGoXwiuA",
+      "symbol": "jUSDT",
+      "name": "Bridged Tether USD",
+      "decimals": 6,
+      "image": "https://cache.tonapi.io/imgproxy/T3PB4s7oprNVaJkwqbGg54nexKE0zzKhcrPv8jcWYzU/rs:fill:200:200:1/g:no/aHR0cHM6Ly90ZXRoZXIudG8vaW1hZ2VzL2xvZ29DaXJjbGUucG5n.webp",
+      "emoji": "🌉",
+      "verified": true,
+      "rateUsd": 1.0
+    },
+    {
+      "address": "EQC61IQRl0_la95t27xhIpjxZt32vl1QQVF2UgTNuvD18W-4",
+      "symbol": "jUSDC",
+      "name": "Bridged USD Coin",
+      "decimals": 6,
+      "image": "https://cache.tonapi.io/imgproxy/yb2_6-_tVGiHbfiMvC8-_Gu-Hs_TpTlhCWrVe-ZTQIQ/rs:fill:200:200:1/g:no/aHR0cHM6Ly9jZW50cmUuaW8vYXNzZXRzL2ltYWdlcy91c2RjLWxvZ28ucG5n.webp",
+      "emoji": "🌉",
+      "verified": true,
+      "rateUsd": 1.0
+    },
+    {
+      "address": "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT",
+      "symbol": "NOT",
+      "name": "Notcoin",
+      "decimals": 9,
+      "image": "https://cache.tonapi.io/imgproxy/T6RBxmGJlnKDWltiIRpHWIiMT4LnVkTfRgNggRxWDhk/rs:fill:200:200:1/g:no/aHR0cHM6Ly9jZG4uam9pbmNvbW11bml0eS54eXovY2xpY2tlci9ub3RfbG9nby5wbmc.webp",
+      "emoji": "🎮",
+      "verified": true,
+      "rateUsd": 0.008
+    },
+    {
+      "address": "EQBlqsm144Dq6SjbPI4jjZvA1hqTIP3CvHovbIfW_t-SCALE",
+      "symbol": "SCALE",
+      "name": "SCALE",
+      "decimals": 9,
+      "image": "https://cache.tonapi.io/imgproxy/WB7I2GJQN8JpABs_Zy4w_PqRDWKIBnYWQJqFbqKKLRE/rs:fill:200:200:1/g:no/aHR0cHM6Ly9zY2FsZS50b24vbG9nby5wbmc.webp",
+      "emoji": "⚖️",
+      "verified": true,
+      "rateUsd": 0.05
+    },
+    {
+      "address": "EQBObyiP7EtGDBxWV--eZYAB-o8U8RuGL7kPZELbu-cTufNr",
+      "symbol": "STK",
+      "name": "Stakers Token",
+      "decimals": 9,
+      "image": "https://storage.dyor.io/jettons/images/1759255309/19733916.png",
+      "emoji": "🎯",
+      "verified": true,
+      "rateUsd": 0.0000012
+    },
+    {
+      "address": "EQD-cvR0Nz6XAyRBvbhz-adF4wv17KyPIh8EkgY1RRXNnEBh",
+      "symbol": "DOGS",
+      "name": "Dogs",
+      "decimals": 0,
+      "image": "https://cache.tonapi.io/imgproxy/dogs-logo.webp",
+      "emoji": "🐶",
+      "verified": true,
+      "rateUsd": 0.0006
+    },
+    {
+      "address": "EQCvxJy4eG8hyHBFsZ7eePxrRsUQSFE_jpptRAYBmcG_DOGS",
+      "symbol": "DOGS",
+      "name": "Dogs",
+      "decimals": 0,
+      "image": "https://cache.tonapi.io/imgproxy/dogs-logo.webp",
+      "emoji": "🐶",
+      "verified": true,
+      "rateUsd": 0.0006
+    },
+    {
+      "address": "EQB-ajMyi5-WKIgOHnbOGApfckUGbl6tDk3Qt9nmTmXHgHKI",
+      "symbol": "STON",
+      "name": "STON",
+      "decimals": 9,
+      "image": "https://cache.tonapi.io/imgproxy/ston-logo.webp",
+      "emoji": "🪨",
+      "verified": true,
+      "rateUsd": 0.12
+    },
+    {
+      "address": "EQDmkj65Ab_m0aZaW8IpKw4kYqIgITw_HRstYEkVQ6NIYCyW",
+      "symbol": "BOLT",
+      "name": "Bolt",
+      "decimals": 9,
+      "image": "https://cache.tonapi.io/imgproxy/bolt-logo.webp",
+      "emoji": "⚡",
+      "verified": true,
+      "rateUsd": 0.003
+    },
+    {
+      "address": "EQCqC6EhRJ_tpWngKxL6dV0k6DSneeRBL6y1FGHXZBCiHkYA",
+      "symbol": "GRAM",
+      "name": "Gram",
+      "decimals": 9,
+      "image": "https://cache.tonapi.io/imgproxy/gram-logo.webp",
+      "emoji": "💊",
+      "verified": true,
+      "rateUsd": 0.015
+    }
+  ]
+}
