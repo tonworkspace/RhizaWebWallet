@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   Send,
   Download,
@@ -22,9 +22,11 @@ import {
   XCircle,
   Clock,
   Lock,
-  Layers
+  Layers,
+  Wrench
 } from 'lucide-react';
-import { MOCK_PORTFOLIO_HISTORY, getNetworkConfig, getExplorerUrl, getTransactionUrl } from '../constants';
+import { MOCK_PORTFOLIO_HISTORY, getNetworkConfig, getExplorerUrl, getTransactionUrl, CHAIN_META } from '../constants';
+import { getJettonPrice } from '../services/jettonRegistry';
 import { useWallet } from '../context/WalletContext';
 import { useBalance } from '../hooks/useBalance';
 import { useRZCBalance } from '../hooks/useRZCBalance';
@@ -34,6 +36,7 @@ import LoadingSkeleton from '../components/LoadingSkeleton';
 import LanguageSelector from '../components/LanguageSelector';
 import ClaimActivationBonus from '../components/ClaimActivationBonus';
 import AirdropWidget from '../components/AirdropWidget';
+import AffiliateHubBanner from '../components/AffiliateHubBanner';
 import { supabaseService } from '../services/supabaseService';
 interface ActionButtonProps {
   icon: any;
@@ -47,27 +50,46 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, primary 
     onClick={onClick}
     className={`
       flex flex-col items-center gap-1.5 sm:gap-2 p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl transition-all duration-300 flex-1 shadow-sm
+      group relative overflow-hidden
       ${primary
-        ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black hover:bg-emerald-700 dark:hover:bg-[#00dd77] shadow-xl active:scale-95 transition-colors'
-        : 'bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/5 text-gray-950 dark:text-white hover:bg-gray-50 dark:hover:bg-white/10 active:scale-95'}
+        ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black hover:bg-emerald-700 dark:hover:bg-[#00dd77] shadow-[0_10px_20px_rgba(0,255,136,0.2)] active:scale-95'
+        : 'bg-gradient-to-br from-slate-50 via-white to-blue-50/60 dark:from-white/5 dark:via-white/5 dark:to-white/[0.03] border  border-primary/20   border-slate-300 dark:border-white/5 text-gray-950 dark:text-white hover:from-white hover:to-blue-100/40 dark:hover:from-white/8 dark:hover:to-white/8 active:scale-95 shadow-sm'}
     `}
   >
-    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center ${primary ? 'bg-white/20 dark:bg-black/5' : 'bg-gray-100 dark:bg-white/5'}`}>
-      <Icon size={18} strokeWidth={2.5} />
+    {primary && (
+      <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+    )}
+    {!primary && (
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-500/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl sm:rounded-3xl" />
+    )}
+    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 ${
+      primary 
+        ? 'bg-white/20 dark:bg-black/5' 
+        : 'bg-gradient-to-br from-blue-100/80 to-indigo-100/60 dark:from-white/8 dark:to-white/[0.03] shadow-inner'
+    }`}>
+      <Icon size={primary ? 22 : 18} strokeWidth={2.5} />
     </div>
-    <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
+    <span className={`text-[9px] font-nav transition-all ${primary ? 'font-black' : 'font-bold'} uppercase tracking-[0.15em]`}>{label}</span>
   </button>
 );
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData, isActivated, activatedAt } = useWallet();
+  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData, isActivated, activatedAt, multiChainBalances, currentEvmChain, rzcPrice: contextRzcPrice, jettons } = useWallet();
   const networkConfig = getNetworkConfig(network);
   const {
     tonBalance,
     tonPrice,
     btcPrice,
+    ethPrice,
+    bnbPrice,
+    maticPrice,
+    avaxPrice,
+    solPrice,
+    tronPrice,
+    usdtPrice,
+    usdcPrice,
     totalUsdValue,
     change24h,
     changePercent24h,
@@ -77,7 +99,6 @@ const Dashboard: React.FC = () => {
   } = useBalance();
   const {
     balance: rzcBalance,
-    price: rzcPrice,
     usdValue: rzcUsdValue,
     isLoading: rzcLoading,
     error: rzcError,
@@ -94,26 +115,59 @@ const Dashboard: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showNetworkInfo, setShowNetworkInfo] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'BTC' | 'TON' | 'USDT' | 'EUR'>('USD');
-  const [timeframe, setTimeframe] = useState<'SEED' | 'PRESALE' | 'PUBLIC'>('SEED');
+  const [timeframe, setTimeframe] = useState<'1D' | '1W' | '1M' | 'ALL'>('1D');
+  const [hideDust, setHideDust] = useState(true);
+  const [activeTab, setActiveTab] = useState<'tokens' | 'nfts'>('tokens');
 
-  // Calculate combined portfolio value (TON + RZC)
-  const combinedPortfolioValue = totalUsdValue + rzcUsdValue;
+  // Native EVM price based on active chain
+  const evmNativePriceMap: Record<string, number> = {
+    ethereum: ethPrice, arbitrum: ethPrice, plasma: ethPrice, stable: ethPrice, sepolia: ethPrice,
+    polygon: maticPrice, bsc: bnbPrice, avalanche: avaxPrice,
+  };
+  const activeEvmPrice = evmNativePriceMap[currentEvmChain] ?? ethPrice;
+
+  // Multi-chain USD values
+  const evmUsdValue    = multiChainBalances ? parseFloat(multiChainBalances.evm  || '0') * activeEvmPrice : 0;
+  const btcUsdValue    = multiChainBalances ? parseFloat(multiChainBalances.btc  || '0') * btcPrice : 0;
+  const usdtUsdValue   = multiChainBalances ? parseFloat(multiChainBalances.usdt || '0') * usdtPrice : 0;
+  const wdkTonUsdValue = multiChainBalances ? parseFloat(multiChainBalances.ton  || '0') * tonPrice : 0;
+  const solUsdValue    = multiChainBalances ? parseFloat(multiChainBalances.sol  || '0') * solPrice : 0;
+  const tronUsdValue   = multiChainBalances ? parseFloat(multiChainBalances.tron || '0') * tronPrice : 0;
+
+  // Calculate Jettons USD Value
+  let jettonsUsdValue = 0;
+  if (jettons && jettons.length > 0) {
+    jettons.forEach((j: any) => {
+      const price = getJettonPrice(j.jetton?.address);
+      if (price > 0 && j.balance) {
+        const balNum = parseFloat(j.balance) / Math.pow(10, j.jetton?.decimals || 9);
+        jettonsUsdValue += balNum * price;
+      }
+    });
+  }
+
+  // Calculate combined portfolio value (TON + RZC + multi-chain + Jettons)
+  const combinedPortfolioValue = totalUsdValue + rzcUsdValue + evmUsdValue + btcUsdValue + usdtUsdValue + wdkTonUsdValue + solUsdValue + tronUsdValue + jettonsUsdValue;
 
   // Currency conversion rates (dynamically fetched from WDK provider)
   const conversionRates = {
     USD: 1,
     BTC: btcPrice > 0 ? 1 / btcPrice : 0.000015,
     TON: tonPrice > 0 ? 1 / tonPrice : 0.408,
-    USDT: 1, // 1 USD = 1 USDT (stablecoin)
+    USDT: usdtPrice > 0 ? 1 / usdtPrice : 1, // Dynamic based on admin override or market
     EUR: 0.92, // 1 USD = 0.92 EUR
   };
 
   // Currency symbols
-  const currencySymbols = {
+  const currencySymbols: Record<string, React.ReactNode> = {
     USD: '$',
     BTC: '₿',
-    TON: 'TON',
-    USDT: '$',
+    TON: (
+      <svg viewBox="0 0 24 24" className="w-[0.8em] h-[0.8em] inline-block -mt-[0.1em] mr-[0.05em]" fill="currentColor">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      </svg>
+    ),
+    USDT: '₮',
     EUR: '€',
   };
 
@@ -131,36 +185,28 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const chartPath = useMemo(() => {
-    const pointsCount = 40;
-    const width = 400;
-    const points = [];
-    const growthMult = timeframe === 'SEED' ? 1.4 : timeframe === 'PRESALE' ? 2.5 : 4.5;
-
+  const chartData = useMemo(() => {
+    // Generate realistic looking mock data based on convertedValue and timeframe
+    const baseVal = convertedValue || 1000;
+    const pointsCount = timeframe === '1D' ? 24 : timeframe === '1W' ? 7 : timeframe === '1M' ? 30 : 100;
+    const volatility = timeframe === '1D' ? 0.02 : timeframe === '1W' ? 0.05 : timeframe === '1M' ? 0.15 : 0.4;
+    
+    let currentVal = baseVal * (1 - volatility); // start a bit lower based on volatility
+    const data = [];
+    
     for (let i = 0; i < pointsCount; i++) {
-      const x = (i / (pointsCount - 1)) * width;
-      const normalizedX = i / (pointsCount - 1);
-      const progress = Math.pow(normalizedX, 2);
-      const yValue = 100 - (progress * 85 * (growthMult / 4.5));
-      const noise = (Math.random() - 0.5) * 1.5;
-      points.push({ x, y: yValue + noise });
+        const change = (Math.random() - 0.45) * (volatility / 2) * baseVal; // slight upward bias
+        currentVal += change;
+        data.push({
+            time: `P${i}`,
+            value: currentVal
+        });
     }
-
-    let path = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const cp1x = prev.x + (curr.x - prev.x) / 2;
-      path += ` C ${cp1x} ${prev.y}, ${cp1x} ${curr.y}, ${curr.x} ${curr.y}`;
+    // Snap the final data point to the actual current portfolio value
+    if (data.length > 0) {
+        data[data.length - 1].value = baseVal;
     }
-    return path;
-  }, [timeframe]);
-
-  const projectedValue = useMemo(() => {
-    const baseValue = convertedValue;
-    if (timeframe === 'SEED') return baseValue * 1.0;
-    if (timeframe === 'PRESALE') return baseValue * (0.25 / 0.12);
-    return baseValue * (0.50 / 0.12);
+    return data;
   }, [timeframe, convertedValue]);
 
   // Currency display options
@@ -244,7 +290,7 @@ const Dashboard: React.FC = () => {
         title: "Migration Complete",
         badge: "Approved",
         ping: false,
-        message: "✅ Your RZC/STK migration was approved. Tokens credited to your wallet!",
+        message: "✅ Your RZC migration was approved. Tokens credited to your wallet!",
         onClick: () => navigate('/wallet/migration'),
         theme: 'emerald' as const,
         icon: CheckCircle2
@@ -274,7 +320,7 @@ const Dashboard: React.FC = () => {
     } else {
       items.push({
         id: 'migration-none',
-        title: "Migrate RZC/STK",
+        title: "Migrate RZC",
         badge: "Required",
         ping: true,
         message: "🔄 Transfer tokens from Telegram bot • 24-48h review • Tap to start",
@@ -331,7 +377,19 @@ const Dashboard: React.FC = () => {
       });
     }
 
-    // 4. System News
+    // 4. Wallet Maintenance
+    items.push({
+      id: 'maintenance',
+      title: "Wallet Maintenance",
+      badge: "Notice",
+      ping: true,
+      message: "🔧 Scheduled maintenance in progress • TON send improvements deployed • Some features may be temporarily limited",
+      onClick: () => {},
+      theme: 'amber' as const,
+      icon: Wrench
+    });
+
+    // 5. System News
     items.push({
       id: 'news',
       title: "System Update",
@@ -420,6 +478,22 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     refreshData();
+    // Refresh wallet data (TON balance + profile) every 15s to update quickly on deposit
+    const interval = setInterval(() => refreshData(), 15_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Refresh everything when user returns to the tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshData();
+        refreshBalance();
+        refreshTransactions();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   // Fetch latest transaction confirmation
@@ -504,21 +578,183 @@ const Dashboard: React.FC = () => {
     setIsRefreshing(false);
   };
 
+  // Pre-compute balance display values (avoids IIFE in JSX which confuses TSX parser)
+  const balanceDisplaySym = currencySymbols[selectedCurrency] || '';
+  const balanceDisplaySuffix: string = ''; // Removed text suffixes since we now use prefix symbols for all currencies
+  
+  // Create a plain text string just for evaluating length to assign correct font sizes
+  const balanceDisplayStr = `${selectedCurrency === 'USD' ? '$' : selectedCurrency === 'EUR' ? '€' : selectedCurrency === 'USDT' ? '₮' : selectedCurrency === 'BTC' ? '₿' : 'T'}${formatValue(convertedValue, selectedCurrency)}`;
+  const balanceDisplayLen = balanceDisplayStr.length;
+  const balanceSizeClass = balanceDisplayLen <= 7  ? 'text-5xl sm:text-6xl'
+                         : balanceDisplayLen <= 11 ? 'text-4xl sm:text-5xl'
+                         : balanceDisplayLen <= 15 ? 'text-3xl sm:text-4xl'
+                         :                          'text-2xl sm:text-3xl';
+  const balanceSuffixSizeClass = balanceDisplayLen <= 7 ? 'text-base sm:text-xl' : balanceDisplayLen <= 11 ? 'text-sm sm:text-lg' : 'text-xs sm:text-base';
+
+  // Combine all active multi-chain assets
+  const assetList = useMemo(() => {
+    const list = [];
+    if (combinedPortfolioValue === 0) return list;
+    
+    // RZC (Native)
+    if (rzcBalance > 0 || !hideDust) {
+        list.push({ 
+            id: 'rzc', symbol: 'RZC', name: 'RhizaCore Token', balance: parseFloat(rzcBalance.toString()), 
+            usdValue: rzcUsdValue, price: contextRzcPrice, color: 'text-emerald-500', 
+            bg: 'bg-emerald-500', 
+            logo: null,
+            isCore: true
+        });
+    }
+
+    // TON
+    if (tonBalance > 0 || !hideDust) {
+        list.push({
+            id: 'ton', symbol: 'TON', name: 'The Open Network', balance: tonBalance,
+            usdValue: totalUsdValue, price: tonPrice, color: 'text-blue-500',
+            bg: 'bg-blue-500',
+            logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png'
+        });
+    }
+    
+    // EVM
+    if (multiChainBalances && (parseFloat(multiChainBalances.evm) > 0 || !hideDust)) {
+        list.push({
+            id: 'evm', symbol: CHAIN_META[currentEvmChain]?.symbol || 'ETH', name: CHAIN_META[currentEvmChain]?.name || 'EVM', 
+            balance: parseFloat(multiChainBalances.evm), usdValue: evmUsdValue, price: activeEvmPrice,
+             color: 'text-violet-500', bg: 'bg-violet-500',
+            logo: CHAIN_META[currentEvmChain]?.logo
+        });
+    }
+    
+    // BTC
+    if (multiChainBalances && (parseFloat(multiChainBalances.btc) > 0 || !hideDust)) {
+        list.push({
+            id: 'btc', symbol: 'BTC', name: 'Bitcoin', balance: parseFloat(multiChainBalances.btc), usdValue: btcUsdValue, price: btcPrice, color: 'text-orange-500', bg: 'bg-orange-500', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png'
+        });
+    }
+
+    // USDT
+    if (multiChainBalances && (parseFloat(multiChainBalances.usdt) > 0 || !hideDust)) {
+        list.push({
+            id: 'usdt', symbol: 'USDT', name: 'Tether USD', balance: parseFloat(multiChainBalances.usdt), usdValue: usdtUsdValue, price: usdtPrice, color: 'text-teal-500', bg: 'bg-teal-500', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png'
+        });
+    }
+    
+    // SOL
+    if (multiChainBalances && (parseFloat(multiChainBalances.sol) > 0 || !hideDust)) {
+        list.push({
+            id: 'sol', symbol: 'SOL', name: 'Solana', balance: parseFloat(multiChainBalances.sol), usdValue: solUsdValue, price: solPrice, color: 'text-purple-500', bg: 'bg-purple-500', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png'
+        });
+    }
+
+    // TRON
+    if (multiChainBalances && (parseFloat(multiChainBalances.tron) > 0 || !hideDust)) {
+        list.push({
+            id: 'tron', symbol: 'TRX', name: 'TRON', balance: parseFloat(multiChainBalances.tron), usdValue: tronUsdValue, price: tronPrice, color: 'text-red-500', bg: 'bg-red-500', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png'
+        });
+    }
+
+    // Sort logic (highest USD value first)
+    return list.sort((a,b) => b.usdValue - a.usdValue);
+  }, [combinedPortfolioValue, rzcBalance, rzcUsdValue, tonBalance, totalUsdValue, multiChainBalances, currentEvmChain, activeEvmPrice, btcUsdValue, btcPrice, usdtUsdValue, usdtPrice, solUsdValue, solPrice, tronUsdValue, tronPrice, wdkTonUsdValue, hideDust, contextRzcPrice]);
+
+  // Build navigation state for AssetDetail from a dashboard asset entry
+  const getAssetDetailState = (asset: typeof assetList[0]) => {
+    const typeMap: Record<string, string> = {
+      rzc: 'RZC', ton: 'TON', evm: 'EVM', btc: 'BTC',
+      usdt: 'EVM', sol: 'SOL', tron: 'TRON'
+    };
+    return {
+      symbol: asset.id === 'usdt' ? 'USDT' : asset.symbol,
+      name: asset.name,
+      // Pass human-readable balance with decimals=0 so AssetDetail displays it as-is
+      balance: asset.balance.toString(),
+      decimals: 0,
+      price: asset.price,
+      type: typeMap[asset.id] || 'TON',
+      image: asset.logo || undefined,
+      verified: ['ton', 'btc', 'evm', 'usdt', 'sol', 'tron'].includes(asset.id),
+    };
+  };
+
   return (
     <>
-      {/* Main Dashboard Content */}
-      <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0 pb-4">
+      {/* Enhanced Animated Background with Theme Transitions */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: -1 }}>
+        {/* Primary animated orbs */}
+        <div className="dashboard-bg-orb absolute top-1/4 left-1/4 w-96 h-96 bg-gradient-to-r from-emerald-400/20 to-cyan-400/20 dark:from-emerald-500/10 dark:to-cyan-500/10 rounded-full blur-3xl" 
+             style={{ animation: 'pulse 4s ease-in-out infinite, float 8s ease-in-out infinite' }} />
+        <div className="dashboard-bg-orb absolute top-3/4 right-1/4 w-80 h-80 bg-gradient-to-r from-blue-400/15 to-purple-400/15 dark:from-blue-500/8 dark:to-purple-500/8 rounded-full blur-3xl" 
+             style={{ animation: 'pulse 6s ease-in-out infinite, float 10s ease-in-out infinite reverse' }} />
+        <div className="dashboard-bg-orb absolute top-1/2 left-3/4 w-64 h-64 bg-gradient-to-r from-yellow-400/10 to-orange-400/10 dark:from-yellow-500/5 dark:to-orange-500/5 rounded-full blur-3xl" 
+             style={{ animation: 'pulse 5s ease-in-out infinite, float 12s ease-in-out infinite' }} />
+        <div className="dashboard-bg-orb absolute top-1/6 right-1/2 w-48 h-48 bg-gradient-to-r from-pink-400/8 to-rose-400/8 dark:from-pink-500/4 dark:to-rose-500/4 rounded-full blur-2xl" 
+             style={{ animation: 'pulse 7s ease-in-out infinite, float 9s ease-in-out infinite' }} />
+        <div className="dashboard-bg-orb absolute bottom-1/4 left-1/2 w-32 h-32 bg-gradient-to-r from-indigo-400/12 to-violet-400/12 dark:from-indigo-500/6 dark:to-violet-500/6 rounded-full blur-xl" 
+             style={{ animation: 'pulse 3.5s ease-in-out infinite, float 11s ease-in-out infinite reverse' }} />
+        
+        {/* Floating particles */}
+        <div className="absolute top-1/3 left-1/6 w-2 h-2 bg-emerald-400/40 dark:bg-emerald-400/20 rounded-full" 
+             style={{ animation: 'bounce 3s ease-in-out infinite, sparkle 4s ease-in-out infinite' }} />
+        <div className="absolute top-2/3 right-1/3 w-1.5 h-1.5 bg-blue-400/40 dark:bg-blue-400/20 rounded-full" 
+             style={{ animation: 'bounce 4s ease-in-out infinite, sparkle 5s ease-in-out infinite' }} />
+        <div className="absolute top-1/4 right-1/6 w-1 h-1 bg-purple-400/40 dark:bg-purple-400/20 rounded-full" 
+             style={{ animation: 'bounce 2.5s ease-in-out infinite, sparkle 3s ease-in-out infinite' }} />
+        <div className="absolute bottom-1/3 left-1/3 w-1.5 h-1.5 bg-cyan-400/40 dark:bg-cyan-400/20 rounded-full" 
+             style={{ animation: 'bounce 3.5s ease-in-out infinite, sparkle 4.5s ease-in-out infinite' }} />
+        
+        {/* Animated grid pattern */}
+        <div className="absolute inset-0 opacity-[0.02] dark:opacity-[0.01]" 
+             style={{
+               backgroundImage: `radial-gradient(circle at 1px 1px, rgba(0,0,0,0.3) 1px, transparent 0)`,
+               backgroundSize: '24px 24px',
+               animation: 'gridMove 20s linear infinite'
+             }} />
+        
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-br from-white/50 via-transparent to-emerald-50/30 dark:from-black/20 dark:via-transparent dark:to-emerald-950/10" />
+      </div>
+
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes float {
+            0%, 100% { transform: translateY(0px) translateX(0px) scale(1); }
+            25% { transform: translateY(-20px) translateX(10px) scale(1.02); }
+            50% { transform: translateY(-10px) translateX(-5px) scale(0.98); }
+            75% { transform: translateY(-15px) translateX(8px) scale(1.01); }
+          }
+          @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(24px, 24px); }
+          }
+          @keyframes sparkle {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.2); }
+          }
+          /* Smooth theme transition — scoped to dashboard background only */
+          .dashboard-bg-orb {
+            transition: background-color 1000ms ease-in-out, opacity 1000ms ease-in-out, filter 1000ms ease-in-out;
+          }
+          .theme-transition-bg {
+            transition: all 1000ms cubic-bezier(0.4, 0, 0.2, 1);
+          }
+        `
+      }} />
+
+      {/* Main Dashboard Content with enhanced theme transitions */}
+      <div className="relative z-10 max-w-2xl mx-auto space-y-3.5 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0 pb-4 animate-in fade-in slide-in-from-bottom-4 duration-700 theme-transition-bg">
 
         {/* Transaction Confirmation Action Card */}
         {latestConfirmation && (
-          <div className="relative group p-4 bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-300 dark:border-emerald-500/30 rounded-2xl shadow-sm transition-all animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className="relative group p-4 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl shadow-sm transition-all animate-in slide-in-from-top-4 fade-in duration-300">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-600 dark:bg-emerald-500 flex items-center justify-center flex-shrink-0 shadow-md">
                 <ShieldCheck size={20} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1">
-                  <h3 className="text-sm font-black text-emerald-900 dark:text-emerald-300 leading-tight truncate">
+                  <h3 className="text-sm font-heading font-black text-emerald-900 dark:text-emerald-300 leading-tight truncate">
                     {latestConfirmation.title}
                   </h3>
                   <button
@@ -528,19 +764,19 @@ const Dashboard: React.FC = () => {
                     ✕
                   </button>
                 </div>
-                <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-400/90 leading-snug">
+                <p className="text-xs font-heading font-semibold text-emerald-800 dark:text-emerald-400/90 leading-snug">
                   {latestConfirmation.message}
                 </p>
                 {latestConfirmation.data?.txHash && (
                   <div className="mt-2.5 flex items-center gap-1.5">
-                    <span className="text-[9px] font-black uppercase tracking-widest bg-emerald-600/10 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded-md">
+                    <span className="text-[9px] font-heading font-black uppercase tracking-widest bg-emerald-600/10 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded-md">
                       Verified On-Chain
                     </span>
                     <a
                       href={getTransactionUrl(latestConfirmation.data.txHash, network)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[9px] font-black uppercase tracking-widest text-emerald-600 hover:underline flex items-center gap-0.5"
+                      className="text-[9px] font-heading font-black uppercase tracking-widest text-emerald-600 hover:underline flex items-center gap-0.5"
                     >
                       View Tx <ExternalLink size={10} />
                     </a>
@@ -551,71 +787,131 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Marquee Announcements Ticker - Auto-hide after 10s */}
-        {/* Marquee Announcements Ticker */}
+        {/* Live Price Ticker Strip */}
+        {(() => {
+          const priceItems = [
+            tonPrice > 0        && { symbol: 'TON',  price: `$${tonPrice.toFixed(2)}`,                                              color: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-100 dark:bg-blue-500/15' },
+            btcPrice > 0        && { symbol: 'BTC',  price: `$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,   color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-500/15' },
+            ethPrice > 0        && { symbol: 'ETH',  price: `$${ethPrice.toFixed(2)}`,                                              color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-100 dark:bg-indigo-500/15' },
+            bnbPrice > 0        && { symbol: 'BNB',  price: `$${bnbPrice.toFixed(2)}`,                                              color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-100 dark:bg-yellow-500/15' },
+            solPrice > 0        && { symbol: 'SOL',  price: `$${solPrice.toFixed(2)}`,                                              color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-500/15' },
+            maticPrice > 0      && { symbol: 'POL',  price: `$${maticPrice.toFixed(3)}`,                                            color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-100 dark:bg-violet-500/15' },
+            avaxPrice > 0       && { symbol: 'AVAX', price: `$${avaxPrice.toFixed(2)}`,                                             color: 'text-red-600 dark:text-red-400',       bg: 'bg-red-100 dark:bg-red-500/15' },
+            tronPrice > 0       && { symbol: 'TRX',  price: `$${tronPrice.toFixed(4)}`,                                             color: 'text-rose-600 dark:text-rose-400',     bg: 'bg-rose-100 dark:bg-rose-500/15' },
+            usdtPrice > 0       && { symbol: 'USDT', price: `$${usdtPrice.toFixed(3)}`,                                             color: 'text-teal-600 dark:text-teal-400',     bg: 'bg-teal-100 dark:bg-teal-500/15' },
+            contextRzcPrice > 0 && { symbol: 'RZC',  price: `$${contextRzcPrice.toFixed(4)}`,                                       color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-500/15' },
+          ].filter(Boolean) as { symbol: string; price: string; color: string; bg: string }[];
+
+          if (priceItems.length === 0) return null;
+          // Duplicate for seamless loop
+          const doubled = [...priceItems, ...priceItems];
+
+          return (
+            <div className="overflow-hidden rounded-xl bg-white/80 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10" style={{ contain: 'paint' }}>
+              <div className="flex items-stretch">
+                <div className="flex-shrink-0 px-2.5 bg-gradient-to-b from-slate-800 to-slate-900 dark:from-white/10 dark:to-white/5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[8px] font-black uppercase tracking-widest text-white dark:text-white/70">Live</span>
+                </div>
+                <div className="flex-1 overflow-hidden py-1.5">
+                  <div className="flex animate-marquee whitespace-nowrap gap-5 px-3" style={{ width: 'max-content' }}>
+                    {doubled.map((item, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1.5">
+                        <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md ${item.bg} ${item.color}`}>
+                          {item.symbol}
+                        </span>
+                        <span className="text-[10px] font-numbers font-bold text-slate-700 dark:text-slate-300">
+                          {item.price}
+                        </span>
+                        <span className="text-slate-400 dark:text-white/10 text-[10px]">·</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Announcement Ticker — animated slide */}
         {announcements.length > 0 && (
-          <div className="overflow-hidden rounded-xl bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800/50 dark:to-slate-900/50 border border-slate-200 dark:border-slate-700/50" style={{ contain: 'paint' }}>
+          <div
+            className="overflow-hidden rounded-xl bg-white/80 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 cursor-pointer active:scale-[0.99] transition-transform"
+            onClick={currentAnnouncement.onClick}
+          >
             <div className="flex items-stretch">
-              {/* Fixed Icon */}
-              <div className="flex-shrink-0 px-2 sm:px-3 bg-gradient-to-r from-emerald-500 to-cyan-500 flex items-center">
+              {/* Left accent — color changes with theme */}
+              <div className={`flex-shrink-0 px-3 flex items-center bg-gradient-to-b ${
+                currentAnnouncement.theme === 'emerald' ? 'from-emerald-500 to-teal-600' :
+                currentAnnouncement.theme === 'amber'   ? 'from-amber-500 to-orange-600' :
+                currentAnnouncement.theme === 'red'     ? 'from-red-500 to-rose-600' :
+                currentAnnouncement.theme === 'purple'  ? 'from-purple-500 to-fuchsia-600' :
+                'from-blue-500 to-indigo-600'
+              } transition-all duration-500`}>
                 <Zap size={12} className="text-white" />
               </div>
 
-              {/* Marquee track */}
-              <div className="flex-1 min-w-0 overflow-hidden py-1.5 sm:py-2" style={{ touchAction: 'pan-x' }}>
-                <div className="flex animate-marquee whitespace-nowrap gap-6 sm:gap-8 px-3 sm:px-4" style={{ width: 'max-content' }}>
-                  {/* Price tickers — shown first, repeated with announcements */}
-                  {[...Array(2)].map((_, pass) => (
-                    <React.Fragment key={`prices-${pass}`}>
-                      {/* Separator */}
-                      {pass === 0 && (
-                        <>
-                          {/* TON price */}
-                          {tonPrice > 0 && (
-                            <span className="inline-flex items-center gap-1 py-1">
-                              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">TON</span>
-                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">${tonPrice.toFixed(2)}</span>
-                            </span>
-                          )}
-                          {/* BTC price */}
-                          {btcPrice > 0 && (
-                            <span className="inline-flex items-center gap-1 py-1">
-                              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300">BTC</span>
-                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
-                            </span>
-                          )}
-                          {/* RZC price */}
-                          {rzcPrice > 0 && (
-                            <span className="inline-flex items-center gap-1 py-1">
-                              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">RZC</span>
-                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">${rzcPrice.toFixed(4)}</span>
-                            </span>
-                          )}
-                          <span className="text-slate-300 dark:text-slate-600 text-xs py-1">|</span>
-                        </>
-                      )}
-                    </React.Fragment>
-                  ))}
+              {/* Content — slides in/out */}
+              <div className="flex-1 py-2 px-3 overflow-hidden min-w-0">
+                <div
+                  key={currentAnnouncement.id}
+                  className="flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                >
+                  {/* Badge */}
+                  <span className={`flex-shrink-0 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
+                    currentAnnouncement.theme === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                    currentAnnouncement.theme === 'amber'   ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
+                    currentAnnouncement.theme === 'red'     ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
+                    currentAnnouncement.theme === 'purple'  ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400' :
+                    'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+                  }`}>
+                    {currentAnnouncement.badge}
+                  </span>
 
-                  {[...announcements, ...announcements].map((item, idx) => (
+                  {/* Message */}
+                  <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 truncate">
+                    {currentAnnouncement.message.replace(/[✅⚠️⏳❌🔄🔒🚀]/g, '').trim()}
+                  </span>
+
+                  {/* Ping dot for active items */}
+                  {currentAnnouncement.ping && (
+                    <span className="flex-shrink-0 relative flex h-1.5 w-1.5 ml-auto">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        currentAnnouncement.theme === 'emerald' ? 'bg-emerald-400' :
+                        currentAnnouncement.theme === 'amber'   ? 'bg-amber-400' :
+                        currentAnnouncement.theme === 'red'     ? 'bg-red-400' :
+                        currentAnnouncement.theme === 'purple'  ? 'bg-purple-400' :
+                        'bg-blue-400'
+                      }`} />
+                      <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                        currentAnnouncement.theme === 'emerald' ? 'bg-emerald-500' :
+                        currentAnnouncement.theme === 'amber'   ? 'bg-amber-500' :
+                        currentAnnouncement.theme === 'red'     ? 'bg-red-500' :
+                        currentAnnouncement.theme === 'purple'  ? 'bg-purple-500' :
+                        'bg-blue-500'
+                      }`} />
+                    </span>
+                  )}
+                </div>
+
+                {/* Progress dots */}
+                <div className="flex items-center gap-1 mt-1.5">
+                  {announcements.map((_, i) => (
                     <button
-                      key={`${item.id}-${idx}`}
-                      onClick={item.onClick}
-                      className="inline-flex items-center gap-1.5 sm:gap-2 py-1 hover:opacity-70 transition-opacity active:opacity-50 min-h-[32px]"
-                    >
-                      <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-full flex-shrink-0 ${
-                        item.theme === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' :
-                        item.theme === 'amber'   ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' :
-                        item.theme === 'red'     ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300' :
-                        item.theme === 'purple'  ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300' :
-                        'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
-                      }`}>
-                        {item.badge}
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        {item.message.replace(/[✅⚠️⏳❌🔄🔒🚀]/g, '').trim()}
-                      </span>
-                    </button>
+                      key={i}
+                      onClick={(e) => { e.stopPropagation(); setCurrentAnnouncementIndex(i); }}
+                      className={`h-0.5 rounded-full transition-all duration-300 ${
+                        i === currentAnnouncementIndex
+                          ? `w-4 ${
+                              currentAnnouncement.theme === 'emerald' ? 'bg-emerald-500' :
+                              currentAnnouncement.theme === 'amber'   ? 'bg-amber-500' :
+                              currentAnnouncement.theme === 'red'     ? 'bg-red-500' :
+                              currentAnnouncement.theme === 'purple'  ? 'bg-purple-500' :
+                              'bg-blue-500'
+                            }`
+                          : 'w-1.5 bg-slate-300 dark:bg-white/20'
+                      }`}
+                    />
                   ))}
                 </div>
               </div>
@@ -628,16 +924,16 @@ const Dashboard: React.FC = () => {
           {/* RZC Early Bird CTA — compact */}
         <div className="relative group cursor-pointer active:scale-[0.98] transition-all" onClick={() => navigate('/wallet/store')}>
           <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500/30 via-yellow-400/20 to-cyan-500/30 rounded-2xl blur-md opacity-60 group-hover:opacity-90 transition-opacity" />
-          <div className="relative rounded-xl overflow-hidden border border-emerald-500/30 dark:border-emerald-500/30 shadow-lg">
+          <div className="relative rounded-xl overflow-hidden border  border-primary/20 border-emerald-400 dark:border-emerald-500/30 shadow-lg">
 
             {/* Urgency strip */}
             <div className="bg-gradient-to-r from-red-600 via-orange-500 to-red-600 px-3 py-1 flex items-center justify-between">
-              <span className="text-[8px] font-black text-white uppercase tracking-widest">⚠️ Pre-Sale — Price rises next round</span>
-              <span className="text-[8px] font-black text-yellow-200 animate-pulse">Don't miss out</span>
+              <span className="text-[8px] font-heading font-black text-white uppercase tracking-widest">⚠️ Pre-Sale — Price rises next round</span>
+              <span className="text-[8px] font-heading font-black text-yellow-200 animate-pulse">Don't miss out</span>
             </div>
 
             {/* Body */}
-            <div className="bg-gradient-to-br from-gray-900 via-emerald-950 to-gray-900 p-3 flex items-center gap-3">
+            <div className="bg-gradient-to-br from-amber-50/80 via-emerald-50 to-cyan-50/80 dark:from-[#1a1a0a] dark:via-[#0a1a10] dark:to-[#0a1218] p-3 flex items-center gap-3">
 
               {/* Icon */}
               <div className="relative flex-shrink-0">
@@ -648,36 +944,36 @@ const Dashboard: React.FC = () => {
               {/* Text */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-1.5 flex-wrap">
-                  <span className="text-sm font-black text-white">RZC</span>
-                  <span className="text-lg font-black text-yellow-400">$0.12</span>
-                  <span className="text-[9px] text-gray-400 line-through">$0.18</span>
-                  <span className="text-[8px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">Early Bird</span>
+                  <span className="text-sm font-heading font-black text-gray-900 dark:text-white">RZC</span>
+                  <span className="text-lg font-numbers font-black text-yellow-600 dark:text-yellow-400">${contextRzcPrice.toFixed(2)}</span>
+                  <span className="text-[9px] font-numbers text-gray-600 dark:text-gray-400 line-through">$0.18</span>
+                  <span className="text-[8px] font-heading font-black bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30 px-1.5 py-0.5 rounded-full">Early Bird</span>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <span className="text-[9px] text-gray-400">✓ Instant delivery</span>
-                  <span className="text-[9px] text-gray-400">✓ 10% referral</span>
-                  <span className="text-[9px] text-gray-400">✓ $100–$10K</span>
+                  <span className="text-[9px] font-heading text-gray-700 dark:text-gray-400">✓ Instant delivery</span>
+                  <span className="text-[9px] font-heading text-gray-700 dark:text-gray-400">✓ 10% referral</span>
+                  <span className="text-[9px] font-heading text-gray-700 dark:text-gray-400">✓ $100–$10K</span>
                 </div>
               </div>
 
               {/* CTA */}
-              <div className="flex-shrink-0 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 text-[10px] font-black text-white shadow-md shadow-emerald-500/20 group-hover:shadow-emerald-500/40 transition-all whitespace-nowrap">
+              <div className="flex-shrink-0 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 text-[10px] font-heading font-black text-white shadow-md shadow-emerald-500/20 group-hover:shadow-emerald-500/40 transition-all whitespace-nowrap">
                 Buy Now →
               </div>
             </div>
 
             {/* Price ladder */}
-            <div className="bg-black/40 px-3 py-1.5 flex items-center gap-1 justify-between">
+            <div className="bg-gradient-to-r from-emerald-50 to-cyan-50 dark:from-emerald-950/40 dark:to-cyan-950/30 border-t border-emerald-100 dark:border-white/5 px-3 py-1.5 flex items-center gap-1 justify-between">
               <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[8px] font-black text-emerald-400">R1 $0.12 ✅</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[8px] font-numbers font-black text-emerald-600 dark:text-emerald-400">R1 ${contextRzcPrice.toFixed(2)} ✅</span>
               </div>
-              <span className="text-[8px] text-gray-600">→</span>
-              <span className="text-[8px] text-orange-400/70 font-bold">R2 $0.18 ⏳</span>
-              <span className="text-[8px] text-gray-600">→</span>
-              <span className="text-[8px] text-red-400/60 font-bold">R3 $0.25 🔒</span>
-              <span className="text-[8px] text-gray-600">→</span>
-              <span className="text-[8px] text-gray-500 font-bold">Exchange 🚀</span>
+              <span className="text-[8px] text-gray-600 dark:text-gray-600">→</span>
+              <span className="text-[8px] font-numbers text-orange-500 dark:text-orange-400/70 font-bold">R2 $0.18 ⏳</span>
+              <span className="text-[8px] text-gray-600 dark:text-gray-600">→</span>
+              <span className="text-[8px] font-numbers text-red-500 dark:text-red-400/60 font-bold">R3 $0.25 🔒</span>
+              <span className="text-[8px] text-gray-600 dark:text-gray-600">→</span>
+              <span className="text-[8px] font-heading text-gray-700 dark:text-gray-500 font-bold">Exchange 🚀</span>
             </div>
           </div>
         </div>
@@ -687,7 +983,7 @@ const Dashboard: React.FC = () => {
         <div className="flex items-center justify-between hidden">
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
-            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-500 uppercase tracking-wider">
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-500 uppercase tracking-wider">
               {networkConfig.NAME}
             </span>
             <button
@@ -695,14 +991,14 @@ const Dashboard: React.FC = () => {
               className="p-1 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
               aria-label="Network info"
             >
-              <Info size={12} className="text-gray-600 dark:text-gray-500" />
+              <Info size={12} className="text-gray-700 dark:text-gray-500" />
             </button>
           </div>
           <div className="flex items-center gap-2">
             <LanguageSelector compact />
             <button
               onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
-              className="px-3 py-1.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-emerald-600 dark:hover:text-primary transition-all active:scale-95 shadow-sm"
+              className="px-3 py-1.5 bg-white dark:bg-white/5 border  border-primary/20   border-gray-300 dark:border-white/10 rounded-lg text-[9px] font-black uppercase tracking-widest text-gray-800 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-emerald-600 dark:hover:text-primary transition-all active:scale-95 shadow-sm"
             >
               {t('dashboard.switch')}
             </button>
@@ -711,27 +1007,27 @@ const Dashboard: React.FC = () => {
 
         {/* Network Info Panel - Compact */}
         {showNetworkInfo && (
-          <div className="p-3 sm:p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
+          <div className="p-3 sm:p-4 bg-white dark:bg-white/5 border  border-primary/20   border-gray-300 dark:border-white/10 rounded-xl sm:rounded-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
             <div className="flex items-center justify-between">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-700 dark:text-gray-400">{t('dashboard.networkDetails')}</h4>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-800 dark:text-gray-400">{t('dashboard.networkDetails')}</h4>
               <button
                 onClick={() => setShowNetworkInfo(false)}
-                className="text-gray-600 hover:text-gray-950 dark:text-gray-400 dark:hover:text-gray-300 text-sm font-bold"
+                className="text-gray-700 hover:text-gray-950 dark:text-gray-400 dark:hover:text-gray-300 text-sm font-bold"
               >
                 ✕
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2.5 text-xs">
               <div>
-                <p className="text-gray-600 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.network')}</p>
+                <p className="text-gray-700 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.network')}</p>
                 <p className="text-gray-950 dark:text-white font-bold text-xs">{networkConfig.NAME}</p>
               </div>
               <div>
-                <p className="text-gray-600 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.chainId')}</p>
+                <p className="text-gray-700 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.chainId')}</p>
                 <p className="text-gray-950 dark:text-white font-bold text-xs">{networkConfig.CHAIN_ID}</p>
               </div>
               <div className="col-span-2">
-                <p className="text-gray-600 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.explorer')}</p>
+                <p className="text-gray-700 dark:text-gray-500 font-medium mb-0.5 text-[10px]">{t('dashboard.explorer')}</p>
                 <a
                   href={networkConfig.EXPLORER_URL}
                   target="_blank"
@@ -746,13 +1042,27 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Portfolio Terminal Card - Enhanced with Token Breakdown */}
+        {/* Portfolio Terminal Card - Enhanced with Token Breakdown and Theme Transitions */}
         <div className="relative group">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-200/50 to-cyan-200/50 dark:from-primary/20 dark:to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-          <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden shadow-lg">
+          {/* Enhanced animated background glow with smooth theme transitions */}
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-300/60 to-cyan-300/60 dark:from-primary/20 dark:to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-30 group-hover:opacity-60 transition-all duration-1000 ease-in-out" 
+               style={{ animation: 'pulse 3s ease-in-out infinite, themeShift 6s ease-in-out infinite alternate' }} />
+          
+          {/* Floating sparkles */}
+          <div className="absolute top-4 right-8 w-1 h-1 bg-emerald-400/60 dark:bg-emerald-400/40 rounded-full animate-bounce" 
+               style={{ animationDuration: '2s', animationDelay: '0s' }} />
+          <div className="absolute top-8 right-12 w-0.5 h-0.5 bg-cyan-400/60 dark:bg-cyan-400/40 rounded-full animate-bounce" 
+               style={{ animationDuration: '2.5s', animationDelay: '1s' }} />
+          <div className="absolute top-6 right-16 w-0.5 h-0.5 bg-blue-400/60 dark:bg-blue-400/40 rounded-full animate-bounce" 
+               style={{ animationDuration: '1.8s', animationDelay: '0.5s' }} />
+          <div className="relative bg-gradient-to-br from-white via-emerald-50/40 to-cyan-50/30 dark:from-[#111] dark:via-[#0f1a14] dark:to-[#0a1018] backdrop-blur-xl border  border-primary/20   border-emerald-300 dark:border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden shadow-xl shadow-emerald-500/15 dark:shadow-emerald-500/5">
+            {/* Premium gradient top accent strip */}
+            <div className="h-[3px] w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500" />
+            {/* Subtle inner glow */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-emerald-400/[0.10] dark:from-emerald-500/[0.08] to-transparent" />
 
             {balanceError ? (
-              <div className="p-4 sm:p-5 bg-red-100 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/20 rounded-xl sm:rounded-2xl shadow-sm m-4 sm:m-6">
+              <div className="p-4 sm:p-5 bg-red-100 dark:bg-red-500/10 border  border-primary/20   border-red-300 dark:border-red-500/20 rounded-xl sm:rounded-2xl shadow-sm m-4 sm:m-6">
                 <div className="flex items-start gap-2.5 sm:gap-3">
                   <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
                   <div>
@@ -773,23 +1083,37 @@ const Dashboard: React.FC = () => {
                 <div className="p-5 sm:p-6 pb-4">
                   <div className="flex items-start justify-between">
                     <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
+                      <div className="flex items-center gap-1.5 sm:gap-2 text-gray-700 dark:text-gray-500">
                         <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
-                        <span className="text-[9px] sm:text-[10px] font-mono font-black uppercase tracking-widest truncate">{t('dashboard.totalPortfolio')}</span>
+                        <span className="text-[9px] sm:text-[10px] font-heading font-black uppercase tracking-widest truncate">{t('dashboard.totalPortfolio')}</span>
+                        {(isRefreshing || balanceLoading) && (
+                          <RefreshCw size={10} className="animate-spin text-emerald-500 flex-shrink-0" />
+                        )}
                       </div>
 
                       {balanceLoading ? (
                         <LoadingSkeleton width={200} height={40} />
                       ) : (
-                        <h2 className="text-3xl sm:text-4xl font-mono font-black tracking-tight-custom text-gray-950 dark:text-white">
+                        <h2 className={`${balanceSizeClass} font-numbers font-black tracking-tight text-gray-950 dark:text-white transition-all duration-300`}>
                           {balanceVisible ? (
-                            <>
-                              {selectedCurrency === 'USD' || selectedCurrency === 'USDT' || selectedCurrency === 'EUR' ? currencySymbols[selectedCurrency] : ''}
-                              {formatValue(convertedValue, selectedCurrency)}
-                              <span className="text-base sm:text-lg font-mono font-bold text-gray-600 dark:text-gray-600"> {selectedCurrency === 'BTC' || selectedCurrency === 'TON' ? selectedCurrency : ''}</span>
-                            </>
+                            <span className="inline-flex items-baseline gap-0">
+                              {/* Currency prefix symbol — explicit color, NOT inside gradient clip */}
+                              {balanceDisplaySym && (
+                                <span className={`font-black opacity-90 ${selectedCurrency === 'TON' ? 'text-[#0098EA] dark:text-[#33A5FF]' : 'text-emerald-700 dark:text-[#00FF88]'} pr-1`}>
+                                  {balanceDisplaySym}
+                                </span>
+                              )}
+                              {/* Numeric value — gradient clipped */}
+                              <span className="luxury-gradient-text font-glow inline-block py-1 leading-none">
+                                {formatValue(convertedValue, selectedCurrency)}
+                              </span>
+                              {/* Currency suffix (BTC / TON) — explicit muted color */}
+                              {balanceDisplaySuffix && (
+                                <span className={`${balanceSuffixSizeClass} font-numbers font-bold text-emerald-700/60 dark:text-[#00FF88]/50 ml-1`}>{balanceDisplaySuffix.trim()}</span>
+                              )}
+                            </span>
                           ) : (
-                            <span className="text-gray-600 dark:text-gray-600">••••••</span>
+                            <span className="text-gray-400 dark:text-gray-700">••••••••</span>
                           )}
                         </h2>
                       )}
@@ -798,7 +1122,7 @@ const Dashboard: React.FC = () => {
                         <LoadingSkeleton width={120} height={14} />
                       ) : (
                         <div className="flex items-center gap-1.5 sm:gap-2">
-                          <div className={`flex items-center gap-1.5 font-mono font-bold text-[10px] sm:text-xs transition-colors duration-300 ${change24h >= 0 ? 'text-emerald-600 dark:text-emerald-500' : 'text-red-600 dark:text-red-500'}`}>
+                          <div className={`flex items-center gap-1.5 font-numbers font-bold text-[10px] sm:text-xs transition-colors duration-300 ${change24h >= 0 ? 'text-emerald-600 dark:text-emerald-500' : 'text-red-600 dark:text-red-500'}`}>
                             <TrendingUp size={10} className={`transition-transform duration-300 ${change24h < 0 ? 'rotate-180' : ''}`} />
                             <span>
                               {balanceVisible ? (
@@ -808,7 +1132,7 @@ const Dashboard: React.FC = () => {
                               )}
                             </span>
                           </div>
-                          <span className="text-[8px] font-mono text-gray-600 dark:text-gray-600 font-medium">24h</span>
+                          <span className="text-[8px] font-numbers text-gray-700 dark:text-gray-600 font-medium">24h</span>
                         </div>
                       )}
                     </div>
@@ -818,14 +1142,14 @@ const Dashboard: React.FC = () => {
                       <div className="relative currency-selector">
                         <button
                           onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
-                          className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center shadow-sm"
+                          className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-800 dark:text-gray-400 active:scale-90 text-[10px] font-black min-w-[44px] flex items-center justify-center shadow-sm"
                           aria-label="Select currency"
                         >
                           {selectedCurrency}
                         </button>
 
                         {showCurrencyMenu && (
-                          <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#0a0a0a] border  border-primary/20   border-gray-300 dark:border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[120px] animate-in fade-in slide-in-from-top-2 duration-200">
                             {currencies.map((currency) => (
                               <button
                                 key={currency}
@@ -850,7 +1174,7 @@ const Dashboard: React.FC = () => {
 
                       <button
                         onClick={() => setBalanceVisible(!balanceVisible)}
-                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 shadow-sm"
+                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-800 dark:text-gray-400 active:scale-90 shadow-sm"
                         aria-label={balanceVisible ? t('dashboard.hideBalance') : t('dashboard.showBalance')}
                       >
                         {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -858,7 +1182,7 @@ const Dashboard: React.FC = () => {
                       <button
                         onClick={handleRefresh}
                         disabled={isRefreshing}
-                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-700 dark:text-gray-400 active:scale-90 disabled:opacity-50 shadow-sm"
+                        className="p-2 sm:p-2.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-xl transition-all text-gray-800 dark:text-gray-400 active:scale-90 disabled:opacity-50 shadow-sm"
                         aria-label={t('dashboard.refreshBalance')}
                       >
                         <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
@@ -867,156 +1191,130 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Compact Token Breakdown */}
-                <div className="px-4 sm:px-6 pb-4 sm:pb-5">
-                  {/* Single Row Token Cards */}
-                  <div className="flex gap-2">
-                    {/* TON Token - Compact */}
-                    <div className="flex-1 p-2.5 sm:p-3 rounded-xl bg-blue-50/80 dark:bg-blue-500/10 border border-blue-200/50 dark:border-blue-500/20 flex items-center gap-2 hover:bg-blue-100/50 dark:hover:bg-blue-500/15 transition-colors">
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm flex-shrink-0">
-                        <svg viewBox="0 0 24 24" className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="currentColor">
-                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-                        </svg>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] sm:text-xs font-mono font-black text-blue-900 dark:text-blue-300">TON</span>
-                          <span className="text-[8px] font-mono font-bold text-blue-500 dark:text-blue-400 bg-blue-100/80 dark:bg-blue-500/20 px-1 py-0.5 rounded">
-                            {totalUsdValue > 0 ? ((totalUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%
-                          </span>
-                        </div>
-                        <p className="text-xs sm:text-sm font-mono font-black text-blue-900 dark:text-white truncate">
-                          {balanceVisible ? tonBalance.toFixed(2) : '••••'}
-                        </p>
-                        <p className="text-[9px] sm:text-[10px] font-mono font-semibold text-blue-600 dark:text-blue-400">
-                          {balanceVisible ? `${currencySymbols[selectedCurrency]}${(totalUsdValue * conversionRates[selectedCurrency]).toFixed(2)}` : '••••'}
-                        </p>
-                      </div>
-                      {/* Inline Sparkline */}
-                      <svg viewBox="0 0 32 16" className="w-8 h-4 flex-shrink-0 opacity-60">
-                        <path d="M0 12 L6 10 L12 11 L18 8 L24 9 L32 4" fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeLinecap="round"></path>
-                      </svg>
-                    </div>
-                    
-                    {/* RZC Token - Compact */}
-                    <div className="flex-1 p-2.5 sm:p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-500/10 border border-emerald-200/50 dark:border-emerald-500/20 flex items-center gap-2 hover:bg-emerald-100/50 dark:hover:bg-emerald-500/15 transition-colors">
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center shadow-sm flex-shrink-0">
-                        <span className="text-white text-[9px] sm:text-[10px] font-black">RZC</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] sm:text-xs font-mono font-black text-emerald-900 dark:text-emerald-300">RZC</span>
-                          <span className="text-[8px] font-mono font-bold text-emerald-500 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-500/20 px-1 py-0.5 rounded">
-                            {rzcUsdValue > 0 ? ((rzcUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%
-                          </span>
-                        </div>
-                        <p className="text-xs sm:text-sm font-mono font-black text-emerald-900 dark:text-white truncate">
-                          {balanceVisible ? rzcBalance.toLocaleString() : '••••'}
-                        </p>
-                        <p className="text-[9px] sm:text-[10px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                          {balanceVisible ? `${currencySymbols[selectedCurrency]}${(rzcUsdValue * conversionRates[selectedCurrency]).toFixed(2)}` : '••••'}
-                        </p>
-                      </div>
-                      {/* Inline Sparkline */}
-                      <svg viewBox="0 0 32 16" className="w-8 h-4 flex-shrink-0 opacity-60">
-                        <path d="M0 10 L6 11 L12 8 L18 9 L24 5 L32 2" fill="none" stroke="#10b981" strokeWidth={1.5} strokeLinecap="round"></path>
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Slim Allocation Bar */}
-                  <div className="mt-3 flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                      <div 
-                        className="bg-gradient-to-r from-blue-500 to-indigo-500"
-                        style={{ width: `${totalUsdValue > 0 ? (totalUsdValue / combinedPortfolioValue) * 100 : 50}%` }}
-                      />
-                      <div 
-                        className="bg-gradient-to-r from-emerald-500 to-cyan-500"
-                        style={{ width: `${rzcUsdValue > 0 ? (rzcUsdValue / combinedPortfolioValue) * 100 : 50}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 text-[8px] font-mono font-bold flex-shrink-0">
-                      <span className="text-blue-500">{totalUsdValue > 0 ? ((totalUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%</span>
-                      <span className="text-emerald-500">{rzcUsdValue > 0 ? ((rzcUsdValue / combinedPortfolioValue) * 100).toFixed(0) : 0}%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Price Projection Chart */}
-                <div className="px-5 sm:px-6 pb-5 sm:pb-6">
-                  <div className="flex bg-black/50 dark:bg-black/80 rounded-lg p-1 border border-black/10 dark:border-white/5 shadow-inner w-full mb-4">
-                    {(['SEED', 'PRESALE', 'PUBLIC'] as const).map(t => (
+                {/* Price Portfolio Chart */}
+                <div className="px-5 sm:px-6 pb-2">
+                  <div className="flex bg-gradient-to-r from-slate-100 via-emerald-50/50 to-slate-100 dark:from-white/5 dark:via-white/3 dark:to-white/5 rounded-xl p-1 border  border-primary/20   border-slate-300 dark:border-white/5 shadow-inner w-full mb-4">
+                    {(['1D', '1W', '1M', 'ALL'] as const).map(t => (
                       <button
                         key={t}
                         onClick={() => setTimeframe(t)}
-                        className={`flex-1 py-1.5 rounded-md text-[9px] font-black tracking-widest transition-all ${timeframe === t
-                          ? 'bg-emerald-500 text-white shadow-lg'
-                          : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300'
-                          }`}
+                        className={`flex-1 py-1.5 rounded-lg text-[9px] font-heading font-black tracking-widest transition-all uppercase ${
+                          timeframe === t
+                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                            : 'text-gray-600 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300 hover:bg-gray-200/50 dark:hover:bg-white/5'
+                        }`}
                       >
                         {t}
                       </button>
                     ))}
                   </div>
 
-                  <div className="h-28 w-full relative mb-4">
-                    {/* Start Marker */}
-                    <div className="absolute left-0 bottom-[22px] w-2.5 h-2.5 bg-white rounded-full border-2 border-emerald-500 z-20 shadow-[0_0_10px_#10b981]" />
+                  <div className="h-32 w-full relative mb-6">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', color: '#fff' }}
+                          itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
+                          formatter={(value: number) => [`${currencySymbols[selectedCurrency] || ''}${formatValue(value, selectedCurrency)}`, 'Balance']}
+                          labelStyle={{ display: 'none' }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#10b981"
+                          strokeWidth={3}
+                          fillOpacity={1}
+                          fill="url(#colorValue)"
+                          isAnimationActive={true}
+                          animationDuration={800}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
 
-                    {/* Target Marker */}
-                    <div
-                      className="absolute right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full blur-[2px] animate-pulse z-20"
-                      style={{
-                        top: timeframe === 'SEED' ? '65%' : timeframe === 'PRESALE' ? '40%' : '12%'
-                      }}
-                    />
-
-                    <svg viewBox="0 0 400 80" className="w-full h-full overflow-visible drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                      <defs>
-                        <linearGradient id="projFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-                        </linearGradient>
-                      </defs>
-
-                      {/* Baseline at 1.0x */}
-                      <line x1="0" y1="65" x2="400" y2="65" stroke="#10b981" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="4 4" />
-
-                      <path
-                        d={chartPath.replace(/120/g, '80')}
-                        fill="none"
-                        stroke="#10b981"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        className="animate-chart-draw"
-                      />
-                      <path
-                        d={`${chartPath.replace(/120/g, '80')} L 400 80 L 0 80 Z`}
-                        fill="url(#projFill)"
-                      />
-                    </svg>
+                {/* Vertical Asset List - "My Assets" */}
+                <div className="border-t border-gray-200/50 dark:border-white/10 bg-white/50 dark:bg-black/20 pb-4">
+                  <div className="px-5 sm:px-6 pt-4 pb-2 flex items-center justify-between">
+                    <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-lg">
+                      <button 
+                        onClick={() => setActiveTab('tokens')}
+                        className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${activeTab === 'tokens' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                      >
+                        Tokens
+                      </button>
+                      <button 
+                         onClick={() => setActiveTab('nfts')}
+                         className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${activeTab === 'nfts' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                      >
+                        NFTs
+                      </button>
+                    </div>
+                    <button 
+                      onClick={() => setHideDust(!hideDust)}
+                      className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                    >
+                      {hideDust ? <EyeOff size={14} /> : <Eye size={14} />}
+                      <span className="hidden sm:inline">{hideDust ? 'Hidden' : 'Hide Dust'}</span>
+                    </button>
                   </div>
 
-                  <div className="flex justify-between gap-1 text-zinc-500 dark:text-zinc-400 text-[9px] sm:text-[10px] font-black uppercase tracking-widest border-t border-black/10 dark:border-white/10 pt-3 sm:pt-4 relative z-10 font-mono">
-                    <div className="flex flex-col">
-                      <span className="opacity-70 text-[8px] mb-1">Current Base</span>
-                      <span className="text-gray-900 dark:text-white text-[11px] sm:text-xs">
-                        {currencySymbols[selectedCurrency] || ''}{formatValue(convertedValue, selectedCurrency)}
-                      </span>
-                    </div>
-                    <div className="flex flex-col text-center">
-                      <span className="opacity-70 text-[8px] mb-1">Multiplier</span>
-                      <span className="text-emerald-600 dark:text-emerald-500 text-[11px] sm:text-xs shadow-emerald-500/50 drop-shadow-md">
-                        {convertedValue > 0 ? (projectedValue / convertedValue).toFixed(1) : '1.0'}x
-                      </span>
-                    </div>
-                    <div className="flex flex-col text-right">
-                      <span className="opacity-70 text-[8px] mb-1">{timeframe} Target</span>
-                      <span className="text-gray-900 dark:text-white text-[11px] sm:text-xs">
-                        {currencySymbols[selectedCurrency] || ''}{formatValue(projectedValue, selectedCurrency)}
-                      </span>
-                    </div>
+                  <div className="px-3 sm:px-4">
+                     {activeTab === 'tokens' ? (
+                        assetList.length > 0 ? (
+                           <div className="flex flex-col gap-1.5">
+                             {assetList.map((asset) => (
+                               <div 
+                                 key={asset.id} 
+                                 onClick={() => navigate('/wallet/asset-detail', { state: { ...getAssetDetailState(asset), useGradientIcon: asset.isCore } })}
+                                 className="flex items-center justify-between p-3 sm:p-4 rounded-xl hover:bg-white dark:hover:bg-white/5 transition-all cursor-pointer group border border-transparent hover:border-gray-200 dark:hover:border-white/10 hover:shadow-sm"
+                               >
+                                 <div className="flex items-center gap-3.5">
+                                   <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${asset.isCore ? 'bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-black text-xs shadow-md shadow-emerald-500/20' : 'bg-gray-100 dark:bg-white/5'}`}>
+                                      {asset.isCore ? 'RZC' : asset.logo ? <img src={asset.logo} alt={asset.symbol} className="w-full h-full rounded-full object-cover" /> : <div className="w-full h-full rounded-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800" />}
+                                   </div>
+                                   <div>
+                                     <h4 className="font-bold text-sm text-gray-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-primary transition-colors">{asset.name}</h4>
+                                     <div className="flex items-center gap-2 mt-0.5">
+                                       <span className="text-[10px] font-numbers font-bold text-gray-500 dark:text-gray-400">{balanceVisible ? asset.balance.toLocaleString(undefined, { maximumFractionDigits: 5 }) : '••••'} {asset.symbol}</span>
+                                     </div>
+                                   </div>
+                                 </div>
+                                 <div className="text-right">
+                                   <p className="font-numbers font-black text-sm text-gray-900 dark:text-white">
+                                     {balanceVisible ? `${currencySymbols[selectedCurrency] || ''}${formatValue(asset.usdValue * conversionRates[selectedCurrency], selectedCurrency)}` : '••••'}
+                                   </p>
+                                   <p className={`text-[10px] font-numbers font-bold mt-0.5 ${change24h >= 0 ? 'text-emerald-600 dark:text-emerald-500' : 'text-red-600 dark:text-red-500'}`}>
+                                      {change24h >= 0 ? '+' : ''}{changePercent24h.toFixed(2)}%
+                                   </p>
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                        ) : (
+                           <div className="py-8 text-center">
+                             <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-3">
+                               <RefreshCw size={20} className="text-gray-400" />
+                             </div>
+                             <p className="text-sm font-bold text-gray-600 dark:text-gray-400">No assets found</p>
+                           </div>
+                        )
+                     ) : (
+                        <div className="py-12 text-center">
+                           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-100 to-blue-100 dark:from-purple-500/10 dark:to-blue-500/10 flex items-center justify-center mx-auto mb-4 border border-purple-200/50 dark:border-purple-500/20">
+                             <Layers size={28} className="text-purple-500" />
+                           </div>
+                           <h3 className="text-base font-black text-gray-900 dark:text-white mb-1">Digital Collectibles</h3>
+                           <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[200px] mx-auto">Your NFTs will appear here across all supported networks.</p>
+                           <span className="inline-block mt-4 text-[9px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-500/20 px-3 py-1 rounded-full">Coming Soon</span>
+                        </div>
+                     )}
                   </div>
                 </div>
               </>
@@ -1024,11 +1322,13 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-                <AirdropWidget />
-
-
-        {/* Functional Action Grid - Compact */}
-        <div className="flex gap-2 sm:gap-2.5">
+        {/* Functional Action Grid - Compact with enhanced theme transitions */}
+        <div className="relative">
+          {/* Enhanced animated background for action buttons with smooth theme transitions */}
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/5 via-transparent to-blue-400/5 dark:from-emerald-500/3 dark:via-transparent dark:to-blue-500/3 rounded-2xl transition-all duration-1000 ease-in-out" 
+               style={{ animation: 'pulse 4s ease-in-out infinite, gradientShift 8s ease-in-out infinite alternate' }} />
+          
+          <div className="relative flex gap-2 sm:gap-2.5">
           <ActionButton
             icon={Send}
             label="Send"
@@ -1045,14 +1345,24 @@ const Dashboard: React.FC = () => {
             label="BUY RZC"
             onClick={() => navigate('/wallet/store')}
           />
+          </div>
         </div>
+        
+                         <AirdropWidget />
 
-        {/* Transaction History - Compact */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-gray-500 flex items-center gap-1.5">
-              <History size={12} />
-              {t('dashboard.recentActivity')}
+
+        {/* Transaction History - Compact with enhanced theme transitions */}
+        <div className="relative space-y-3">
+          {/* Enhanced animated background with smooth theme transitions */}
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-400/3 via-transparent to-blue-400/3 dark:from-slate-500/2 dark:via-transparent dark:to-blue-500/2 rounded-xl transition-all duration-1000 ease-in-out" 
+               style={{ animation: 'pulse 6s ease-in-out infinite, gradientShift 10s ease-in-out infinite alternate' }} />
+          
+          <div className="relative flex items-center justify-between">
+            <h3 className="text-[10px] font-heading font-black uppercase tracking-widest text-slate-600 dark:text-gray-500 flex items-center gap-2">
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 dark:bg-white/5 rounded-full border  border-primary/20   border-slate-300 dark:border-white/10">
+                <History size={11} />
+                {t('dashboard.recentActivity')}
+              </span>
             </h3>
             <button
               onClick={() => navigate('/wallet/history')}
@@ -1085,10 +1395,10 @@ const Dashboard: React.FC = () => {
               <LoadingSkeleton height={70} />
             </div>
           ) : transactions.length === 0 ? (
-            <div className="p-6 sm:p-8 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl text-center">
-              <History size={28} className="mx-auto mb-2.5 text-slate-300 dark:text-gray-700" />
+            <div className="p-6 sm:p-8 bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 dark:bg-[#1a1a1a] border  border-primary/20   border-slate-300 dark:border-white/10 rounded-xl sm:rounded-2xl text-center">
+              <History size={28} className="mx-auto mb-2.5 text-slate-400 dark:text-gray-700" />
               <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">{t('dashboard.noTransactions')}</h4>
-              <p className="text-xs text-slate-500 dark:text-gray-400 mb-3">
+              <p className="text-xs text-slate-600 dark:text-gray-400 mb-3">
                 {t('dashboard.noTransactionsDesc')}
               </p>
               <button
@@ -1099,7 +1409,7 @@ const Dashboard: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="relative space-y-2.5">
               {transactions.slice(0, 5).map((tx) => (
                 <TransactionItem
                   key={tx.id}
@@ -1112,21 +1422,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Marketplace Banner - Compact */}
-        <div
-          onClick={() => navigate('/marketplace')}
-          className="p-3.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br from-secondary/10 to-transparent border border-secondary/20 flex items-center justify-between gap-2 group cursor-pointer active:scale-[0.98] transition-all hover:border-secondary/40 shadow-sm"
-        >
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-secondary/20 flex items-center justify-center text-secondary flex-shrink-0">
-              <ShoppingBag size={18} />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">{t('dashboard.marketplaceBanner')}</h4>
-              <p className="text-[10px] text-slate-600 dark:text-gray-400 font-medium line-clamp-1">{t('dashboard.marketplaceBannerDesc')}</p>
-            </div>
-          </div>
-          <ExternalLink size={14} className="text-secondary group-hover:translate-x-1 transition-transform flex-shrink-0" />
-        </div>
+        <AffiliateHubBanner />
       </div>
     </>
   );

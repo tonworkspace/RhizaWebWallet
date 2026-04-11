@@ -19,7 +19,11 @@ import {
   User,
   Coins,
   Zap,
-  RefreshCw
+  RefreshCw,
+  ExternalLink,
+  Clock,
+  DollarSign,
+  Receipt
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
@@ -28,7 +32,7 @@ import { supabaseService } from '../services/supabaseService';
 import { getPriceOverrides, setPriceOverrides, clearPriceOverrides, PriceOverrides } from '../utils/priceConfig';
 
 const AdminPanel: React.FC = () => {
-  const { address } = useWallet();
+  const { address, updateRzcPrice } = useWallet();
   const { success, error } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -59,24 +63,117 @@ const AdminPanel: React.FC = () => {
   const [rateSaved, setRateSaved] = useState(false);
   const [fetchingRates, setFetchingRates] = useState(false);
 
+  const [priceSource, setPriceSource] = useState<'coingecko' | 'binance' | 'okx'>('coingecko');
+
+  // Recent activations state
+  const [activations, setActivations] = useState<any[]>([]);
+  const [activationsTotal, setActivationsTotal] = useState(0);
+  const [activationsPage, setActivationsPage] = useState(1);
+  const [loadingActivations, setLoadingActivations] = useState(false);
+  const [showActivations, setShowActivations] = useState(false);
+  const activationsPageSize = 20;
+
   const handleFetchLiveRates = async () => {
     setFetchingRates(true);
+    let successCount = 0;
+    
     try {
-      const res = await fetch(
-        'https://api.coingecko.com/api/v3/simple/price' +
-        '?ids=the-open-network,bitcoin,ethereum&vs_currencies=usd'
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setRateForm(prev => ({
-        ...prev,
-        ton: data['the-open-network']?.usd ?? prev.ton,
-        btc: data['bitcoin']?.usd ?? prev.btc,
-        eth: data['ethereum']?.usd ?? prev.eth,
-      }));
-      success('✅ Live prices fetched — review and save to apply');
+      if (priceSource === 'coingecko') {
+        const res = await fetch(
+          'https://api.coingecko.com/api/v3/simple/price' +
+          '?ids=the-open-network,bitcoin,ethereum,solana,tron,notcoin,tether,usd-coin,binancecoin,matic-network,avalanche-2&vs_currencies=usd'
+        );
+        if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+        const data = await res.json();
+        
+        setRateForm(prev => ({
+          ...prev,
+          ton: data['the-open-network']?.usd ?? prev.ton,
+          btc: data['bitcoin']?.usd ?? prev.btc,
+          eth: data['ethereum']?.usd ?? prev.eth,
+          sol: data['solana']?.usd ?? prev.sol,
+          trx: data['tron']?.usd ?? prev.trx,
+          not: data['notcoin']?.usd ?? prev.not,
+          usdt: data['tether']?.usd ?? prev.usdt,
+          usdc: data['usd-coin']?.usd ?? prev.usdc,
+          bnb: data['binancecoin']?.usd ?? prev.bnb,
+          matic: data['matic-network']?.usd ?? prev.matic,
+          avax: data['avalanche-2']?.usd ?? prev.avax,
+        }));
+        successCount = 11;
+      } else if (priceSource === 'binance') {
+        // Binance Public Ticker Price API
+        const symbols = [
+          'TONUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'TRXUSDT', 
+          'NOTUSDT', 'BNBUSDT', 'MATICUSDT', 'POLUSDT', 'AVAXUSDT', 'USDCUSDT'
+        ];
+        
+        const res = await fetch('https://api.binance.com/api/v3/ticker/price');
+        if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+        const data = await res.json();
+        
+        const prices: Record<string, number> = {};
+        data.forEach((item: { symbol: string; price: string }) => {
+          if (symbols.includes(item.symbol)) {
+            prices[item.symbol] = parseFloat(item.price);
+          }
+        });
+
+        setRateForm(prev => ({
+          ...prev,
+          ton: prices['TONUSDT'] ?? prev.ton,
+          btc: prices['BTCUSDT'] ?? prev.btc,
+          eth: prices['ETHUSDT'] ?? prev.eth,
+          sol: prices['SOLUSDT'] ?? prev.sol,
+          trx: prices['TRXUSDT'] ?? prev.trx,
+          not: prices['NOTUSDT'] ?? prev.not,
+          bnb: prices['BNBUSDT'] ?? prev.bnb,
+          matic: prices['POLUSDT'] ?? prices['MATICUSDT'] ?? prev.matic,
+          avax: prices['AVAXUSDT'] ?? prev.avax,
+          usdc: prices['USDCUSDT'] ?? prev.usdc,
+          usdt: 1.0, // Binance baseline
+        }));
+        successCount = Object.keys(prices).length;
+      } else if (priceSource === 'okx') {
+        const symbols = [
+          'TON-USDT', 'BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'TRX-USDT', 
+          'NOT-USDT', 'BNB-USDT', 'MATIC-USDT', 'POL-USDT', 'AVAX-USDT', 'USDC-USDT'
+        ];
+        
+        // OKX requires individual or specific ticker calls, but they have a public tickers list
+        const res = await fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT');
+        if (!res.ok) throw new Error(`OKX HTTP ${res.status}`);
+        const data = await res.json();
+        
+        if (data.code !== '0') throw new Error(`OKX API Error: ${data.msg}`);
+        
+        const prices: Record<string, number> = {};
+        data.data.forEach((item: { instId: string; last: string }) => {
+          if (symbols.includes(item.instId)) {
+            prices[item.instId] = parseFloat(item.last);
+          }
+        });
+
+        setRateForm(prev => ({
+          ...prev,
+          ton: prices['TON-USDT'] ?? prev.ton,
+          btc: prices['BTC-USDT'] ?? prev.btc,
+          eth: prices['ETH-USDT'] ?? prev.eth,
+          sol: prices['SOL-USDT'] ?? prev.sol,
+          trx: prices['TRX-USDT'] ?? prev.trx,
+          not: prices['NOT-USDT'] ?? prev.not,
+          bnb: prices['BNB-USDT'] ?? prev.bnb,
+          matic: prices['POL-USDT'] ?? prices['MATIC-USDT'] ?? prev.matic,
+          avax: prices['AVAX-USDT'] ?? prev.avax,
+          usdc: prices['USDC-USDT'] ?? prev.usdc,
+          usdt: 1.0,
+        }));
+        successCount = Object.keys(prices).length;
+      }
+
+      success(`✅ Fetch success! ${successCount} rates updated from ${priceSource.toUpperCase()}`);
     } catch (err: any) {
-      error(`❌ Failed to fetch live prices: ${err.message}`);
+      error(`❌ Failed to fetch from ${priceSource.toUpperCase()}: ${err.message}`);
     } finally {
       setFetchingRates(false);
     }
@@ -91,8 +188,62 @@ const AdminPanel: React.FC = () => {
   useEffect(() => {
     if (isAdmin) {
       loadUsers();
+      loadDatabaseRates();
+      if (showActivations) {
+        loadActivations();
+      }
     }
-  }, [isAdmin, page, search, filter, nodeFilter]);
+  }, [isAdmin, page, search, filter, nodeFilter, activationsPage, showActivations]);
+
+  const loadDatabaseRates = async () => {
+    const result = await adminService.getAssetRates();
+    if (result.success && result.rates) {
+      const rates = result.rates;
+      setRateForm(prev => ({
+        ...prev,
+        ton: rates.TON_PRICE ?? prev.ton,
+        btc: rates.BTC_PRICE ?? prev.btc,
+        eth: rates.ETH_PRICE ?? prev.eth,
+        sol: rates.SOL_PRICE ?? prev.sol,
+        trx: rates.TRX_PRICE ?? prev.trx,
+        rzc: rates.RZC_PRICE ?? prev.rzc,
+        usdt: rates.USDT_PRICE ?? prev.usdt,
+        usdc: rates.USDC_PRICE ?? prev.usdc,
+        not: rates.NOT_PRICE ?? prev.not,
+        scale: rates.SCALE_PRICE ?? prev.scale,
+        stk: rates.STK_PRICE ?? prev.stk,
+        bnb: rates.BNB_PRICE ?? prev.bnb,
+        matic: rates.MATIC_PRICE ?? prev.matic,
+        avax: rates.AVAX_PRICE ?? prev.avax,
+      }));
+    }
+  };
+
+  const loadActivations = async () => {
+    setLoadingActivations(true);
+    console.log('🔍 Loading activations...');
+    
+    const result = await adminService.getRecentActivations({
+      limit: activationsPageSize,
+      offset: (activationsPage - 1) * activationsPageSize
+    });
+
+    console.log('📊 Activations result:', result);
+
+    if (result.success) {
+      console.log(`✅ Loaded ${result.activations?.length || 0} activations (total: ${result.total || 0})`);
+      setActivations(result.activations || []);
+      setActivationsTotal(result.total || 0);
+      
+      if ((result.activations?.length || 0) === 0) {
+        console.warn('⚠️ No activation records found in database');
+      }
+    } else {
+      console.error('❌ Failed to load activations:', result.error);
+      error(`Failed to load activations: ${result.error}`);
+    }
+    setLoadingActivations(false);
+  };
 
   const checkAdminAccess = async () => {
     if (!address) {
@@ -134,25 +285,33 @@ const AdminPanel: React.FC = () => {
     try {
       const walletAddresses = users.map(u => u.wallet_address);
       
+      // Try to get squad mining claims count (mining nodes don't exist)
+      // Using wallet_squad_claims table instead
       const { data, error } = await client
-        .from('mining_nodes')
-        .select('wallet_address')
-        .in('wallet_address', walletAddresses);
+        .from('wallet_squad_claims')
+        .select('user_id')
+        .in('user_id', users.map(u => u.id));
 
       if (error) {
-        console.error('Error loading node counts:', error);
+        // Table might not exist, silently fail
+        console.warn('Squad mining table not available:', error.message);
+        setUserNodes({}); // Set empty object
         return;
       }
 
-      // Count nodes per wallet
+      // Count claims per user (as proxy for "mining activity")
       const counts: Record<string, number> = {};
-      data?.forEach(node => {
-        counts[node.wallet_address] = (counts[node.wallet_address] || 0) + 1;
+      data?.forEach(claim => {
+        const user = users.find(u => u.id === claim.user_id);
+        if (user) {
+          counts[user.wallet_address] = (counts[user.wallet_address] || 0) + 1;
+        }
       });
 
       setUserNodes(counts);
     } catch (err) {
-      console.error('Error loading node counts:', err);
+      console.warn('Error loading node counts:', err);
+      setUserNodes({}); // Set empty object on error
     }
   };
 
@@ -261,15 +420,51 @@ const AdminPanel: React.FC = () => {
     setProcessing(false);
   };
 
-  const handleSaveRates = () => {
-    setPriceOverrides({
-      ...rateForm,
-      updatedAt: new Date().toISOString(),
-      updatedBy: address || 'admin',
-    });
-    setRateSaved(true);
-    setTimeout(() => setRateSaved(false), 2500);
-    success('✅ Fallback coin rates saved');
+  const handleSaveRates = async () => {
+    setProcessing(true);
+    try {
+      // 1. Save to local storage (legacy/fallback)
+      setPriceOverrides({
+        ...rateForm,
+        updatedAt: new Date().toISOString(),
+        updatedBy: address || 'admin',
+      });
+
+      // 2. Save to database (global)
+      if (address) {
+        const rateMappings = [
+          { key: 'TON_PRICE', value: rateForm.ton },
+          { key: 'BTC_PRICE', value: rateForm.btc },
+          { key: 'ETH_PRICE', value: rateForm.eth },
+          { key: 'SOL_PRICE', value: rateForm.sol },
+          { key: 'TRX_PRICE', value: rateForm.trx },
+          { key: 'RZC_PRICE', value: rateForm.rzc },
+          { key: 'USDT_PRICE', value: rateForm.usdt },
+          { key: 'USDC_PRICE', value: rateForm.usdc },
+          { key: 'NOT_PRICE', value: rateForm.not },
+          { key: 'SCALE_PRICE', value: rateForm.scale },
+          { key: 'STK_PRICE', value: rateForm.stk },
+          { key: 'BNB_PRICE', value: rateForm.bnb },
+          { key: 'MATIC_PRICE', value: rateForm.matic },
+          { key: 'AVAX_PRICE', value: rateForm.avax },
+        ];
+
+        for (const mapping of rateMappings) {
+          await adminService.updateAssetRate(mapping.key, mapping.value, address);
+        }
+      }
+
+      // 3. Instantly update the live price in the running app for all components
+      updateRzcPrice(rateForm.rzc);
+
+      setRateSaved(true);
+      setTimeout(() => setRateSaved(false), 2500);
+      success('✅ Global asset rates saved — live price updated instantly');
+    } catch (err: any) {
+      error(`❌ Failed to save rates: ${err.message}`);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const handleResetRates = () => {
@@ -368,7 +563,7 @@ const AdminPanel: React.FC = () => {
           <div className="flex items-center gap-3">
             <Zap size={24} className="text-purple-600" />
             <div>
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-semibold">With Nodes</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-semibold">Squad Active</p>
               <p className="text-2xl font-black text-gray-950 dark:text-white">
                 {displayedUsers.filter(u => (userNodes[u.wallet_address] || 0) > 0).length}
               </p>
@@ -386,6 +581,225 @@ const AdminPanel: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Recent Activations Section */}
+      <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl overflow-hidden">
+        <button
+          onClick={() => {
+            setShowActivations(!showActivations);
+            if (!showActivations && activations.length === 0) {
+              loadActivations();
+            }
+          }}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Receipt size={24} className="text-emerald-600" />
+            <div className="text-left">
+              <h2 className="text-lg font-black text-gray-950 dark:text-white">Recent Activations</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                View payment details and transaction hashes
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {activationsTotal > 0 && (
+              <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold rounded-full">
+                {activationsTotal} total
+              </span>
+            )}
+            <ChevronRight 
+              size={20} 
+              className={`text-gray-400 transition-transform ${showActivations ? 'rotate-90' : ''}`} 
+            />
+          </div>
+        </button>
+
+        {showActivations && (
+          <div className="border-t-2 border-gray-200 dark:border-white/10">
+            {loadingActivations ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader className="animate-spin" size={32} />
+              </div>
+            ) : activations.length === 0 ? (
+              <div className="text-center py-12 text-gray-600 dark:text-gray-400">
+                No activations found
+              </div>
+            ) : (
+              <>
+                {/* Desktop Table */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 dark:bg-white/5">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">User</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Wallet</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Payment</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Transaction</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y-2 divide-gray-200 dark:divide-white/10">
+                      {activations.map((activation) => (
+                        <tr key={activation.id} className="hover:bg-gray-50 dark:hover:bg-white/5">
+                          <td className="px-4 py-3">
+                            <div>
+                              <p className="font-bold text-gray-950 dark:text-white">
+                                {activation.wallet_users?.name || 'Unknown'}
+                              </p>
+                              {activation.wallet_users?.email && (
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  {activation.wallet_users.email}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="text-xs font-mono text-gray-600 dark:text-gray-400">
+                              {activation.wallet_address.slice(0, 8)}...{activation.wallet_address.slice(-6)}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div>
+                              <p className="font-bold text-gray-950 dark:text-white">
+                                ${activation.activation_fee_usd?.toFixed(2) || '0.00'}
+                              </p>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                {activation.activation_fee_ton?.toFixed(4) || '0.0000'} TON
+                              </p>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {activation.transaction_hash ? (
+                              <a
+                                href={`https://tonscan.org/tx/${activation.transaction_hash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs font-mono text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                {activation.transaction_hash.slice(0, 8)}...
+                                <ExternalLink size={12} />
+                              </a>
+                            ) : (
+                              <span className="text-xs text-gray-500 dark:text-gray-500">
+                                {activation.activation_fee_usd === 0 ? 'Admin activated' : 'No tx hash'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+                              <Clock size={12} />
+                              {new Date(activation.completed_at || activation.created_at).toLocaleString()}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded ${
+                              activation.status === 'completed'
+                                ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                            }`}>
+                              {activation.status === 'completed' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                              {activation.status || 'pending'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards */}
+                <div className="lg:hidden divide-y-2 divide-gray-200 dark:divide-white/10">
+                  {activations.map((activation) => (
+                    <div key={activation.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-bold text-gray-950 dark:text-white">
+                            {activation.wallet_users?.name || 'Unknown'}
+                          </p>
+                          <p className="text-xs font-mono text-gray-600 dark:text-gray-400 mt-0.5">
+                            {activation.wallet_address.slice(0, 12)}...{activation.wallet_address.slice(-8)}
+                          </p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded ${
+                          activation.status === 'completed'
+                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                            : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                        }`}>
+                          {activation.status === 'completed' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                          {activation.status || 'pending'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200 dark:border-white/10">
+                        <div>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Payment</p>
+                          <p className="font-bold text-gray-950 dark:text-white">
+                            ${activation.activation_fee_usd?.toFixed(2) || '0.00'}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            {activation.activation_fee_ton?.toFixed(4) || '0.0000'} TON
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Date</p>
+                          <p className="text-xs font-bold text-gray-950 dark:text-white">
+                            {new Date(activation.completed_at || activation.created_at).toLocaleDateString()}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            {new Date(activation.completed_at || activation.created_at).toLocaleTimeString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      {activation.transaction_hash && (
+                        <a
+                          href={`https://tonscan.org/tx/${activation.transaction_hash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
+                        >
+                          <ExternalLink size={14} />
+                          View on TonScan
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {Math.ceil(activationsTotal / activationsPageSize) > 1 && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t-2 border-gray-200 dark:border-white/10">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Showing {(activationsPage - 1) * activationsPageSize + 1} to {Math.min(activationsPage * activationsPageSize, activationsTotal)} of {activationsTotal} activations
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setActivationsPage(p => Math.max(1, p - 1))}
+                        disabled={activationsPage === 1}
+                        className="p-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-lg hover:bg-gray-50 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className="text-sm font-bold text-gray-950 dark:text-white">
+                        Page {activationsPage} of {Math.ceil(activationsTotal / activationsPageSize)}
+                      </span>
+                      <button
+                        onClick={() => setActivationsPage(p => Math.min(Math.ceil(activationsTotal / activationsPageSize), p + 1))}
+                        disabled={activationsPage === Math.ceil(activationsTotal / activationsPageSize)}
+                        className="p-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-lg hover:bg-gray-50 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -427,9 +841,9 @@ const AdminPanel: React.FC = () => {
             }}
             className="px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
           >
-            <option value="all">All Nodes</option>
-            <option value="has_nodes">Has Mining Nodes</option>
-            <option value="no_nodes">No Mining Nodes</option>
+            <option value="all">All Users</option>
+            <option value="has_nodes">Has Squad Claims</option>
+            <option value="no_nodes">No Squad Claims</option>
           </select>
         </div>
       </div>
@@ -444,7 +858,7 @@ const AdminPanel: React.FC = () => {
                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Wallet</th>
                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Activation</th>
                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Mining Nodes</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Squad Claims</th>
                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">RZC Balance</th>
                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Joined</th>
                 <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Actions</th>
@@ -518,11 +932,11 @@ const AdminPanel: React.FC = () => {
                         <div>
                           <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 text-xs font-bold rounded">
                             <Zap size={12} />
-                            {userNodes[user.wallet_address]} Node{userNodes[user.wallet_address] > 1 ? 's' : ''}
+                            {userNodes[user.wallet_address]} Claim{userNodes[user.wallet_address] > 1 ? 's' : ''}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-500 dark:text-gray-500">No nodes</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-500">No claims</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -668,7 +1082,7 @@ const AdminPanel: React.FC = () => {
               {/* Stats */}
               <div className="grid grid-cols-3 gap-3 pt-3 border-t-2 border-gray-200 dark:border-white/10">
                 <div>
-                  <p className="text-xs text-gray-600 dark:text-gray-400">Mining Nodes</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Squad Claims</p>
                   {(userNodes[user.wallet_address] || 0) > 0 ? (
                     <p className="font-bold text-purple-700 dark:text-purple-400 flex items-center gap-1">
                       <Zap size={14} />
@@ -769,23 +1183,32 @@ const AdminPanel: React.FC = () => {
       <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-black text-gray-950 dark:text-white">Fallback Coin Rates</h2>
+            <h2 className="text-lg font-black text-gray-950 dark:text-white">Global Asset Rates</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Used when CoinGecko is unreachable. Live prices always take priority.
+              Saved to database — all users see these rates on next load. RZC price updates instantly.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <select
+              value={priceSource}
+              onChange={(e) => setPriceSource(e.target.value as any)}
+              className="px-3 py-2 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl text-xs font-bold text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+            >
+              <option value="coingecko">CoinGecko (Aggregated)</option>
+              <option value="binance">Binance (Market Tickers)</option>
+              <option value="okx">OKX (Market Tickers)</option>
+            </select>
             <button
               onClick={handleFetchLiveRates}
               disabled={fetchingRates}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-500/20 rounded-xl text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-500/20 rounded-xl text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-all disabled:opacity-50 whitespace-nowrap"
             >
               {fetchingRates ? (
                 <Loader size={13} className="animate-spin" />
               ) : (
                 <RefreshCw size={13} />
               )}
-              {fetchingRates ? 'Fetching...' : 'Fetch Live Prices'}
+              {fetchingRates ? 'Fetching...' : 'Fetch Rates'}
             </button>
             {rateForm.updatedAt && (
               <p className="text-[10px] text-gray-400 dark:text-gray-600 text-right">
@@ -796,10 +1219,28 @@ const AdminPanel: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* RZC */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">💎</span> RZC (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.rzc}
+                onChange={(e) => setRateForm({ ...rateForm, rzc: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary font-bold"
+              />
+            </div>
+          </div>
+
           {/* TON */}
           <div>
             <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-              <span className="text-lg">💎</span> TON (USD)
+              <span className="text-lg">💠</span> TON (USD)
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
@@ -845,6 +1286,186 @@ const AdminPanel: React.FC = () => {
                 step="1"
                 value={rateForm.eth}
                 onChange={(e) => setRateForm({ ...rateForm, eth: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* USDT */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">💵</span> USDT (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.usdt}
+                onChange={(e) => setRateForm({ ...rateForm, usdt: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* SOL */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">☀️</span> SOL (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.sol}
+                onChange={(e) => setRateForm({ ...rateForm, sol: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* TRX */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">🔴</span> TRX (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                value={rateForm.trx}
+                onChange={(e) => setRateForm({ ...rateForm, trx: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* USDC */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">💰</span> USDC (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.usdc}
+                onChange={(e) => setRateForm({ ...rateForm, usdc: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* BNB */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">🟡</span> BNB (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={rateForm.bnb}
+                onChange={(e) => setRateForm({ ...rateForm, bnb: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* MATIC */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">🟣</span> MATIC (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.matic}
+                onChange={(e) => setRateForm({ ...rateForm, matic: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* AVAX */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">🔴</span> AVAX (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={rateForm.avax}
+                onChange={(e) => setRateForm({ ...rateForm, avax: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* NOT */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">🎮</span> NOT (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                value={rateForm.not}
+                onChange={(e) => setRateForm({ ...rateForm, not: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* SCALE */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">📈</span> SCALE (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.scale}
+                onChange={(e) => setRateForm({ ...rateForm, scale: parseFloat(e.target.value) || 0 })}
+                className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* STK */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <span className="text-lg">🥩</span> STK (USD)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateForm.stk}
+                onChange={(e) => setRateForm({ ...rateForm, stk: parseFloat(e.target.value) || 0 })}
                 className="w-full pl-7 pr-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
               />
             </div>

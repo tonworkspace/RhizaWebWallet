@@ -34,13 +34,18 @@ export const RZC_CONFIG = {
   MAX_AMOUNT: 1000000,
 } as const;
 
+import { getPriceOverrides } from '../utils/priceConfig';
+
+// ... (other parts of RZC_CONFIG)
+
 /**
  * Convert USD to RZC
  * @param usdAmount - Amount in USD
  * @returns Amount in RZC tokens
  */
 export function usdToRzc(usdAmount: number): number {
-  return Math.floor(usdAmount / RZC_CONFIG.RZC_PRICE_USD);
+  const currentPrice = getPriceOverrides().rzc || RZC_CONFIG.RZC_PRICE_USD;
+  return Math.floor(usdAmount / currentPrice);
 }
 
 /**
@@ -49,7 +54,8 @@ export function usdToRzc(usdAmount: number): number {
  * @returns Amount in USD
  */
 export function rzcToUsd(rzcAmount: number): number {
-  return rzcAmount * RZC_CONFIG.RZC_PRICE_USD;
+  const currentPrice = getPriceOverrides().rzc || RZC_CONFIG.RZC_PRICE_USD;
+  return rzcAmount * currentPrice;
 }
 
 /**
@@ -74,11 +80,10 @@ export function formatRzcAsUsd(rzcAmount: number): string {
 }
 
 /**
- * Get current RZC price
- * @returns Current RZC price in USD
+ * Get current RZC price (reads from admin-configured overrides)
  */
 export function getRzcPrice(): number {
-  return RZC_CONFIG.RZC_PRICE_USD;
+  return getPriceOverrides().rzc || RZC_CONFIG.RZC_PRICE_USD;
 }
 
 /**

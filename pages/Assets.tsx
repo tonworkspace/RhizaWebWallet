@@ -12,21 +12,23 @@ import {
   AlertCircle,
   RefreshCw,
   Send,
-  Lock,
+  QrCode,
   ShieldCheck,
-  TrendingUp
+  TrendingUp,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { tonWalletService } from '../services/tonWalletService';
 import { getExplorerUrl } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import BalanceVerification from '../components/BalanceVerification';
+import VerificationBadge from '../components/VerificationBadge';
 import { getJettonRegistryData, enhanceJettonData, getJettonPrice, getAllRegistryTokens } from '../services/jettonRegistry';
 import TokenImage from '../components/TokenImage';
 import { useToast } from '../context/ToastContext';
 import { RZC_CONFIG } from '../config/rzcConfig';
-import BalanceVerification from '../components/BalanceVerification';
 import { useBalance } from '../hooks/useBalance';
-import { tetherWdkService } from '../services/tetherWdkService';
 import { CHAIN_META } from '../constants';
 
 interface Jetton {
@@ -77,10 +79,38 @@ interface NFT {
 const Assets: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { address, network, balance: tonBalance, userProfile, refreshData, multiChainBalances } = useWallet();
-  const { tonPrice, btcPrice, ethPrice } = useBalance();
+  const { address, network, balance: tonBalance, userProfile, refreshData, multiChainBalances, currentEvmChain } = useWallet();
+  const { tonPrice, btcPrice, ethPrice, bnbPrice, maticPrice, avaxPrice, solPrice, tronPrice, usdtPrice, usdcPrice, rzcPrice, changePercent24h } = useBalance();
+
+  // Pick the correct native token price for the active EVM chain
+  const evmNativePrice: Record<string, number> = {
+    ethereum: ethPrice,
+    arbitrum: ethPrice,
+    plasma: ethPrice,
+    stable: ethPrice,
+    sepolia: ethPrice,
+    polygon: maticPrice,
+    bsc: bnbPrice,
+    avalanche: avaxPrice,
+  };
+  const activeEvmPrice = evmNativePrice[currentEvmChain] ?? ethPrice;
   const { showToast } = useToast();
+  const [balanceVisible, setBalanceVisible] = useState(true);
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'BTC' | 'TON' | 'USDT' | 'EUR'>('USD');
+  const [showCurrencyMenu, setShowCurrencyMenu] = useState(false);
   const [activeTab, setActiveTab] = useState<'tokens' | 'nfts'>('tokens');
+
+  // Close currency menu on outside click
+  useEffect(() => {
+    if (!showCurrencyMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.assets-currency-selector')) {
+        setShowCurrencyMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCurrencyMenu]);
   const [jettons, setJettons] = useState<Jetton[]>([]);
   const [nfts, setNFTs] = useState<NFT[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,15 +120,24 @@ const Assets: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tokenFilter, setTokenFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
-  const [canSendRzc, setCanSendRzc] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
+  const [canSendRzc, setCanSendRzc] = useState(true);
+  const [isVerified, setIsVerified] = useState(true);
 
   useEffect(() => {
     fetchJettons();
-    // Refresh wallet balance when component mounts
     if (refreshData) {
       refreshData();
     }
+
+    // Refresh data periodically so deposits are automatically visible
+    const interval = setInterval(() => {
+      fetchJettons();
+      if (refreshData) {
+        refreshData();
+      }
+    }, 15_000);
+
+    return () => clearInterval(interval);
   }, [address, network]);
 
   // Re-run whenever userProfile changes (e.g. after approval + refresh)
@@ -107,15 +146,9 @@ const Assets: React.FC = () => {
   }, [userProfile]);
 
   const checkRzcTransferStatus = async () => {
-    if (!userProfile) return;
-
-    // balance_locked = true means locked (cannot send), false means unlocked
-    // balance_verified = true means verified
-    const verified = (userProfile as any).balance_verified === true;
-    const locked = (userProfile as any).balance_locked !== false; // default to locked if missing
-
-    setIsVerified(verified);
-    setCanSendRzc(verified && !locked);
+    // RZC transfers are always enabled
+    setIsVerified(true);
+    setCanSendRzc(true);
   };
 
   useEffect(() => {
@@ -330,12 +363,26 @@ const Assets: React.FC = () => {
   })();
 
   const rzcBalance = (userProfile as any)?.rzc_balance || 0;
-  const rzcPrice = RZC_CONFIG.RZC_PRICE_USD; // Config
+  // Use price from useBalance (which uses admin overrides/database) or fallback to config
+  const currentRzcPrice = rzcPrice || RZC_CONFIG.RZC_PRICE_USD;
 
   const evmNum = multiChainBalances ? parseFloat(multiChainBalances.evm) || 0 : 0;
   const btcNum = multiChainBalances ? parseFloat(multiChainBalances.btc) || 0 : 0;
+  const solNum = multiChainBalances ? parseFloat(multiChainBalances.sol) || 0 : 0;
+  const tronNum = multiChainBalances ? parseFloat(multiChainBalances.tron) || 0 : 0;
 
-  const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * rzcPrice) + (evmNum * ethPrice) + (btcNum * btcPrice);
+  // SOL and TRX prices from useBalance (live CoinGecko rates)
+
+  // Calculate Jettons USD Value
+  const jettonsUsdValue = filteredJettons.reduce((acc, j) => {
+    return acc + ((parseFloat(j.balance) / Math.pow(10, j.jetton.decimals || 9)) * (j.price?.usd || 0));
+  }, 0);
+
+  const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * currentRzcPrice)
+    + (evmNum * activeEvmPrice) + (btcNum * btcPrice)
+    + (solNum * solPrice) + (tronNum * tronPrice)
+    + (parseFloat(multiChainBalances?.usdt || '0') * usdtPrice)
+    + jettonsUsdValue;
 
   console.log('🔍 Assets Debug:', {
     tonBalance,
@@ -344,8 +391,25 @@ const Assets: React.FC = () => {
     totalValue
   });
 
-  const evmChain = tetherWdkService.getCurrentEvmChain();
-  const evmLabel = evmChain.charAt(0).toUpperCase() + evmChain.slice(1);
+  const evmChain = currentEvmChain;
+  const evmLabel = CHAIN_META[evmChain]?.name ?? evmChain.toUpperCase();
+
+  // Currency conversion
+  const currencies: Array<'USD' | 'BTC' | 'TON' | 'USDT' | 'EUR'> = ['USD', 'BTC', 'TON', 'USDT', 'EUR'];
+  const conversionRates = {
+    USD: 1,
+    BTC: btcPrice > 0 ? 1 / btcPrice : 0.000015,
+    TON: tonPrice > 0 ? 1 / tonPrice : 0.408,
+    USDT: usdtPrice > 0 ? 1 / usdtPrice : 1,
+    EUR: 0.92,
+  };
+  const currencySymbols: Record<string, string> = { USD: '$', BTC: '₿', TON: 'T', USDT: '₮', EUR: '€' };
+  const convertedTotal = totalValue * conversionRates[selectedCurrency];
+  const formatConverted = (val: number) => {
+    if (selectedCurrency === 'BTC') return val.toFixed(8);
+    if (selectedCurrency === 'TON') return val.toFixed(4);
+    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
   const getNFTImage = (nft: NFT) => {
     // Try previews first
@@ -359,53 +423,149 @@ const Assets: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0 pb-4">
+
+      {/* Currency dropdown — rendered at page level to escape overflow:hidden on the card */}
+      {showCurrencyMenu && (
+        <div className="assets-currency-selector fixed top-[160px] right-4 sm:right-auto z-[100] bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden min-w-[110px] animate-in fade-in slide-in-from-top-2 duration-150">
+          {currencies.map(c => (
+            <button
+              key={c}
+              onClick={() => { setSelectedCurrency(c); setShowCurrencyMenu(false); }}
+              className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-3 ${selectedCurrency === c
+                ? 'bg-emerald-100 dark:bg-primary/10 text-emerald-700 dark:text-primary'
+                : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                }`}
+            >
+              <span>{c}</span>
+              {selectedCurrency === c && <span className="text-emerald-600 dark:text-primary">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
       {/* Portfolio Header */}
       <div className="relative group">
         <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-200/50 to-cyan-200/50 dark:from-primary/20 dark:to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden shadow-lg p-5 sm:p-6 pb-4">
-          <div className="flex items-start justify-between">
-            <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
-                <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
-                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest truncate">Total Portfolio Value</span>
+        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden shadow-lg">
+          <div className="h-[3px] w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500" />
+          <div className="p-5 sm:p-6 pb-4">
+            <div className="flex items-start justify-between">
+              <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
+                  <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
+                  <span className="text-[10px] sm:text-[11px] font-heading font-bold uppercase tracking-widest truncate">Total Portfolio Value</span>
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-numbers font-black tracking-tight text-gray-950 dark:text-white">
+                  {balanceVisible ? (
+                    <span className="inline-flex items-baseline gap-1">
+                      <span className="text-emerald-700 dark:text-[#00FF88] font-black opacity-90">
+                        {currencySymbols[selectedCurrency]}
+                      </span>
+                      <span className="luxury-gradient-text font-glow">
+                        {formatConverted(convertedTotal)}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 dark:text-gray-700">••••••••</span>
+                  )}
+                </h2>
+                <div className="flex items-center gap-1.5 sm:gap-2 pt-1">
+                  <span className={`text-[10px] sm:text-xs font-heading font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${changePercent24h >= 0
+                    ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20'
+                    : 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-500/20'
+                    }`}>
+                    <TrendingUp size={10} className={changePercent24h < 0 ? 'rotate-180' : ''} />
+                    {changePercent24h >= 0 ? '+' : ''}{changePercent24h.toFixed(2)}% TON 24h
+                  </span>
+                </div>
               </div>
-              <h2 className="text-3xl sm:text-4xl font-black tracking-tight-custom text-gray-950 dark:text-white">
-                ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h2>
-              <div className="flex items-center gap-1.5 sm:gap-2 pt-1">
-                <span className="text-[10px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <TrendingUp size={10} /> +2.4%
-                </span>
+
+              <div className="flex items-center gap-1.5">
+                {/* Currency selector — dropdown uses fixed positioning to escape overflow:hidden */}
+                <div className="relative assets-currency-selector">
+                  <button
+                    onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
+                    className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-600 dark:text-gray-400 text-[10px] font-black min-w-[40px] flex items-center justify-center"
+                  >
+                    {selectedCurrency}
+                  </button>
+                </div>
+
+                {/* Hide/show balance */}
+                <button
+                  onClick={() => setBalanceVisible(!balanceVisible)}
+                  className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-600 dark:text-gray-400 hover:text-emerald-600 dark:hover:text-primary transition-all active:scale-95"
+                >
+                  {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                </button>
+
+                {/* Refresh */}
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-600 dark:text-gray-400 hover:text-emerald-600 dark:hover:text-primary hover:bg-emerald-50 dark:hover:bg-white/10 transition-all active:scale-95"
+                >
+                  <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+                </button>
               </div>
             </div>
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="p-2 sm:p-3 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl sm:rounded-2xl text-gray-600 dark:text-gray-400 hover:text-emerald-600 dark:hover:text-primary hover:bg-emerald-50 dark:hover:bg-white/10 transition-all active:scale-95 shadow-sm"
-              title="Refresh"
-            >
-              <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
-            </button>
           </div>
+
+          {/* Live price ticker */}
+          {(() => {
+            const priceItems = [
+              tonPrice > 0 && { symbol: 'TON', price: `$${tonPrice.toFixed(2)}`, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-500/15' },
+              btcPrice > 0 && { symbol: 'BTC', price: `$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-500/15' },
+              ethPrice > 0 && { symbol: 'ETH', price: `$${ethPrice.toFixed(2)}`, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-100 dark:bg-indigo-500/15' },
+              solPrice > 0 && { symbol: 'SOL', price: `$${solPrice.toFixed(2)}`, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-500/15' },
+              bnbPrice > 0 && { symbol: 'BNB', price: `$${bnbPrice.toFixed(2)}`, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-100 dark:bg-yellow-500/15' },
+              tronPrice > 0 && { symbol: 'TRX', price: `$${tronPrice.toFixed(4)}`, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-500/15' },
+              usdtPrice > 0 && { symbol: 'USDT', price: `$${usdtPrice.toFixed(3)}`, color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-100 dark:bg-teal-500/15' },
+              currentRzcPrice > 0 && { symbol: 'RZC', price: `$${currentRzcPrice.toFixed(4)}`, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-500/15' },
+            ].filter(Boolean) as { symbol: string; price: string; color: string; bg: string }[];
+            if (priceItems.length === 0) return null;
+            const doubled = [...priceItems, ...priceItems];
+            return (
+              <div className="border-t border-gray-100 dark:border-white/5 overflow-hidden" style={{ contain: 'paint' }}>
+                <div className="flex items-stretch">
+                  <div className="flex-shrink-0 px-2.5 bg-gradient-to-b from-slate-800 to-slate-900 dark:from-white/10 dark:to-white/5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[8px] font-black uppercase tracking-widest text-white dark:text-white/70">Live</span>
+                  </div>
+                  <div className="flex-1 overflow-hidden py-1.5">
+                    <div className="flex animate-marquee whitespace-nowrap gap-5 px-3" style={{ width: 'max-content' }}>
+                      {doubled.map((item, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1.5">
+                          <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md ${item.bg} ${item.color}`}>{item.symbol}</span>
+                          <span className="text-[10px] font-numbers font-bold text-slate-700 dark:text-slate-300">{item.price}</span>
+                          <span className="text-slate-300 dark:text-white/10 text-[10px]">·</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
+
 
       {/* Tab Switcher */}
       <div className="flex p-1 bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-300 dark:border-white/5 rounded-2xl shadow-sm">
         <button
           onClick={() => setActiveTab('tokens')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'tokens'
-              ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-md'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-heading font-bold transition-all ${activeTab === 'tokens'
+            ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-md'
+            : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
             }`}
         >
           <Coins size={14} /> {t('assets.tokens')}
         </button>
         <button
           onClick={() => setActiveTab('nfts')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'nfts'
-              ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-md'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-heading font-bold transition-all ${activeTab === 'nfts'
+            ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-md'
+            : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
             }`}
         >
           <LayoutGrid size={14} /> {t('assets.nfts')}
@@ -420,7 +580,7 @@ const Assets: React.FC = () => {
           placeholder={`Search ${activeTab === 'tokens' ? 'tokens' : 'NFTs'}...`}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-300 dark:border-white/5 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-semibold text-gray-900 dark:text-white outline-none focus:border-emerald-500/50 dark:focus:border-primary/50 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-sm"
+          className="w-full bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-300 dark:border-white/5 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-heading font-semibold text-gray-900 dark:text-white outline-none focus:border-emerald-500/50 dark:focus:border-primary/50 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-sm"
         />
       </div>
 
@@ -429,27 +589,27 @@ const Assets: React.FC = () => {
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <button
             onClick={() => setTokenFilter('all')}
-            className={`px-4 py-2 flex-shrink-0 rounded-xl text-xs font-bold transition-all ${tokenFilter === 'all'
-                ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-sm'
-                : 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10'
+            className={`px-4 py-2 flex-shrink-0 rounded-xl text-xs font-heading font-bold transition-all ${tokenFilter === 'all'
+              ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-sm'
+              : 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10'
               }`}
           >
             All Tokens
           </button>
           <button
             onClick={() => setTokenFilter('listed')}
-            className={`px-4 py-2 flex-shrink-0 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${tokenFilter === 'listed'
-                ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-sm'
-                : 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10'
+            className={`px-4 py-2 flex-shrink-0 rounded-xl text-xs font-heading font-bold transition-all flex items-center gap-1 ${tokenFilter === 'listed'
+              ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-sm'
+              : 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10'
               }`}
           >
             <ShieldCheck size={14} className={tokenFilter === 'listed' ? '' : 'text-emerald-500'} /> Listed
           </button>
           <button
             onClick={() => setTokenFilter('unlisted')}
-            className={`px-4 py-2 flex-shrink-0 rounded-xl text-xs font-bold transition-all ${tokenFilter === 'unlisted'
-                ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-sm'
-                : 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10'
+            className={`px-4 py-2 flex-shrink-0 rounded-xl text-xs font-heading font-bold transition-all ${tokenFilter === 'unlisted'
+              ? 'bg-emerald-600 dark:bg-primary text-white dark:text-black shadow-sm'
+              : 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10'
               }`}
           >
             Unlisted
@@ -485,19 +645,6 @@ const Assets: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-1">
-                {/* RZC Balance Verification Banner - Only show if NOT verified */}
-                {!canSendRzc && (
-                  <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-200 dark:border-amber-500/20 flex items-start gap-2.5 mb-2 shadow-sm">
-                    <Lock size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-[11px] font-bold text-amber-900 dark:text-amber-300 uppercase tracking-wider">RZC Balance Verification Required</p>
-                      <p className="text-[10px] font-medium text-amber-700 dark:text-amber-400/80 mt-0.5 leading-snug">
-                        RZC transfers are temporarily disabled while we verify your balance. Check the verification section below for status.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
                 {/* TON Balance (Always first) */}
                 <div
                   onClick={() => navigate('/wallet/asset-detail', {
@@ -522,21 +669,38 @@ const Assets: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">Toncoin</h4>
+                      <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">Toncoin</h4>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                          {tonBalanceNum.toFixed(4)} TON
+                        <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                          ${tonPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {changePercent24h !== undefined && (
+                            <span className={`ml-1.5 font-bold ${changePercent24h >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                              {changePercent24h >= 0 ? '+' : ''}{changePercent24h.toFixed(2)}%
+                            </span>
+                          )}
                         </span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <p className="text-sm font-bold text-gray-900 dark:text-white">
-                        ${(tonBalanceNum * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                        {tonBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 4 })} TON
                       </p>
-                      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Native</span>
+                      <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                        ${(tonBalanceNum * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/wallet/receive', { state: { preselect: 'primary' } });
+                      }}
+                      className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                      title="Receive TON"
+                    >
+                      <QrCode size={16} />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -568,70 +732,60 @@ const Assets: React.FC = () => {
                     className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur border-2 border-gray-200 dark:border-white/5 p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer shadow-sm"
                   >
                     <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-xl relative group-hover:scale-105 transition-transform shrink-0 shadow-sm">
-                        ⚡
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center text-white font-black text-xs relative group-hover:scale-105 transition-transform shrink-0 shadow-md shadow-emerald-500/20">
+                        RZC
                         <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
                           <ShieldCheck size={8} className="text-white" />
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">RhizaCore Token</h4>
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">RhizaCore Token</h4>
+                          <VerificationBadge />
+                        </div>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                            {((userProfile as any).rzc_balance || 0).toLocaleString()} RZC
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${currentRzcPrice.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-bold text-emerald-600 dark:text-primary">
-                          ${(((userProfile as any).rzc_balance || 0) * RZC_CONFIG.RZC_PRICE_USD).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {((userProfile as any).rzc_balance || 0).toLocaleString()} RZC
                         </p>
-                        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                          Community {isVerified && '✓'}
+                        <span className="text-[11px] font-numbers font-medium text-emerald-600 dark:text-primary">
+                          ${(((userProfile as any).rzc_balance || 0) * currentRzcPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
-                      {/* RZC Transfer - Dynamic based on verification status */}
-                      {canSendRzc ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate('/wallet/transfer', {
-                              state: {
-                                asset: 'RZC',
-                                balance: (userProfile as any).rzc_balance || 0
-                              }
-                            });
-                          }}
-                          className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-primary/10 hover:bg-emerald-100 dark:hover:bg-primary/20 text-emerald-600 dark:text-primary rounded-xl transition-all active:scale-95"
-                          title="Send RZC"
-                        >
-                          <Send size={16} />
-                        </button>
-                      ) : (
-                        <div className="flex flex-col items-center gap-1">
-                          <div
-                            title="RZC transfers disabled — balance verification required"
-                            className="p-2 bg-amber-500/10 text-amber-500 rounded-xl cursor-not-allowed"
-                          >
-                            <Lock size={16} />
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // Scroll to verification section
-                              const verificationSection = document.querySelector('[data-verification-section]');
-                              if (verificationSection) {
-                                verificationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                              }
-                            }}
-                            className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider hover:underline whitespace-nowrap"
-                          >
-                            Check Status
-                          </button>
-                        </div>
-                      )}
+                      {/* RZC Receive - Always available */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/wallet/receive', { state: { preselect: 'primary-rzc' } });
+                        }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive RZC"
+                      >
+                        <QrCode size={16} />
+                      </button>
+                      {/* RZC Transfer - Always available */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/wallet/transfer', {
+                            state: {
+                              asset: 'RZC',
+                              balance: (userProfile as any).rzc_balance || 0
+                            }
+                          });
+                        }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-primary/10 hover:bg-emerald-100 dark:hover:bg-primary/20 text-emerald-600 dark:text-primary rounded-xl transition-all active:scale-95"
+                        title="Send RZC"
+                      >
+                        <Send size={16} />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -641,12 +795,12 @@ const Assets: React.FC = () => {
                   <div
                     onClick={() => navigate('/wallet/asset-detail', {
                       state: {
-                        symbol: 'ETH/EVM',
-                        name: 'EVM Multi-Chain',
+                        symbol: CHAIN_META[evmChain]?.symbol ?? 'ETH',
+                        name: evmLabel,
                         balance: multiChainBalances.evm,
-                        decimals: 18,
+                        decimals: 0,
                         emoji: '⟠',
-                        price: ethPrice,
+                        price: activeEvmPrice,
                         verified: true,
                         type: 'ETH'
                       }
@@ -661,21 +815,33 @@ const Assets: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">{evmLabel} Network</h4>
+                        <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">{evmLabel}</h4>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                            {parseFloat(multiChainBalances.evm).toFixed(4)} {CHAIN_META[evmChain]?.symbol || 'ETH'}
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${activeEvmPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-bold text-blue-600 dark:text-blue-400">
-                          ${(parseFloat(multiChainBalances.evm) * ethPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {parseFloat(multiChainBalances.evm).toLocaleString(undefined, { maximumFractionDigits: 4 })} {CHAIN_META[evmChain]?.symbol || 'ETH'}
                         </p>
-                        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Mainnet</span>
+                        <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                          ${(parseFloat(multiChainBalances.evm) * activeEvmPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/wallet/receive', { state: { preselect: 'multichain-evm' } });
+                        }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive EVM"
+                      >
+                        <QrCode size={16} />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -696,9 +862,9 @@ const Assets: React.FC = () => {
                     onClick={() => navigate('/wallet/asset-detail', {
                       state: {
                         symbol: 'BTC',
-                        name: 'Bitcoin Origin',
+                        name: 'Bitcoin',
                         balance: multiChainBalances.btc,
-                        decimals: 8,
+                        decimals: 0,
                         emoji: '₿',
                         price: btcPrice,
                         verified: true,
@@ -715,21 +881,33 @@ const Assets: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">Bitcoin Mainnet</h4>
+                        <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">Bitcoin</h4>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                            {parseFloat(multiChainBalances.btc).toFixed(5)} BTC
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${btcPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-bold text-orange-600 dark:text-orange-400">
-                          ${(parseFloat(multiChainBalances.btc) * btcPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {parseFloat(multiChainBalances.btc).toLocaleString(undefined, { maximumFractionDigits: 5 })} BTC
                         </p>
-                        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Mainnet</span>
+                        <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                          ${(parseFloat(multiChainBalances.btc) * btcPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/wallet/receive', { state: { preselect: 'multichain-btc' } });
+                        }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive BTC"
+                      >
+                        <QrCode size={16} />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -752,9 +930,9 @@ const Assets: React.FC = () => {
                         symbol: 'USDT',
                         name: 'Tether USD',
                         balance: multiChainBalances.usdt,
-                        decimals: 6,
+                        decimals: 0, // already formatted by WDK
                         emoji: '💵',
-                        price: 1.0,
+                        price: usdtPrice,
                         verified: true,
                         type: 'EVM'
                       }
@@ -769,21 +947,33 @@ const Assets: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">Tether USD ({evmLabel})</h4>
+                        <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">Tether USD</h4>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                            {parseFloat(multiChainBalances.usdt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${usdtPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                          ${parseFloat(multiChainBalances.usdt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {parseFloat(multiChainBalances.usdt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
                         </p>
-                        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Mainnet</span>
+                        <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                          ${(parseFloat(multiChainBalances.usdt) * usdtPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/wallet/receive', { state: { preselect: 'multichain-usdt' } });
+                        }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive USDT"
+                      >
+                        <QrCode size={16} />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -798,13 +988,115 @@ const Assets: React.FC = () => {
                   </div>
                 )}
 
+                {/* SOL Balance */}
+                {multiChainBalances && (
+                  <div
+                    onClick={() => navigate('/wallet/asset-detail', {
+                      state: { symbol: 'SOL', name: 'Solana', balance: multiChainBalances.sol, decimals: 0, emoji: '◎', price: solPrice, verified: true, type: 'SOL' }
+                    })}
+                    className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur border-2 border-gray-200 dark:border-white/5 p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer shadow-sm"
+                  >
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="w-10 h-10 rounded-full relative group-hover:scale-105 transition-transform shrink-0 shadow-sm border border-gray-100 dark:border-white/10">
+                        <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png" alt="SOL" className="w-full h-full rounded-full object-cover" />
+                        <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
+                          <ShieldCheck size={8} className="text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">Solana</h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${solPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {parseFloat(multiChainBalances.sol).toLocaleString(undefined, { maximumFractionDigits: 4 })} SOL
+                        </p>
+                        <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                          ${(parseFloat(multiChainBalances.sol) * solPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate('/wallet/receive', { state: { preselect: 'multichain-sol' } }); }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive SOL"
+                      >
+                        <QrCode size={16} />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate('/wallet/transfer', { state: { asset: 'SOL' } }); }}
+                        className="p-2 sm:p-2.5 bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 rounded-xl transition-all active:scale-95"
+                        title="Send SOL"
+                      >
+                        <Send size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TRON Balance */}
+                {multiChainBalances && (
+                  <div
+                    onClick={() => navigate('/wallet/asset-detail', {
+                      state: { symbol: 'TRX', name: 'TRON', balance: multiChainBalances.tron, decimals: 0, emoji: '🔴', price: tronPrice, verified: true, type: 'TRON' }
+                    })}
+                    className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur border-2 border-gray-200 dark:border-white/5 p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer shadow-sm"
+                  >
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="w-10 h-10 rounded-full relative group-hover:scale-105 transition-transform shrink-0 shadow-sm border border-gray-100 dark:border-white/10">
+                        <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png" alt="TRX" className="w-full h-full rounded-full object-cover" />
+                        <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
+                          <ShieldCheck size={8} className="text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">TRON</h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${tronPrice.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {parseFloat(multiChainBalances.tron).toLocaleString(undefined, { maximumFractionDigits: 2 })} TRX
+                        </p>
+                        <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                          ${(parseFloat(multiChainBalances.tron) * tronPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate('/wallet/receive', { state: { preselect: 'multichain-tron' } }); }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive TRX"
+                      >
+                        <QrCode size={16} />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate('/wallet/transfer', { state: { asset: 'TRON' } }); }}
+                        className="p-2 sm:p-2.5 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 text-red-600 dark:text-red-400 rounded-xl transition-all active:scale-95"
+                        title="Send TRX"
+                      >
+                        <Send size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Multichain TON Balance (WDK) */}
                 {multiChainBalances && (
                   <div
                     onClick={() => navigate('/wallet/asset-detail', {
                       state: {
                         symbol: 'TON',
-                        name: 'WDK Toncoin',
+                        name: 'TON (W5)',
                         balance: String(parseFloat(multiChainBalances.ton) * Math.pow(10, 9)),
                         decimals: 9,
                         emoji: '💎',
@@ -823,21 +1115,33 @@ const Assets: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">WDK Toncoin</h4>
+                        <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">TON (W5)</h4>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                            {parseFloat(multiChainBalances.ton).toFixed(4)} TON
+                          <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                            ${tonPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-bold text-gray-900 dark:text-white">
-                          ${(parseFloat(multiChainBalances.ton) * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white">
+                          {parseFloat(multiChainBalances.ton).toLocaleString(undefined, { maximumFractionDigits: 4 })} TON
                         </p>
-                        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Mainnet</span>
+                        <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                          ${(parseFloat(multiChainBalances.ton) * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/wallet/receive', { state: { preselect: 'multichain-ton' } });
+                        }}
+                        className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                        title="Receive TON (W5)"
+                      >
+                        <QrCode size={16} />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -856,7 +1160,7 @@ const Assets: React.FC = () => {
                 {filteredJettons.length === 0 && !isLoading ? (
                   <div className="py-12 text-center bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-200 dark:border-white/5 rounded-2xl shadow-sm">
                     <Coins size={24} className="mx-auto text-gray-400 dark:text-zinc-600 mb-2" />
-                    <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">
+                    <h4 className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">
                       {searchQuery ? 'No tokens found' : 'No jettons yet'}
                     </h4>
                     <p className="text-[11px] font-medium text-gray-400 dark:text-zinc-500">
@@ -903,52 +1207,60 @@ const Assets: React.FC = () => {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                            <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">
                               {jetton.jetton.name}
                             </h4>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
-                                {hasBalance ? formatBalance(jetton.balance, jetton.jetton.decimals) : '0'} {jetton.jetton.symbol}
+                              <span className="text-xs font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
+                                {jetton.price?.usd ? `$${jetton.price.usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : 'No price'}
                               </span>
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="text-right ml-3">
-                            {jetton.price?.usd ? (
-                              <>
-                                <p className="text-sm font-bold text-gray-900 dark:text-white whitespace-nowrap">
-                                  {hasBalance ? formatUsdValue(jetton.balance, jetton.jetton.decimals, jetton.price.usd) : '$0.00'}
-                                </p>
-                                <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                                  ${jetton.price.usd.toFixed(jetton.price.usd < 0.01 ? 4 : 2)}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">No price</span>
+                            <p className="text-sm font-numbers font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                              {hasBalance ? formatBalance(jetton.balance, jetton.jetton.decimals) : '0'} {jetton.jetton.symbol}
+                            </p>
+                            {jetton.price?.usd && (
+                              <span className="text-[11px] font-numbers font-medium text-gray-500 dark:text-gray-400">
+                                {hasBalance ? formatUsdValue(jetton.balance, jetton.jetton.decimals, jetton.price.usd) : '$0.00'}
+                              </span>
                             )}
                           </div>
                           {hasBalance ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate('/wallet/transfer', {
-                                  state: {
-                                    asset: 'JETTON',
-                                    jettonAddress: jetton.jetton.address,
-                                    jettonName: jetton.jetton.name,
-                                    jettonSymbol: jetton.jetton.symbol,
-                                    jettonDecimals: jetton.jetton.decimals,
-                                    jettonBalance: jetton.balance,
-                                    jettonWalletAddress: (jetton as any).walletAddress?.address
-                                  }
-                                });
-                              }}
-                              className="p-2 sm:p-2.5 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-xl transition-all active:scale-95"
-                              title={`Send ${jetton.jetton.symbol}`}
-                            >
-                              <Send size={16} />
-                            </button>
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate('/wallet/receive', { state: { preselect: 'primary' } });
+                                }}
+                                className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl transition-all active:scale-95"
+                                title="Receive"
+                              >
+                                <QrCode size={16} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate('/wallet/transfer', {
+                                    state: {
+                                      asset: 'JETTON',
+                                      jettonAddress: jetton.jetton.address,
+                                      jettonName: jetton.jetton.name,
+                                      jettonSymbol: jetton.jetton.symbol,
+                                      jettonDecimals: jetton.jetton.decimals,
+                                      jettonBalance: jetton.balance,
+                                      jettonWalletAddress: (jetton as any).walletAddress?.address
+                                    }
+                                  });
+                                }}
+                                className="p-2 sm:p-2.5 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-xl transition-all active:scale-95"
+                                title={`Send ${jetton.jetton.symbol}`}
+                              >
+                                <Send size={16} />
+                              </button>
+                            </>
                           ) : (
                             <button
                               onClick={(e) => {
@@ -1002,7 +1314,7 @@ const Assets: React.FC = () => {
             ) : filteredNFTs.length === 0 ? (
               <div className="py-12 text-center bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-200 dark:border-white/5 rounded-2xl shadow-sm">
                 <LayoutGrid size={24} className="mx-auto text-gray-400 dark:text-zinc-600 mb-2" />
-                <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">
+                <h4 className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">
                   {searchQuery ? 'No NFTs found' : 'No NFTs yet'}
                 </h4>
                 <p className="text-[11px] font-medium text-gray-400 dark:text-zinc-500">
@@ -1038,11 +1350,11 @@ const Assets: React.FC = () => {
                         </div>
                       )}
                       <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-gray-900/90 dark:from-black/90 to-transparent">
-                        <p className="text-sm font-bold text-white truncate leading-tight">
+                        <p className="text-sm font-heading font-bold text-white truncate leading-tight">
                           {nft.metadata?.name || `NFT #${nft.index}`}
                         </p>
                         {nft.collection?.name && (
-                          <p className="text-[10px] font-medium text-gray-300 dark:text-zinc-400 uppercase truncate mt-0.5">
+                          <p className="text-[10px] font-heading font-medium text-gray-300 dark:text-zinc-400 uppercase truncate mt-0.5">
                             {nft.collection.name}
                           </p>
                         )}
@@ -1056,12 +1368,10 @@ const Assets: React.FC = () => {
         )}
       </div>
 
-      {/* RZC Balance Verification Module */}
-      {activeTab === 'tokens' && userProfile && (
-        <div data-verification-section>
-          <BalanceVerification />
-        </div>
-      )}
+      <div className="mb-4">
+        <BalanceVerification />
+      </div>
+
 
       {/* Explorer Link - Footer */}
       {address && (
@@ -1070,7 +1380,7 @@ const Assets: React.FC = () => {
           className="w-full py-4 bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-200 dark:border-white/5 rounded-2xl flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-white/5 transition-all text-gray-600 dark:text-gray-400 shadow-sm group"
         >
           <ExternalLink size={14} className="group-hover:text-emerald-500 dark:group-hover:text-primary transition-colors" />
-          <span className="text-xs font-bold uppercase tracking-widest group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+          <span className="text-xs font-heading font-bold uppercase tracking-widest group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
             Audit Node on Explorer
           </span>
         </button>

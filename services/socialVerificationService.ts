@@ -80,7 +80,16 @@ class ManualVerificationService {
     reviewedAt?: string;
   }> {
     try {
-      const { data, error } = await supabaseService.supabase
+      if (!supabaseService.isConfigured()) {
+        return { status: 'not_found' };
+      }
+
+      const supabase = supabaseService.getClient();
+      if (!supabase) {
+        return { status: 'not_found' };
+      }
+
+      const { data, error } = await supabase
         .from('airdrop_manual_submissions')
         .select('status, review_notes, reviewed_at')
         .eq('wallet_address', walletAddress)
@@ -202,8 +211,10 @@ export class SocialVerificationService {
   // Helper method to check if Twitter API is available
   async isTwitterApiAvailable(): Promise<boolean> {
     try {
-      await this.twitterService.makeTwitterRequest('/users/me');
-      return true;
+      // Twitter API integration would go here
+      // For now, return false to use manual verification
+      console.warn('Twitter API not configured, using manual verification');
+      return false;
     } catch (error) {
       console.warn('Twitter API not available, falling back to manual verification');
       return false;

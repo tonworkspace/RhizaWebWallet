@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useTransactions } from '../hooks/useTransactions';
 import { useWallet } from '../context/WalletContext';
-import { getTransactionUrl } from '../constants';
+import { getTransactionUrl, CHAIN_META } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { notificationService, UserActivity } from '../services/notificationService';
 
@@ -46,7 +46,28 @@ interface Transaction {
 const History: React.FC = () => {
   const { t } = useTranslation();
   const { transactions, isLoading, error, refreshTransactions } = useTransactions();
-  const { network, address } = useWallet();
+  const { network, address, currentEvmChain } = useWallet();
+
+  // Chain-aware explorer URL
+  const getExplorerLink = (hash: string, asset: string) => {
+    if (asset === 'BTC') return `https://mempool.space/tx/${hash}`;
+    if (asset === 'ETH' || asset === 'ETH/Polygon') {
+      const explorers: Record<string, string> = {
+        ethereum: 'https://etherscan.io/tx', polygon: 'https://polygonscan.com/tx',
+        arbitrum: 'https://arbiscan.io/tx', bsc: 'https://bscscan.com/tx',
+        avalanche: 'https://snowtrace.io/tx', sepolia: 'https://sepolia.etherscan.io/tx',
+      };
+      return `${explorers[currentEvmChain] ?? 'https://etherscan.io/tx'}/${hash}`;
+    }
+    return getTransactionUrl(hash, network);
+  };
+
+  // Fee label per asset
+  const getFeeLabel = (asset: string) => {
+    if (asset === 'BTC') return 'BTC';
+    if (asset === 'ETH' || asset === 'ETH/Polygon') return CHAIN_META[currentEvmChain]?.symbol ?? 'ETH';
+    return 'TON';
+  };
   const [activeTab, setActiveTab] = useState<'transactions' | 'activity'>('transactions');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'send' | 'receive' | 'rzc'>('all');
@@ -196,15 +217,15 @@ const History: React.FC = () => {
     <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6 page-enter px-3 sm:px-4 md:px-0">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">{t('history.title')}</h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-gray-500 font-medium mt-0.5 sm:mt-1">
+          <h1 className="text-lg sm:text-xl md:text-2xl font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest">{t('history.title')}</h1>
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 dark:text-gray-500 font-bold mt-1 sm:mt-2">
             {activeTab === 'transactions'
-              ? `${filteredTransactions.length} transaction${filteredTransactions.length !== 1 ? 's' : ''}`
-              : `${activities.length} event${activities.length !== 1 ? 's' : ''}`}
+              ? <><span className="font-numbers">{filteredTransactions.length}</span> transaction{filteredTransactions.length !== 1 ? 's' : ''}</>
+              : <><span className="font-numbers">{activities.length}</span> event{activities.length !== 1 ? 's' : ''}</>}
           </p>
         </div>
         <button 
-          onClick={activeTab === 'transactions' ? refreshTransactions : loadActivities}
+          onClick={activeTab === 'transactions' ? () => refreshTransactions() : loadActivities}
           disabled={activeTab === 'transactions' ? isLoading : activityLoading}
           className="p-2.5 sm:p-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl text-slate-500 dark:text-gray-500 hover:text-primary transition-all disabled:opacity-50 active:scale-95"
           title="Refresh"
@@ -217,9 +238,9 @@ const History: React.FC = () => {
       <div className="flex gap-1 bg-slate-100 dark:bg-white/5 rounded-xl p-1 border border-slate-200 dark:border-white/5">
         <button
           onClick={() => setActiveTab('transactions')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-heading font-black uppercase tracking-widest transition-all ${
             activeTab === 'transactions'
-              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow'
+              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
               : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
           }`}
         >
@@ -228,9 +249,9 @@ const History: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('activity')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-heading font-black uppercase tracking-widest transition-all ${
             activeTab === 'activity'
-              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow'
+              ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
               : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
           }`}
         >
@@ -249,13 +270,13 @@ const History: React.FC = () => {
             placeholder={t('history.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-10 sm:pl-11 pr-3 sm:pr-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-800"
+            className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-10 sm:pl-11 pr-3 sm:pr-4 text-[11px] font-heading font-bold uppercase tracking-widest text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-800"
           />
         </div>
         <div className="flex gap-1.5 sm:gap-2 bg-slate-100 dark:bg-white/5 rounded-xl sm:rounded-2xl p-1 border border-slate-200 dark:border-white/5">
           <button
             onClick={() => setFilterType('all')}
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
               filterType === 'all'
                 ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
@@ -265,7 +286,7 @@ const History: React.FC = () => {
           </button>
           <button
             onClick={() => setFilterType('send')}
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
               filterType === 'send'
                 ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
@@ -275,7 +296,7 @@ const History: React.FC = () => {
           </button>
           <button
             onClick={() => setFilterType('receive')}
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
               filterType === 'receive'
                 ? 'bg-white dark:bg-white/10 text-slate-900 dark:text-white shadow-lg'
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
@@ -285,7 +306,7 @@ const History: React.FC = () => {
           </button>
           <button
             onClick={() => setFilterType('rzc')}
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[10px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
               filterType === 'rzc'
                 ? 'bg-emerald-500 text-white shadow-lg'
                 : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'
@@ -308,7 +329,7 @@ const History: React.FC = () => {
                 <h4 className="font-bold text-sm sm:text-base text-red-900 dark:text-red-300 mb-1">Failed to load transactions</h4>
                 <p className="text-xs sm:text-sm text-red-700 dark:text-red-400 mb-2.5 sm:mb-3">{error}</p>
                 <button 
-                  onClick={refreshTransactions}
+                  onClick={() => refreshTransactions()}
                   className="px-3.5 sm:px-4 py-2 bg-red-600 text-white rounded-lg sm:rounded-xl text-xs font-black uppercase hover:bg-red-700 transition-all active:scale-95"
                 >
                   Retry
@@ -335,7 +356,7 @@ const History: React.FC = () => {
         ) : (
           Object.entries(groupedTransactions).map(([date, txs]) => (
             <div key={date} className="space-y-2">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 dark:text-gray-600 pl-1 sm:pl-2">
+              <h3 className="text-[10px] font-numbers font-black uppercase tracking-[0.2em] text-slate-500 dark:text-gray-600 pl-1 sm:pl-2">
                 {date}
               </h3>
               <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
@@ -351,9 +372,9 @@ const History: React.FC = () => {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 sm:gap-2">
-                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white capitalize">{tx.type}</h4>
+                            <h4 className="font-heading font-black text-[11px] sm:text-xs text-slate-900 dark:text-white uppercase tracking-widest">{tx.type}</h4>
                             {tx.asset === 'RZC' && (
-                              <span className="text-[8px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-md">RZC</span>
+                              <span className="text-[8px] font-heading font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-md">RZC</span>
                             )}
                             {tx.status === 'completed' ? (
                               <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
@@ -363,25 +384,31 @@ const History: React.FC = () => {
                               <Clock size={12} className="text-amber-500 animate-pulse flex-shrink-0" />
                             )}
                           </div>
-                          <p className="text-[10px] text-slate-500 dark:text-gray-500 font-mono mt-0.5 sm:mt-1 truncate">
+                          <p className="text-[10px] text-slate-500 dark:text-gray-500 font-numbers font-medium mt-0.5 sm:mt-1 truncate">
                             {tx.comment ? (
-                              <span className="italic">"{tx.comment}"</span>
+                              <span className="italic font-body">"{tx.comment}"</span>
                             ) : tx.counterpartyUsername ? (
-                              <span>{tx.type === 'send' ? 'To' : 'From'}: @{tx.counterpartyUsername}</span>
+                              <>
+                                <span className="font-heading uppercase tracking-widest text-[9px] mr-1">{tx.type === 'send' ? 'To' : 'From'}:</span>
+                                <span className="font-body">@{tx.counterpartyUsername}</span>
+                              </>
                             ) : (
-                              <span className="hidden sm:inline">{tx.type === 'send' ? 'To' : 'From'}: {formatAddress(tx.address)}</span>
+                              <>
+                                <span className="hidden sm:inline font-heading uppercase tracking-widest text-[9px] mr-1">{tx.type === 'send' ? 'To' : 'From'}:</span>
+                                <span className="hidden sm:inline tracking-widest">{formatAddress(tx.address)}</span>
+                              </>
                             )}
                           </p>
                         </div>
                       </div>
                       <div className="text-right flex items-center gap-1.5 sm:gap-2 md:gap-3 ml-2 sm:ml-3">
                         <div>
-                          <div className={`font-black text-xs sm:text-sm whitespace-nowrap ${
+                          <div className={`font-numbers font-black text-xs sm:text-sm whitespace-nowrap tracking-wider ${
                             tx.type === 'receive' ? 'text-emerald-500' : 'text-slate-900 dark:text-white'
                           }`}>
                             {tx.type === 'receive' ? '+' : '-'}{tx.amount} {tx.asset}
                           </div>
-                          <p className="text-[10px] text-slate-400 dark:text-gray-600 font-bold mt-0.5 hidden sm:block">
+                          <p className="text-[9px] text-slate-400 dark:text-gray-600 font-heading font-black uppercase tracking-widest mt-1 hidden sm:block">
                             {formatRelativeTime(tx.timestamp)}
                           </p>
                         </div>
@@ -401,11 +428,11 @@ const History: React.FC = () => {
                           <div className="flex items-start gap-2 sm:gap-3">
                             <Hash size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                              <p className="text-[10px] font-heading font-black uppercase tracking-widest text-slate-500 dark:text-gray-600 mb-1">
                                 Transaction Hash
                               </p>
                               <div className="flex items-center gap-2">
-                                <p className="text-[11px] sm:text-xs font-mono text-slate-700 dark:text-gray-300 break-all">
+                                <p className="text-[11px] sm:text-xs font-numbers font-medium text-slate-700 dark:text-gray-300 break-all tracking-wider">
                                   {tx.hash}
                                 </p>
                                 <button
@@ -426,11 +453,11 @@ const History: React.FC = () => {
                           <div className="flex items-start gap-2 sm:gap-3">
                             <Hash size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                              <p className="text-[10px] font-heading font-black uppercase tracking-widest text-slate-500 dark:text-gray-600 mb-1">
                                 RZC Transaction ID
                               </p>
                               <div className="flex items-center gap-2">
-                                <p className="text-[11px] sm:text-xs font-mono text-slate-700 dark:text-gray-300 break-all">
+                                <p className="text-[11px] sm:text-xs font-numbers font-medium text-slate-700 dark:text-gray-300 break-all tracking-wider">
                                   {tx.id}
                                 </p>
                                 <button
@@ -454,7 +481,7 @@ const History: React.FC = () => {
                           <div className="flex items-start gap-2 sm:gap-3">
                             <ExternalLink size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                              <p className="text-[10px] font-heading font-black uppercase tracking-widest text-slate-500 dark:text-gray-600 mb-1">
                                 {tx.type === 'send' ? 'Recipient' : 'Sender'}
                               </p>
                               <p className="text-[11px] sm:text-xs font-mono text-slate-700 dark:text-gray-300">
@@ -492,10 +519,10 @@ const History: React.FC = () => {
                         <div className="flex items-start gap-2 sm:gap-3">
                           <Calendar size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                            <p className="text-[10px] font-heading font-black uppercase tracking-widest text-slate-500 dark:text-gray-600 mb-1">
                               Timestamp
                             </p>
-                            <p className="text-[11px] sm:text-xs text-slate-700 dark:text-gray-300">
+                            <p className="text-[11px] sm:text-xs font-numbers font-medium text-slate-700 dark:text-gray-300 tracking-wider">
                               {formatFullDate(tx.timestamp)}
                             </p>
                           </div>
@@ -506,11 +533,11 @@ const History: React.FC = () => {
                           <div className="flex items-start gap-2 sm:gap-3">
                             <Coins size={14} className="text-slate-400 dark:text-gray-600 mt-1 flex-shrink-0" />
                             <div>
-                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-gray-600 mb-1">
+                              <p className="text-[10px] font-heading font-black uppercase tracking-widest text-slate-500 dark:text-gray-600 mb-1">
                                 Network Fee
                               </p>
-                              <p className="text-[11px] sm:text-xs text-slate-700 dark:text-gray-300">
-                                {tx.fee} TON
+                              <p className="text-[11px] sm:text-xs font-numbers font-medium text-slate-700 dark:text-gray-300 tracking-wider">
+                                {tx.fee} {getFeeLabel(tx.asset)}
                               </p>
                             </div>
                           </div>
@@ -534,7 +561,7 @@ const History: React.FC = () => {
                         {/* View in Explorer (TON only) */}
                         {tx.hash && tx.asset !== 'RZC' && (
                           <button
-                            onClick={() => window.open(getTransactionUrl(tx.hash!, network), '_blank')}
+                            onClick={() => window.open(getExplorerLink(tx.hash!, tx.asset), '_blank')}
                             className="w-full mt-1 sm:mt-2 py-2.5 px-4 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95"
                           >
                             <ExternalLink size={14} />
@@ -575,8 +602,8 @@ const History: React.FC = () => {
           ) : activities.length === 0 ? (
             <div className="p-8 text-center bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-2xl">
               <Activity size={36} className="mx-auto mb-2.5 text-slate-300 dark:text-gray-700" />
-              <p className="text-sm font-bold text-slate-900 dark:text-white mb-1">No activity yet</p>
-              <p className="text-xs text-slate-500 dark:text-gray-400">Commissions, rewards, and events will appear here</p>
+              <p className="text-sm font-heading font-black uppercase tracking-widest text-slate-900 dark:text-white mb-2">No activity yet</p>
+              <p className="text-[11px] font-heading font-bold uppercase tracking-widest text-slate-500 dark:text-gray-400">Commissions, rewards, and events will appear here</p>
             </div>
           ) : (
             <div className="bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
@@ -633,14 +660,14 @@ const History: React.FC = () => {
                         {act.description}
                       </p>
                       {isCommission && act.metadata?.package_name && (
-                        <p className="text-[10px] text-slate-500 dark:text-gray-500 font-semibold mt-0.5">
-                          {act.metadata.package_name} · ${act.metadata.package_price_usd} · 10% commission
+                        <p className="text-[10px] font-heading font-black uppercase tracking-widest text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded inline-block mt-1">
+                          {act.metadata.package_name} · <span className="font-numbers">${act.metadata.package_price_usd}</span> · <span className="font-numbers">10%</span> commission
                         </p>
                       )}
-                      <p className="text-[10px] text-slate-400 dark:text-gray-600 font-medium mt-0.5">{timeAgo}</p>
+                      <p className="text-[9px] font-heading font-black uppercase tracking-[0.1em] text-slate-400 dark:text-gray-600 mt-1.5">{timeAgo}</p>
                     </div>
                     {amountLabel && (
-                      <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap flex-shrink-0">
+                      <span className="text-xs font-numbers font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap flex-shrink-0 tracking-wider">
                         {amountLabel}
                       </span>
                     )}

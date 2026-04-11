@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Send, 
+import {
+  ArrowLeft,
+  Send,
   ArrowUpRight,
   ArrowDownLeft,
   Copy,
@@ -30,13 +30,17 @@ import { useToast } from '../context/ToastContext';
 import { getExplorerUrl, getTransactionUrl } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
-import { tetherWdkService } from '../services/tetherWdkService';
 
 // CoinGecko coin IDs for supported assets
 const COINGECKO_IDS: Record<string, string> = {
   TON: 'the-open-network',
   BTC: 'bitcoin',
   ETH: 'ethereum',
+  MATIC: 'matic-network',
+  BNB: 'binancecoin',
+  AVAX: 'avalanche-2',
+  SOL: 'solana',
+  TRX: 'tron',
 };
 
 async function fetchCoinGeckoHistory(coinId: string): Promise<{ time: number; price: number }[]> {
@@ -59,38 +63,47 @@ interface AssetDetailProps {
   price?: number;
   verified?: boolean;
   address?: string;
-  type: 'TON' | 'RZC' | 'JETTON' | 'BTC' | 'ETH' | 'EVM';
+  type: 'TON' | 'RZC' | 'JETTON' | 'BTC' | 'ETH' | 'EVM' | 'SOL' | 'TRON';
 }
 
 const AssetDetail: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { address, network, refreshData, setIsNetworkModalOpen, multiChainBalances, isNetworkModalOpen } = useWallet();
+  const { address, network, refreshData, setIsNetworkModalOpen, multiChainBalances, isNetworkModalOpen, currentEvmChain } = useWallet();
   const { showToast } = useToast();
   const { transactions, isLoading: txLoading, refreshTransactions } = useTransactions();
-  
+
   const assetData = location.state as AssetDetailProps;
-  
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [priceHistory, setPriceHistory] = useState<any[]>([]);
   const [isChartLoading, setIsChartLoading] = useState(true);
-
-  const [evmChain, setEvmChain] = useState(tetherWdkService.getCurrentEvmChain());
+  const evmChain = currentEvmChain; // reactive from context
   const [activeBalance, setActiveBalance] = useState<string>(assetData?.balance || '0');
   const [isNetworkSwitching, setIsNetworkSwitching] = useState(false);
 
   useEffect(() => {
-    setEvmChain(tetherWdkService.getCurrentEvmChain());
     if (multiChainBalances) {
       if (assetData?.symbol !== 'USDT' && (assetData?.type === 'EVM' || assetData?.type === 'ETH')) {
         setActiveBalance(multiChainBalances.evm);
       } else if (assetData?.symbol === 'USDT') {
         setActiveBalance(multiChainBalances.usdt);
+      } else if (assetData?.type === 'SOL') {
+        setActiveBalance(multiChainBalances.sol);
+      } else if (assetData?.type === 'TRON') {
+        setActiveBalance(multiChainBalances.tron);
       }
     }
   }, [multiChainBalances, assetData]);
 
   useEffect(() => {
+    // USDT is a stablecoin — show a flat $1 line, no API call needed
+    if (assetData?.symbol === 'USDT') {
+      setPriceHistory(Array.from({ length: 24 }, (_, i) => ({ time: i, price: assetData.price || 1.0 })));
+      setIsChartLoading(false);
+      return;
+    }
+
     if (!assetData || assetData.type === 'RZC' || assetData.type === 'JETTON') {
       setPriceHistory(Array.from({ length: 24 }, (_, i) => ({
         time: i,
@@ -103,8 +116,20 @@ const AssetDetail: React.FC = () => {
     const fetchHistory = async () => {
       setIsChartLoading(true);
       try {
-        const symbol = assetData.type === 'ETH' || assetData.type === 'EVM' ? 'ETH' : assetData.type === 'BTC' ? 'BTC' : 'TON';
+        let symbol: string;
+        if (assetData.type === 'BTC') {
+          symbol = 'BTC';
+        } else if (assetData.type === 'ETH' || assetData.type === 'EVM') {
+          symbol = CHAIN_META[evmChain]?.symbol ?? 'ETH';
+        } else if (assetData.type === 'SOL') {
+          symbol = 'SOL';
+        } else if (assetData.type === 'TRON') {
+          symbol = 'TRX';
+        } else {
+          symbol = 'TON';
+        }
         const coinId = COINGECKO_IDS[symbol];
+        if (!coinId) throw new Error(`No CoinGecko ID for ${symbol}`);
         const history = await fetchCoinGeckoHistory(coinId);
         if (history.length > 0) {
           setPriceHistory(history);
@@ -117,7 +142,7 @@ const AssetDetail: React.FC = () => {
       }
     };
     fetchHistory();
-  }, [assetData]);
+  }, [assetData, evmChain]);
 
   useEffect(() => {
     if (!assetData) navigate('/wallet/assets');
@@ -140,7 +165,7 @@ const AssetDetail: React.FC = () => {
       url: window.location.href
     };
     if (navigator.share) {
-      try { await navigator.share(shareData); } catch {}
+      try { await navigator.share(shareData); } catch { }
     } else {
       handleCopyAddress();
     }
@@ -185,33 +210,41 @@ const AssetDetail: React.FC = () => {
     if (assetData.type === 'TON') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png';
     if (assetData.type === 'BTC') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png';
     if (assetData.type === 'ETH' || assetData.type === 'EVM') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
+    if (assetData.type === 'SOL') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png';
+    if (assetData.type === 'TRON') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png';
     return null;
   };
 
   const logo = getAssetLogo();
 
-  const evmLabel = evmChain.charAt(0).toUpperCase() + evmChain.slice(1);
+  const evmLabel = CHAIN_META[evmChain]?.name ?? evmChain.charAt(0).toUpperCase() + evmChain.slice(1);
 
   // Network label
   const networkLabel = assetData.type === 'BTC' ? 'Bitcoin Mainnet'
     : assetData.type === 'ETH' || assetData.type === 'EVM' ? `${evmLabel} Network`
-    : assetData.type === 'RZC' ? 'Rhiza Community'
-    : assetData.type === 'JETTON' ? 'TON Jetton'
-    : 'TON Network';
+      : assetData.type === 'RZC' ? 'Rhiza Network'
+        : assetData.type === 'JETTON' ? 'TON Jetton'
+          : assetData.type === 'SOL' ? 'Solana Mainnet'
+            : assetData.type === 'TRON' ? 'TRON Mainnet'
+              : 'TON Network';
 
   // Accent colors per asset type
   const accent = assetData.type === 'BTC' ? 'orange'
     : assetData.type === 'ETH' || assetData.type === 'EVM' ? 'blue'
-    : assetData.type === 'RZC' ? 'emerald'
-    : assetData.type === 'JETTON' ? 'violet'
-    : 'sky';
+      : assetData.type === 'RZC' ? 'emerald'
+        : assetData.type === 'JETTON' ? 'violet'
+          : assetData.type === 'SOL' ? 'purple'
+            : assetData.type === 'TRON' ? 'red'
+              : 'sky';
 
   const accentClasses: Record<string, { bg: string; border: string; text: string; badge: string }> = {
     orange: { bg: 'bg-orange-500/10', border: 'border-orange-500/20', text: 'text-orange-500 dark:text-orange-400', badge: 'bg-orange-500' },
-    blue:   { bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   text: 'text-blue-500 dark:text-blue-400',   badge: 'bg-blue-600' },
-    emerald:{ bg: 'bg-emerald-500/10',border: 'border-emerald-500/20',text: 'text-emerald-500 dark:text-emerald-400',badge: 'bg-emerald-500' },
+    blue: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', text: 'text-blue-500 dark:text-blue-400', badge: 'bg-blue-600' },
+    emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-500 dark:text-emerald-400', badge: 'bg-emerald-500' },
     violet: { bg: 'bg-violet-500/10', border: 'border-violet-500/20', text: 'text-violet-500 dark:text-violet-400', badge: 'bg-violet-600' },
-    sky:    { bg: 'bg-sky-500/10',    border: 'border-sky-500/20',    text: 'text-sky-500 dark:text-sky-400',    badge: 'bg-sky-600' },
+    sky: { bg: 'bg-sky-500/10', border: 'border-sky-500/20', text: 'text-sky-500 dark:text-sky-400', badge: 'bg-sky-600' },
+    purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', text: 'text-purple-500 dark:text-purple-400', badge: 'bg-purple-600' },
+    red: { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-500 dark:text-red-400', badge: 'bg-red-600' },
   };
 
   const ac = accentClasses[accent];
@@ -232,7 +265,7 @@ const AssetDetail: React.FC = () => {
           </h2>
           <div className="flex items-center gap-1.5 mt-0.5">
             <div className={`w-1.5 h-1.5 rounded-full ${isPositive ? 'bg-emerald-500' : 'bg-rose-500'} ${isNetworkSwitching ? 'animate-bounce' : 'animate-pulse'}`} />
-            
+
             {assetData.type === 'ETH' || assetData.type === 'EVM' ? (
               <div className="flex items-center gap-1">
                 <span className="text-[10px] font-medium text-gray-400 dark:text-zinc-500">Live ·</span>
@@ -266,8 +299,10 @@ const AssetDetail: React.FC = () => {
         {/* Hero Card */}
         <div className={`rounded-3xl ${ac.bg} border ${ac.border} p-6 flex flex-col items-center text-center space-y-4`}>
           <div className="relative">
-            <div className={`w-20 h-20 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 flex items-center justify-center shadow-lg overflow-hidden`}>
-              {logo ? (
+            <div className={`w-20 h-20 rounded-2xl ${assetData.type === 'RZC' ? 'bg-gradient-to-br from-emerald-400 to-cyan-500' : 'bg-white dark:bg-zinc-900'} border border-gray-200 dark:border-white/10 flex items-center justify-center shadow-lg overflow-hidden`}>
+              {assetData.type === 'RZC' ? (
+                <span className="text-white font-black text-2xl">RZC</span>
+              ) : logo ? (
                 <img src={assetData.type === 'ETH' || assetData.type === 'EVM' ? (assetData.symbol === 'USDT' ? logo : CHAIN_META[evmChain]?.logo || logo) : logo} alt={assetData.symbol} className={`${(assetData.type === 'ETH' || assetData.type === 'EVM') && assetData.symbol !== 'USDT' ? 'w-full h-full object-cover p-2' : 'w-14 h-14 object-contain'}`} />
               ) : (
                 <span className="text-4xl">{assetData.emoji || '🪙'}</span>
@@ -299,11 +334,10 @@ const AssetDetail: React.FC = () => {
               </p>
             )}
             {assetData.price && (
-              <div className={`inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-full text-xs font-bold ${
-                isPositive
+              <div className={`inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-full text-xs font-bold ${isPositive
                   ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                   : 'bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400'
-              }`}>
+                }`}>
                 {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                 {isPositive ? '+' : ''}{priceChange.toFixed(2)}% (24h)
               </div>
@@ -318,10 +352,12 @@ const AssetDetail: React.FC = () => {
               state: {
                 asset: assetData.type === 'JETTON' ? 'JETTON'
                   : assetData.type === 'RZC' ? 'RZC'
-                  : assetData.type === 'BTC' ? 'BTC'
-                  : assetData.type === 'ETH' || assetData.type === 'EVM'
-                    ? (assetData.symbol === 'USDT' ? 'USDT' : 'EVM')
-                  : 'TON',
+                    : assetData.type === 'BTC' ? 'BTC'
+                      : assetData.type === 'SOL' ? 'SOL'
+                        : assetData.type === 'TRON' ? 'TRON'
+                          : assetData.type === 'ETH' || assetData.type === 'EVM'
+                            ? (assetData.symbol === 'USDT' ? 'USDT' : 'EVM')
+                            : 'TON',
                 ...(assetData.type === 'JETTON' && {
                   jettonAddress: assetData.address,
                   jettonName: assetData.name,
@@ -340,7 +376,18 @@ const AssetDetail: React.FC = () => {
             <span className="text-xs font-bold text-gray-600 dark:text-zinc-400">Send</span>
           </button>
           <button
-            onClick={() => navigate('/wallet/receive')}
+            onClick={() => navigate('/wallet/receive', {
+              state: {
+                preselect: assetData.type === 'BTC' ? 'multichain-btc'
+                  : assetData.type === 'SOL' ? 'multichain-sol'
+                    : assetData.type === 'TRON' ? 'multichain-tron'
+                      : assetData.type === 'ETH' || assetData.type === 'EVM'
+                        ? (assetData.symbol === 'USDT' ? 'multichain-usdt' : 'multichain-evm')
+                        : assetData.type === 'RZC' ? 'primary-rzc'
+                          : assetData.name === 'TON (W5)' ? 'multichain-ton'
+                            : 'primary'
+              }
+            })}
             className="flex flex-col items-center gap-2 p-4 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-white/5 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-all group shadow-sm"
           >
             <div className="w-11 h-11 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-[0_4px_14px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform">
@@ -365,7 +412,13 @@ const AssetDetail: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Activity size={15} className="text-blue-500" />
-                <h3 className="text-sm font-bold text-gray-900 dark:text-white">Price Performance</h3>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                  {assetData.symbol === 'USDT'
+                    ? `USDT · Stable $${(assetData.price || 1.0).toFixed(2)}`
+                    : (assetData.type === 'ETH' || assetData.type === 'EVM')
+                      ? `${CHAIN_META[evmChain]?.symbol ?? 'ETH'} Price Performance`
+                      : 'Price Performance'}
+                </h3>
               </div>
               <span className="text-xs font-medium text-gray-400 dark:text-zinc-500">24h</span>
             </div>
@@ -379,8 +432,8 @@ const AssetDetail: React.FC = () => {
                   <AreaChart data={priceHistory}>
                     <defs>
                       <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.25}/>
-                        <stop offset="95%" stopColor={isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0}/>
+                        <stop offset="5%" stopColor={isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <YAxis domain={['auto', 'auto']} hide />
@@ -412,11 +465,10 @@ const AssetDetail: React.FC = () => {
               {['1H', '1D', '1W', '1M', '1Y', 'ALL'].map((period) => (
                 <button
                   key={period}
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
-                    period === '1D'
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${period === '1D'
                       ? 'bg-blue-500 text-white'
                       : 'text-gray-400 dark:text-zinc-600 hover:text-gray-700 dark:hover:text-zinc-300'
-                  }`}
+                    }`}
                 >
                   {period}
                 </button>
@@ -557,31 +609,29 @@ const AssetDetail: React.FC = () => {
 
                 const typeLabel = tx.type === 'purchase' ? 'Received'
                   : tx.type === 'receive' ? 'Received'
-                  : tx.type === 'send' ? 'Sent' : tx.type;
+                    : tx.type === 'send' ? 'Sent' : tx.type;
 
                 const subLabel = tx.counterpartyUsername
                   ? `@${tx.counterpartyUsername}`
                   : tx.comment
                     ? tx.comment
                     : new Date(tx.timestamp).toLocaleDateString('en-US', {
-                        month: 'short', day: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
-                      });
+                      month: 'short', day: 'numeric',
+                      hour: '2-digit', minute: '2-digit'
+                    });
 
                 return (
                   <div
                     key={tx.id}
                     onClick={() => canOpenExplorer && window.open(getTransactionUrl(tx.hash!, network), '_blank')}
-                    className={`px-5 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-all group ${
-                      canOpenExplorer ? 'cursor-pointer' : 'cursor-default'
-                    }`}
+                    className={`px-5 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-all group ${canOpenExplorer ? 'cursor-pointer' : 'cursor-default'
+                      }`}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                        isIncoming
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isIncoming
                           ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                           : 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                      }`}>
+                        }`}>
                         {isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -591,9 +641,8 @@ const AssetDetail: React.FC = () => {
                     </div>
                     <div className="text-right flex items-center gap-2">
                       <div>
-                        <p className={`text-sm font-bold ${
-                          isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                        }`}>
+                        <p className={`text-sm font-bold ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                          }`}>
                           {isIncoming ? '+' : '-'}{tx.amount}
                         </p>
                         <p className="text-xs text-gray-400 dark:text-zinc-500 mt-0.5">{tx.asset}</p>

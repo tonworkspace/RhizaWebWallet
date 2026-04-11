@@ -7,7 +7,6 @@ import { getNetworkConfig } from '../constants';
 import { toDecimals } from '../utility/decimals';
 import { notificationService } from '../services/notificationService';
 import { supabaseService } from '../services/supabaseService';
-import { RZC_CONFIG } from '../config/rzcConfig';
 
 interface StoreUIProps {
     tonPrice: number;
@@ -37,7 +36,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
     const [usdtBalance, setUsdtBalance] = useState<string>('0');
 
     const navigate = useNavigate();
-    const { address, network } = useWallet();
+    const { address, network, rzcPrice } = useWallet();
     const currentTonAddress = tonAddress || address;
 
     const finalAmount = useMemo(() => {
@@ -50,7 +49,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
         return 0;
     }, [finalAmount]);
 
-    const costUsd = finalAmount * RZC_CONFIG.RZC_PRICE_USD;
+    const costUsd = finalAmount * rzcPrice;
     const costTon = costUsd / tonPrice;
     const costUsdt = costUsd;
     const totalRZC = finalAmount * (1 + bonus / 100);

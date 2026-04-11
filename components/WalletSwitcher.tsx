@@ -1,563 +1,90 @@
+/**
+ * WalletSwitcher — portable trigger only.
+ * The actual sheet + modals live in GlobalWalletManager (rendered in App.tsx).
+ */
 import React, { useState, useEffect } from 'react';
-import { 
-  Wallet, 
-  Check, 
-  Plus, 
-  Edit2, 
-  Trash2, 
-  Download,
-  AlertCircle,
-  X,
-  Eye,
-  EyeOff
-} from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 import { WalletManager, WalletMetadata } from '../utils/walletManager';
 import { useWallet } from '../context/WalletContext';
-import { useToast } from '../context/ToastContext';
+import { useWalletManager } from '../context/WalletManagerContext';
+
+const avatarColor = (addr: string) => {
+  const colors = [
+    'from-violet-500 to-purple-600', 'from-blue-500 to-cyan-600',
+    'from-emerald-500 to-teal-600', 'from-orange-500 to-amber-600',
+    'from-rose-500 to-pink-600',    'from-indigo-500 to-blue-600',
+  ];
+  return colors[addr.charCodeAt(2) % colors.length];
+};
+
+const short = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
 const WalletSwitcher: React.FC = () => {
-  const navigate = useNavigate();
-  const { address, login, logout } = useWallet();
-  const { showToast } = useToast();
-  
+  const { address } = useWallet();
+  const { openSheet } = useWalletManager();
   const [wallets, setWallets] = useState<WalletMetadata[]>([]);
-  const [showRenameModal, setShowRenameModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
-  const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
-  const [newName, setNewName] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [active, setActive] = useState<WalletMetadata | undefined>(undefined);
 
   useEffect(() => {
-    loadWallets();
-  }, []);
+    const all = WalletManager.getWallets();
+    setWallets(all);
 
-  const loadWallets = () => {
-    const loadedWallets = WalletManager.getWallets();
-    setWallets(loadedWallets);
-  };
-
-  const handleSwitchWallet = async (walletId: string) => {
-    const wallet = wallets.find(w => w.id === walletId);
-    if (!wallet) return;
-
-    // If already active, do nothing
-    if (wallet.address === address) {
-      showToast('This wallet is already active', 'info');
+    // Use WalletManager's own active wallet record first (format-agnostic)
+    const stored = WalletManager.getActiveWallet();
+    if (stored) {
+      setActive(stored);
       return;
     }
 
-    // Show unlock modal instead of browser prompt
-    setSelectedWallet(walletId);
-    setShowUnlockModal(true);
-  };
+    // Fallback: match by address with async TON normalization
+    if (!address) return;
+    const exact = all.find(w => w.address === address);
+    if (exact) { setActive(exact); return; }
 
-  const handleUnlockWallet = async () => {
-    if (!selectedWallet || !password) return;
-
-    setIsProcessing(true);
-
-    try {
-      // Get mnemonic
-      const result = await WalletManager.getWalletMnemonic(selectedWallet, password);
-      
-      if (!result.success || !result.mnemonic) {
-        showToast('Invalid password', 'error');
-        setIsProcessing(false);
-        return;
-      }
-
-      const wallet = wallets.find(w => w.id === selectedWallet);
-
-      // Logout current wallet
-      logout();
-
-      // Login with new wallet
-      const success = await login(result.mnemonic, password);
-      
-      if (success) {
-        WalletManager.setActiveWallet(selectedWallet);
-        showToast(`Switched to ${wallet?.name}`, 'success');
-        loadWallets();
-        setShowUnlockModal(false);
-        setPassword('');
-        setSelectedWallet(null);
-      } else {
-        showToast('Failed to switch wallet', 'error');
-      }
-    } catch (error) {
-      showToast('An error occurred', 'error');
-    }
-
-    setIsProcessing(false);
-  };
-
-  const handleRename = () => {
-    if (!selectedWallet || !newName.trim()) return;
-
-    const success = WalletManager.renameWallet(selectedWallet, newName.trim());
-    
-    if (success) {
-      showToast('Wallet renamed successfully', 'success');
-      loadWallets();
-      setShowRenameModal(false);
-      setNewName('');
-      setSelectedWallet(null);
-    } else {
-      showToast('Failed to rename wallet', 'error');
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!selectedWallet || !password) return;
-
-    setIsProcessing(true);
-
-    try {
-      // Verify password before deleting
-      const isValid = await WalletManager.verifyPassword(selectedWallet, password);
-      
-      if (!isValid) {
-        showToast('Invalid password', 'error');
-        setIsProcessing(false);
-        return;
-      }
-
-      const wallet = wallets.find(w => w.id === selectedWallet);
-      const isActive = wallet?.address === address;
-
-      const success = WalletManager.removeWallet(selectedWallet);
-      
-      if (success) {
-        showToast('Wallet removed successfully', 'success');
-        loadWallets();
-        setShowDeleteModal(false);
-        setPassword('');
-        setSelectedWallet(null);
-
-        // If deleted active wallet, logout
-        if (isActive) {
-          logout();
-          navigate('/onboarding');
-        }
-      } else {
-        showToast('Failed to remove wallet', 'error');
-      }
-    } catch (error) {
-      showToast('An error occurred', 'error');
-    }
-
-    setIsProcessing(false);
-  };
-
-  const handleExport = async () => {
-    if (!selectedWallet || !password) return;
-
-    setIsProcessing(true);
-
-    try {
-      const result = await WalletManager.exportWallet(selectedWallet, password);
-      
-      if (!result.success || !result.data) {
-        showToast(result.error || 'Failed to export wallet', 'error');
-        setIsProcessing(false);
-        return;
-      }
-
-      // Download as JSON file
-      const wallet = wallets.find(w => w.id === selectedWallet);
-      const blob = new Blob([result.data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${wallet?.name.replace(/\s+/g, '-')}-backup.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      showToast('Wallet exported successfully', 'success');
-      setShowExportModal(false);
-      setPassword('');
-      setSelectedWallet(null);
-    } catch (error) {
-      showToast('An error occurred', 'error');
-    }
-
-    setIsProcessing(false);
-  };
-
-  const shortenAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-6)}`;
-  };
+    // Async normalize via dynamic import (works with Vite ESM)
+    import('@ton/ton').then(({ Address }) => {
+      try {
+        const raw = Address.parse(address).toRawString();
+        const match = all.find(w => {
+          try { return Address.parse(w.address).toRawString() === raw; } catch { return false; }
+        });
+        if (match) setActive(match);
+      } catch { /* not a TON address */ }
+    }).catch(() => {});
+  }, [address]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-black text-white">Wallet Manager</h3>
-          <p className="text-xs text-gray-500 mt-1">Manage and switch between your wallets</p>
-        </div>
-        <button
-          onClick={() => navigate('/onboarding')}
-          className="px-4 py-2 bg-[#00FF88] text-black rounded-xl font-black text-xs uppercase tracking-wider hover:scale-105 transition-all flex items-center gap-2"
-        >
-          <Plus size={14} />
-          Add Wallet
-        </button>
+    <button
+      onClick={openSheet}
+      className="w-full flex items-center gap-3 p-1 rounded-xl hover:bg-gray-50 dark:hover:bg-white/5 transition-all active:scale-[0.98] group"
+    >
+      {/* Avatar */}
+      <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${active ? avatarColor(active.address) : 'from-gray-400 to-gray-500'} flex items-center justify-center text-white font-black text-sm flex-shrink-0 shadow-sm`}>
+        {active?.name?.charAt(0).toUpperCase() ?? 'W'}
       </div>
 
-      <div className="space-y-3">
-        {wallets.map((wallet) => {
-          const isActive = wallet.address === address;
-          
-          return (
-            <div
-              key={wallet.id}
-              className={`p-5 rounded-2xl border-2 transition-all ${
-                isActive
-                  ? 'bg-[#00FF88]/10 border-[#00FF88]'
-                  : 'bg-white/5 border-white/10'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 flex-1">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                    isActive
-                      ? 'bg-[#00FF88]/20 text-[#00FF88]'
-                      : 'bg-white/5 text-gray-400'
-                  }`}>
-                    <Wallet size={24} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-black text-white">{wallet.name}</h4>
-                      {isActive && (
-                        <span className="px-2 py-0.5 bg-[#00FF88]/20 text-[#00FF88] rounded-lg text-[9px] font-black uppercase tracking-wider">
-                          Active
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 font-mono mt-1">
-                      {shortenAddress(wallet.address)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {!isActive && (
-                    <button
-                      onClick={() => handleSwitchWallet(wallet.id)}
-                      disabled={isProcessing}
-                      className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition-all disabled:opacity-50"
-                      title="Switch to this wallet"
-                    >
-                      <Check size={16} />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      setSelectedWallet(wallet.id);
-                      setNewName(wallet.name);
-                      setShowRenameModal(true);
-                    }}
-                    className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition-all"
-                    title="Rename wallet"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedWallet(wallet.id);
-                      setShowExportModal(true);
-                    }}
-                    className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition-all"
-                    title="Export wallet"
-                  >
-                    <Download size={16} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedWallet(wallet.id);
-                      setShowDeleteModal(true);
-                    }}
-                    className="p-2 bg-white/5 hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-500 transition-all"
-                    title="Remove wallet"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      {/* Info */}
+      <div className="flex-1 text-left min-w-0">
+        <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+          {active?.name ?? 'No wallet'}
+        </p>
+        <p className="text-[10px] font-mono text-gray-500 truncate">
+          {active ? short(active.address) : '—'}
+        </p>
       </div>
 
-      {/* Rename Modal */}
-      {showRenameModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 max-w-md w-full space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-black text-white">Rename Wallet</h3>
-              <button
-                onClick={() => {
-                  setShowRenameModal(false);
-                  setNewName('');
-                  setSelectedWallet(null);
-                }}
-                className="p-2 hover:bg-white/5 rounded-xl text-gray-400 hover:text-white transition-all"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
-              placeholder="Enter new name"
-              autoFocus
-            />
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowRenameModal(false);
-                  setNewName('');
-                  setSelectedWallet(null);
-                }}
-                className="flex-1 p-4 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-white/10 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRename}
-                disabled={!newName.trim()}
-                className="flex-1 p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Rename
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 max-w-md w-full space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-black text-white">Remove Wallet</h3>
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setPassword('');
-                  setSelectedWallet(null);
-                }}
-                className="p-2 hover:bg-white/5 rounded-xl text-gray-400 hover:text-white transition-all"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3">
-              <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
-              <p className="text-sm text-red-400 font-medium">
-                This action cannot be undone. Make sure you have backed up your recovery phrase.
-              </p>
-            </div>
-
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
-                placeholder="Enter password to confirm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-              >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setPassword('');
-                  setSelectedWallet(null);
-                }}
-                className="flex-1 p-4 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-white/10 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={!password || isProcessing}
-                className="flex-1 p-4 bg-red-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Export Modal */}
-      {showExportModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 max-w-md w-full space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-black text-white">Export Wallet</h3>
-              <button
-                onClick={() => {
-                  setShowExportModal(false);
-                  setPassword('');
-                  setSelectedWallet(null);
-                }}
-                className="p-2 hover:bg-white/5 rounded-xl text-gray-400 hover:text-white transition-all"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <p className="text-sm text-gray-400">
-              Enter your password to export this wallet as a backup file. Keep this file secure.
-            </p>
-
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
-                placeholder="Enter password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-              >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowExportModal(false);
-                  setPassword('');
-                  setSelectedWallet(null);
-                }}
-                className="flex-1 p-4 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-white/10 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleExport}
-                disabled={!password || isProcessing}
-                className="flex-1 p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? 'Exporting...' : 'Export'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Unlock Wallet Modal */}
-      {showUnlockModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 max-w-md w-full space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-black text-white">Unlock Wallet</h3>
-              <button
-                onClick={() => {
-                  setShowUnlockModal(false);
-                  setPassword('');
-                  setSelectedWallet(null);
-                }}
-                className="p-2 hover:bg-white/5 rounded-xl text-gray-400 hover:text-white transition-all"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {selectedWallet && (
-                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#00FF88]/20 text-[#00FF88] flex items-center justify-center">
-                      <Wallet size={20} />
-                    </div>
-                    <div>
-                      <p className="font-black text-white">
-                        {wallets.find(w => w.id === selectedWallet)?.name}
-                      </p>
-                      <p className="text-xs text-gray-500 font-mono">
-                        {wallets.find(w => w.id === selectedWallet)?.address && 
-                         shortenAddress(wallets.find(w => w.id === selectedWallet)!.address)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <p className="text-sm text-gray-400">
-                Enter your password to unlock and switch to this wallet.
-              </p>
-            </div>
-
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleUnlockWallet()}
-                className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 outline-none focus:border-[#00FF88]/50 transition-all font-medium"
-                placeholder="Enter wallet password"
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-              >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowUnlockModal(false);
-                  setPassword('');
-                  setSelectedWallet(null);
-                }}
-                className="flex-1 p-4 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-white/10 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUnlockWallet}
-                disabled={!password || isProcessing}
-                className="flex-1 p-4 bg-[#00FF88] text-black rounded-2xl font-black text-sm uppercase tracking-wider hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? 'Unlocking...' : 'Unlock'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* Count + chevron */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {wallets.length > 1 && (
+          <span className="text-[9px] font-black text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-white/10 px-2 py-0.5 rounded-full">
+            {wallets.length} accounts
+          </span>
+        )}
+        <ChevronRight size={16} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+      </div>
+    </button>
   );
 };
 
+export { avatarColor, short };
 export default WalletSwitcher;

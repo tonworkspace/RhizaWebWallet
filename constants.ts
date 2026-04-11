@@ -4,7 +4,7 @@ export const CHAIN_META: Record<string, { name: string, logo: string, symbol: st
   ethereum: { name: 'Ethereum', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
   polygon: { name: 'Polygon', symbol: 'MATIC', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png' },
   arbitrum: { name: 'Arbitrum', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png' },
-  bsc: { name: 'BNB Smart Chain', symbol: 'BNB', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png' },
+  bsc: { name: 'BNB Chain', symbol: 'BNB', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png' },
   avalanche: { name: 'Avalanche', symbol: 'AVAX', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png' },
   plasma: { name: 'Plasma', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
   stable: { name: 'Stable', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
@@ -25,7 +25,7 @@ export const TON_NETWORK = {
     DEPOSIT_ADDRESS: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
     // StarFi Mining Contract Address (Mainnet) - uses env var if available
     MINING_CONTRACT_ADDRESS: import.meta.env.VITE_STARFI_MINING_CONTRACT_MAINNET || 'EQCPMcE76o6NyVM-BGxvc6Qdx3DjvpJAT5ALQ_e9p9p6Qj2f',
-    API_KEY: '26197ebc36a041a5546d69739da830635ed339c0d8274bdd72027ccbff4f4234', // TonCenter API Key
+    API_KEY: '509fc324e5a26df719b2e637cad9f34fd7c3576455b707522ce8319d8b450441', // TonCenter API Key
     TONAPI_KEY: import.meta.env.VITE_TONAPI_KEY_MAINNET || 'AHZ25K6GOTNFOVQAAAAGWQBCDALGUCPWSHPKL2KQBMUPYIZ4XTQ6ZKHEEONHPY57RXQWUCI', // TonAPI Bearer Token
     // Use multiple endpoints for better reliability
     API_ENDPOINTS: [
@@ -43,7 +43,7 @@ export const TON_NETWORK = {
     DEPOSIT_ADDRESS: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
     // StarFi Mining Contract Address (Testnet) - DEPLOYED WITH RETROACTIVE REFERRAL!
     MINING_CONTRACT_ADDRESS: import.meta.env.VITE_STARFI_MINING_CONTRACT_TESTNET || 'EQCPMcE76o6NyVM-BGxvc6Qdx3DjvpJAT5ALQ_e9p9p6Qj2f',
-    API_KEY: 'd682d9b65115976e52f63713d6dd59567e47eaaa1dc6067fe8a89d537dd29c2c', // TonCenter API Key
+    API_KEY: 'bb31868e5cf6529efb16bcf547beb3c534a28d1e139bd63356fd936c168fe662', // TonCenter API Key
     TONAPI_KEY: import.meta.env.VITE_TONAPI_KEY_TESTNET || 'AHZ25K6GOTNFOVQAAAAGWQBCDALGUCPWSHPKL2KQBMUPYIZ4XTQ6ZKHEEONHPY57RXQWUCI', // TonAPI Bearer Token
     // Use multiple endpoints for better reliability - ordered by reliability
     API_ENDPOINTS: [
@@ -100,21 +100,21 @@ export const getTonApiKey = (networkType: NetworkType) => {
 };
 
 export const RHIZA_BUSINESS_MODEL = [
-  { 
-    title: "Store Payments", 
-    metric: "0.1% Fee", 
+  {
+    title: "Store Payments",
+    metric: "0.1% Fee",
     desc: "Stores pay a tiny fee when customers buy things. Much cheaper than credit cards (which charge 2-3%).",
     technical: "Frictionless payment rail for global commerce with institutional-grade settlement infrastructure."
   },
-  { 
-    title: "Safe Storage", 
-    metric: "Bank-Level Security", 
+  {
+    title: "Safe Storage",
+    metric: "Bank-Level Security",
     desc: "Your money is protected like a bank vault, but you're the only one with the key.",
     technical: "Enterprise-grade custody solutions with multi-signature architecture and cold storage protocols."
   },
-  { 
-    title: "Instant Trading", 
-    metric: "Always Available", 
+  {
+    title: "Instant Trading",
+    metric: "Always Available",
     desc: "Swap your $RZC for other coins anytime, anywhere. Like exchanging dollars for euros, but instant.",
     technical: "Automated market maker with deep liquidity pools enabling cross-border settlements and arbitrage."
   }
@@ -145,71 +145,71 @@ export const RHIZA_OPPORTUNITIES = [
 ];
 
 export const RHIZA_TOKENOMICS = [
-  { 
-    label: "Community Mining Pool", 
-    percentage: 60, 
-    color: "#00FF88", 
-    description: "Distributed through Proof of Activity mining, airdrops, staking rewards, and governance incentives. Locked until Phase 2 activation." 
+  {
+    label: "Community Mining Pool",
+    percentage: 60,
+    color: "#00FF88",
+    description: "Distributed through Proof of Activity mining, airdrops, staking rewards, and governance incentives. Locked until Phase 2 activation."
   },
-  { 
-    label: "Development & Infrastructure", 
-    percentage: 20, 
-    color: "#00CCFF", 
-    description: "Security audits, Telegram Mini App maintenance, multi-chain integration, and marketing operations." 
+  {
+    label: "Development & Infrastructure",
+    percentage: 20,
+    color: "#00CCFF",
+    description: "Security audits, Telegram Mini App maintenance, multi-chain integration, and marketing operations."
   },
-  { 
-    label: "Strategic Liquidity (SLER)", 
-    percentage: 20, 
-    color: "#ffffff", 
-    description: "Team compensation (4-year vesting + 1-year cliff), Initial Liquidity Provision, and CEX listings. Multi-sig controlled." 
+  {
+    label: "Strategic Liquidity (SLER)",
+    percentage: 20,
+    color: "#ffffff",
+    description: "Team compensation (4-year vesting + 1-year cliff), Initial Liquidity Provision, and CEX listings. Multi-sig controlled."
   }
 ];
 
 export const RHIZA_UTILITIES = [
-  { 
-    title: "Merchant Payments", 
+  {
+    title: "Merchant Payments",
     desc: "Accept $RZC payments from customers worldwide. Instant settlement with 0.1% fees—10x cheaper than credit cards.",
     technical: "Payment gateway API with instant settlement, multi-currency support, and automated reconciliation for merchants.",
     icon: "shopping-bag"
   },
-  { 
-    title: "P2P Marketplace", 
+  {
+    title: "P2P Marketplace",
     desc: "Buy and sell goods directly with other users. Escrow protection ensures safe transactions for both parties.",
     technical: "Decentralized marketplace with smart contract escrow, dispute resolution, and reputation system.",
     icon: "store"
   },
-  { 
-    title: "Daily Transactions", 
+  {
+    title: "Daily Transactions",
     desc: "Send money to anyone instantly for everyday purchases. Pay bills, split costs, or send to family—all with near-zero fees.",
     technical: "High-throughput payment infrastructure supporting micro-transactions with sub-second finality on TON.",
     icon: "zap"
   },
-  { 
-    title: "Staking & Rewards", 
+  {
+    title: "Staking & Rewards",
     desc: "Stake your $RZC to earn passive income and boost your mining rate. Earn while you hold.",
     technical: "Staking pools with dynamic APY, mining rate multipliers, and automated reward distribution.",
     icon: "trending-up"
   },
-  { 
-    title: "Cross-Chain Swaps", 
+  {
+    title: "Cross-Chain Swaps",
     desc: "Swap $RZC for other cryptocurrencies instantly. Access liquidity across multiple blockchains.",
     technical: "DEX aggregator with cross-chain bridge integration for ETH, BSC, and TON ecosystem tokens.",
     icon: "repeat"
   },
-  { 
-    title: "NFT Marketplace", 
+  {
+    title: "NFT Marketplace",
     desc: "Trade digital collectibles and assets using $RZC. Create, buy, and sell NFTs with low fees.",
     technical: "NFT marketplace with lazy minting, royalty automation, and $RZC as primary settlement currency.",
     icon: "image"
   },
-  { 
-    title: "DAO Governance", 
+  {
+    title: "DAO Governance",
     desc: "Vote on protocol upgrades, treasury allocation, and ecosystem decisions. Your tokens, your voice.",
     technical: "On-chain governance with proposal creation, voting mechanisms, and timelock execution.",
     icon: "users"
   },
-  { 
-    title: "DeFi Integration", 
+  {
+    title: "DeFi Integration",
     desc: "Access lending, borrowing, and yield farming. Maximize your returns with DeFi protocols.",
     technical: "Integration with TON DeFi ecosystem including lending protocols, liquidity pools, and yield aggregators.",
     icon: "layers"

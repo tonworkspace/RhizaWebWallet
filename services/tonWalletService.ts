@@ -217,20 +217,26 @@ export class TonWalletService {
       const mnemonic = await mnemonicNew(24);
       const keyPair = await mnemonicToWalletKey(mnemonic);
       const wallet = WalletContractV4.create({ workchain: 0, publicKey: keyPair.publicKey });
-      return { success: true, mnemonic, address: wallet.address.toString() };
+      const address = wallet.address.toString({ bounceable: false, testOnly: this.currentNetwork === 'testnet' });
+      return { success: true, mnemonic, address };
     } catch (e) {
       return { success: false, error: String(e) };
     }
   }
 
-  async initializeWallet(mnemonic: string[], password?: string, walletId?: string) {
+  async initializeWallet(mnemonic: string[], password?: string, walletId?: string, validateOnly = false) {
     try {
       this.keyPair = await mnemonicToWalletKey(mnemonic);
       this.wallet = WalletContractV4.create({ workchain: 0, publicKey: this.keyPair.publicKey });
       this.contract = this.client.open(this.wallet);
 
-      const address = this.wallet.address.toString();
+      const address = this.wallet.address.toString({ bounceable: false, testOnly: this.currentNetwork === 'testnet' });
       console.log(`✅ Wallet initialized: ${address}`);
+
+      // Skip all storage when only validating the phrase
+      if (validateOnly) {
+        return { success: true, address };
+      }
 
       // Generate wallet ID if not provided
       const effectiveWalletId = walletId || `wallet_${address.slice(0, 8)}`;
@@ -263,8 +269,8 @@ export class TonWalletService {
   }
 
   async getBalance() {
-    if (!this.contract) {
-      console.warn('⚠️ Contract not initialized');
+    if (!this.wallet) {
+      console.warn('⚠️ Wallet not initialized');
       return { success: false, error: 'Not initialized' };
     }
 
@@ -274,7 +280,7 @@ export class TonWalletService {
       
       console.log(`💰 Fetching balance for ${this.wallet.address.toString()} on ${this.currentNetwork}...`);
 
-      const balance = await this.contract.getBalance();
+      const balance = await this.client.getBalance(this.wallet.address);
       const balanceInTon = (Number(balance) / 1e9).toFixed(4);
 
       console.log(`✅ Balance fetched: ${balanceInTon} TON`);
@@ -335,15 +341,15 @@ export class TonWalletService {
   async getJettons(address: string) {
     try {
       const config = getNetworkConfig(this.currentNetwork);
-      const tonApiEndpoint = this.currentNetwork === 'mainnet'
-        ? 'https://tonapi.io/v2'
-        : 'https://testnet.tonapi.io/v2';
+      const v3Endpoint = this.currentNetwork === 'mainnet'
+        ? 'https://toncenter.com/api/v3'
+        : 'https://testnet.toncenter.com/api/v3';
 
-      console.log(`🪙 Fetching jettons for ${address} on ${this.currentNetwork}...`);
+      console.log(`🪙 Fetching jettons for ${address} on ${this.currentNetwork} via TonCenter V3...`);
 
-      const res = await fetch(`${tonApiEndpoint}/accounts/${address}/jettons`, {
+      const res = await fetch(`${v3Endpoint}/jetton/wallets?owner_address=${address}&limit=250`, {
         headers: {
-          'Authorization': `Bearer ${config.TONAPI_KEY}`
+          'x-api-key': config.API_KEY
         }
       });
 
@@ -353,9 +359,21 @@ export class TonWalletService {
       }
 
       const data = await res.json();
-      console.log(`✅ Jettons fetched: ${data.balances?.length || 0} tokens`);
+      
+      // Map TonCenter V3 jettons to look like TonAPI jettons for frontend compatibility
+      const mappedBalances = (data.jetton_wallets || []).map((w: any) => ({
+        balance: w.balance,
+        jetton: {
+          address: w.jetton,
+          name: w.jetton_master?.name || 'Unknown Token',
+          symbol: w.jetton_master?.symbol || 'TKN',
+          decimals: w.jetton_master?.decimals || 9,
+          image: w.jetton_master?.image || ''
+        }
+      }));
 
-      return { success: true, jettons: data.balances || [] };
+      console.log(`✅ Jettons fetched: ${mappedBalances.length} tokens`);
+      return { success: true, jettons: mappedBalances };
     } catch (e) {
       console.error('❌ Jettons fetch failed:', e);
       return { success: false, error: String(e) };
@@ -365,15 +383,16 @@ export class TonWalletService {
   async getTransactions(address: string, limit: number = 50) {
     try {
       const config = getNetworkConfig(this.currentNetwork);
-      const tonApiEndpoint = this.currentNetwork === 'mainnet'
-        ? 'https://tonapi.io/v2'
-        : 'https://testnet.tonapi.io/v2';
+      const v3Endpoint = this.currentNetwork === 'mainnet'
+        ? 'https://toncenter.com/api/v3'
+        : 'https://testnet.toncenter.com/api/v3';
 
-      console.log(`📜 Fetching transactions for ${address} on ${this.currentNetwork}...`);
+      console.log(`📜 Fetching transactions for ${address} on ${this.currentNetwork} via TonCenter V3...`);
 
-      const response = await fetch(`${tonApiEndpoint}/blockchain/accounts/${address}/transactions?limit=${limit}`, {
+      // Using /transactions which is standard in V3
+      const response = await fetch(`${v3Endpoint}/transactions?account=${address}&limit=${limit}`, {
         headers: {
-          'Authorization': `Bearer ${config.TONAPI_KEY}`
+          'x-api-key': config.API_KEY
         }
       });
 
@@ -384,6 +403,8 @@ export class TonWalletService {
       const data = await response.json();
       console.log(`✅ Fetched ${data.transactions?.length || 0} transactions`);
 
+      // Passing V3 directly: standard wallets handle base64 V3 hashes fine if they parse raw data. 
+      // If the UI expects specific TonAPI fields, we fall back to generic mapping.
       return { success: true, transactions: data.transactions || [] };
     } catch (e) {
       console.error('❌ Transactions fetch failed:', e);
@@ -394,15 +415,15 @@ export class TonWalletService {
   async getNFTs(address: string, limit: number = 100) {
     try {
       const config = getNetworkConfig(this.currentNetwork);
-      const tonApiEndpoint = this.currentNetwork === 'mainnet'
-        ? 'https://tonapi.io/v2'
-        : 'https://testnet.tonapi.io/v2';
+      const v3Endpoint = this.currentNetwork === 'mainnet'
+        ? 'https://toncenter.com/api/v3'
+        : 'https://testnet.toncenter.com/api/v3';
 
-      console.log(`🖼️ Fetching NFTs for ${address} on ${this.currentNetwork}...`);
+      console.log(`🖼️ Fetching NFTs for ${address} on ${this.currentNetwork} via TonCenter V3...`);
 
-      const response = await fetch(`${tonApiEndpoint}/accounts/${address}/nfts?limit=${limit}`, {
+      const response = await fetch(`${v3Endpoint}/nft/items?owner_address=${address}&limit=${limit}`, {
         headers: {
-          'Authorization': `Bearer ${config.TONAPI_KEY}`
+          'x-api-key': config.API_KEY
         }
       });
 
@@ -838,7 +859,16 @@ export class TonWalletService {
   getStoredSession(password: string) { return sessionManager.restoreSession(password); }
   hasStoredSession() { return sessionManager.hasSession(); }
   isSessionEncrypted() { return sessionManager.isEncrypted(); }
-  getWalletAddress() { return this.wallet?.address.toString(); }
+  getWalletAddress() { 
+    if (!this.wallet) return undefined;
+    
+    // Use non-bounceable addresses for safer deposits from exchanges
+    // and encode the correct network (testnet vs mainnet) flag
+    return this.wallet.address.toString({ 
+      bounceable: false, 
+      testOnly: this.currentNetwork === 'testnet' 
+    }); 
+  }
   getCurrentNetwork() { return this.currentNetwork; }
 }
 

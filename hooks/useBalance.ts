@@ -7,6 +7,14 @@ interface BalanceData {
   tonPrice: number;
   btcPrice: number;
   ethPrice: number;
+  bnbPrice: number;
+  maticPrice: number;
+  avaxPrice: number;
+  solPrice: number;
+  tronPrice: number;
+  usdtPrice: number;
+  usdcPrice: number;
+  rzcPrice: number;
   totalUsdValue: number;
   change24h: number;
   changePercent24h: number;
@@ -16,6 +24,13 @@ interface PriceCache {
   tonPrice: number;
   btcPrice: number;
   ethPrice: number;
+  bnbPrice: number;
+  maticPrice: number;
+  avaxPrice: number;
+  solPrice: number;
+  tronPrice: number;
+  usdtPrice: number;
+  usdcPrice: number;
   change: number;
   timestamp: number;
 }
@@ -26,18 +41,16 @@ const CACHE_DURATION = 30_000; // 30 seconds
 
 // Read admin-configured fallbacks (or built-in defaults)
 function getFallbacks() {
-  const o = getPriceOverrides();
-  return { ton: o.ton, btc: o.btc, eth: o.eth };
+  return getPriceOverrides();
 }
 
 /**
- * Fetch TON/BTC/ETH prices from CoinGecko's public API.
- * CoinGecko supports browser CORS requests — no API key required for basic usage.
+ * Fetch TON/BTC/ETH/BNB/MATIC/AVAX prices from CoinGecko's public API.
  */
 async function fetchCoinGeckoPrices(signal: AbortSignal): Promise<PriceCache> {
   const url =
     'https://api.coingecko.com/api/v3/simple/price' +
-    '?ids=the-open-network,bitcoin,ethereum' +
+    '?ids=the-open-network,bitcoin,ethereum,binancecoin,matic-network,avalanche-2,solana,tron,tether,usd-coin' +
     '&vs_currencies=usd' +
     '&include_24hr_change=true';
 
@@ -50,13 +63,20 @@ async function fetchCoinGeckoPrices(signal: AbortSignal): Promise<PriceCache> {
   const tonPrice: number = data['the-open-network']?.usd ?? fb.ton;
   const btcPrice: number = data['bitcoin']?.usd ?? fb.btc;
   const ethPrice: number = data['ethereum']?.usd ?? fb.eth;
+  const bnbPrice: number = data['binancecoin']?.usd ?? fb.bnb;
+  const maticPrice: number = data['matic-network']?.usd ?? fb.matic;
+  const avaxPrice: number = data['avalanche-2']?.usd ?? fb.avax;
+  const solPrice: number = data['solana']?.usd ?? fb.sol;
+  const tronPrice: number = data['tron']?.usd ?? fb.trx;
+  const usdtPrice: number = data['tether']?.usd ?? fb.usdt;
+  const usdcPrice: number = data['usd-coin']?.usd ?? fb.usdc;
   const change: number = data['the-open-network']?.usd_24h_change ?? 0;
 
-  return { tonPrice, btcPrice, ethPrice, change, timestamp: Date.now() };
+  return { tonPrice, btcPrice, ethPrice, bnbPrice, maticPrice, avaxPrice, solPrice, tronPrice, usdtPrice, usdcPrice, change, timestamp: Date.now() };
 }
 
 export const useBalance = () => {
-  const { balance: tonBalanceStr, network } = useWallet();
+  const { balance: tonBalanceStr, network, rzcPrice: contextRzcPrice } = useWallet();
 
   const [balanceData, setBalanceData] = useState<BalanceData>(() => {
     const fb = getFallbacks();
@@ -65,6 +85,14 @@ export const useBalance = () => {
       tonPrice: fb.ton,
       btcPrice: fb.btc,
       ethPrice: fb.eth,
+      bnbPrice: fb.bnb,
+      maticPrice: fb.matic,
+      avaxPrice: fb.avax,
+      solPrice: fb.sol,
+      tronPrice: fb.trx,
+      usdtPrice: fb.usdt,
+      usdcPrice: fb.usdc,
+      rzcPrice: fb.rzc || contextRzcPrice,
       totalUsdValue: 0,
       change24h: 0,
       changePercent24h: 0,
@@ -109,6 +137,13 @@ export const useBalance = () => {
                 tonPrice: fb.ton,
                 btcPrice: fb.btc,
                 ethPrice: fb.eth,
+                bnbPrice: fb.bnb,
+                maticPrice: fb.matic,
+                avaxPrice: fb.avax,
+                solPrice: fb.sol,
+                tronPrice: fb.trx,
+                usdtPrice: fb.usdt,
+                usdcPrice: fb.usdc,
                 change: 0,
                 timestamp: now,
               };
@@ -124,6 +159,14 @@ export const useBalance = () => {
           tonPrice: prices.tonPrice,
           btcPrice: prices.btcPrice,
           ethPrice: prices.ethPrice,
+          bnbPrice: prices.bnbPrice,
+          maticPrice: prices.maticPrice,
+          avaxPrice: prices.avaxPrice,
+          solPrice: prices.solPrice,
+          tronPrice: prices.tronPrice,
+          usdtPrice: prices.usdtPrice,
+          usdcPrice: prices.usdcPrice,
+          rzcPrice: contextRzcPrice || getPriceOverrides().rzc,
           totalUsdValue,
           change24h,
           changePercent24h: prices.change,

@@ -7,9 +7,10 @@
 
 export interface NetworkConfig {
   walletAddress: string;
+  secondaryWalletAddress?: string;
   memo?: string;
   activationFeeUSD: number;
-  testNodeFeeTON?: number; // Only for testnet
+  testNodeFeeTON?: number;
 }
 
 export interface PaymentConfig {
@@ -24,17 +25,17 @@ export interface PaymentConfig {
  */
 export const PAYMENT_CONFIG: PaymentConfig = {
   mainnet: {
-    // RhizaCore mainnet payment wallet address
-    walletAddress: 'EQADCHuZSVck95LslSxCh8CMSQCIoK23uTpGgcjkwhldq5Ml',
+    walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
+    secondaryWalletAddress: 'UQB2b3Ukq5akEQ-Vhu5xLZC_t1p-BiF0pCbpQcfPcecP_Uj8',
     memo: 'RhizaCore Payment',
-    activationFeeUSD: 18 // $15 activation fee for mainnet
+    activationFeeUSD: 18
   },
   testnet: {
-    // RhizaCore testnet payment wallet address
     walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
+    secondaryWalletAddress: 'UQB2b3Ukq5akEQ-Vhu5xLZC_t1p-BiF0pCbpQcfPcecP_Uj8',
     memo: 'RhizaCore Test Payment',
-    activationFeeUSD: 15, // $15 activation fee for testnet
-    testNodeFeeTON: 0.5 // 0.5 TON for test node (testnet only)
+    activationFeeUSD: 15,
+    testNodeFeeTON: 0.5
   }
 };
 
@@ -43,6 +44,15 @@ export const PAYMENT_CONFIG: PaymentConfig = {
  */
 export const getPaymentAddress = (network: 'mainnet' | 'testnet'): string => {
   return PAYMENT_CONFIG[network].walletAddress;
+};
+
+export const getSecondaryPaymentAddress = (network: 'mainnet' | 'testnet'): string | undefined => {
+  return PAYMENT_CONFIG[network].secondaryWalletAddress;
+};
+
+export const getAllPaymentAddresses = (network: 'mainnet' | 'testnet'): string[] => {
+  const config = PAYMENT_CONFIG[network];
+  return [config.walletAddress, ...(config.secondaryWalletAddress ? [config.secondaryWalletAddress] : [])];
 };
 
 /**

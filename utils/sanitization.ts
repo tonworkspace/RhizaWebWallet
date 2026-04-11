@@ -85,6 +85,23 @@ export function escapeHtml(text: string): string {
 }
 
 /**
+ * Normalize a TON address to its raw string form (e.g. "0:abcd...").
+ * Used as a stable key for DB lookups so EQ.../UQ.../0:... all resolve
+ * to the same record regardless of which format was stored.
+ *
+ * Returns null if the string is not a valid TON address.
+ */
+export function normalizeTonAddress(address: string): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Address } = require('@ton/ton') as typeof import('@ton/ton');
+    return Address.parse(address).toRawString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Validate and sanitize URL input
  * 
  * @param url - User-provided URL

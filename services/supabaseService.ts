@@ -1,4 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { authService } from './authService';
+import { normalizeTonAddress } from '../utils/sanitization';
 
 // Supabase configuration
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -82,6 +84,18 @@ export interface RZCTransaction {
   created_at: string;
 }
 
+export interface SupportTicket {
+  id: string;
+  user_id?: string | null;
+  wallet_address: string;
+  subject: string;
+  message: string;
+  status: 'open' | 'pending' | 'resolved' | 'closed';
+  admin_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ============================================================================
 // SUPABASE SERVICE CLASS
 // ============================================================================
@@ -101,9 +115,10 @@ class SupabaseService {
   private initialize() {
     if (SUPABASE_URL && SUPABASE_ANON_KEY) {
       try {
-        this.client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Use the shared singleton from authService so all services share one session
+        this.client = authService.getClient();
         this.isInitialized = true;
-        console.log('✅ Supabase client initialized');
+        console.log('✅ Supabase client initialized (shared singleton)');
       } catch (error) {
         console.error('❌ Supabase initialization failed:', error);
         this.isInitialized = false;
@@ -149,9 +164,9 @@ class SupabaseService {
             ...profile,
             updated_at: new Date().toISOString()
           },
-          { 
+          {
             onConflict: 'wallet_address',
-            ignoreDuplicates: false 
+            ignoreDuplicates: false
           }
         )
         .select()
@@ -171,7 +186,9 @@ class SupabaseService {
   }
 
   /**
-   * Get user profile by wallet address
+   * Get user profile by wallet address.
+   * Handles both EQ... (bounceable) and UQ... (non-bounceable) TON address formats
+   * so existing accounts are always found regardless of which format was stored.
    */
   async getProfile(walletAddress: string): Promise<{
     success: boolean;
@@ -185,19 +202,38 @@ class SupabaseService {
     try {
       console.log('🔍 Fetching profile for:', walletAddress);
 
+      // Build the list of address variants to try (raw → EQ → UQ)
+      const addressVariants = new Set<string>([walletAddress]);
+      try {
+        const { Address } = await import('@ton/ton');
+        const parsed = Address.parse(walletAddress);
+        addressVariants.add(parsed.toRawString());
+        // bounceable (EQ...)
+        addressVariants.add(parsed.toString({ bounceable: true, testOnly: false }));
+        // non-bounceable mainnet (UQ...)
+        addressVariants.add(parsed.toString({ bounceable: false, testOnly: false }));
+        // non-bounceable testnet (kQ...)
+        addressVariants.add(parsed.toString({ bounceable: false, testOnly: true }));
+      } catch {
+        // Not a TON address — use as-is
+      }
+
+      const variants = Array.from(addressVariants);
+
       const { data, error } = await this.client
         .from('wallet_users')
         .select('*')
-        .eq('wallet_address', walletAddress)
-        .single();
+        .in('wallet_address', variants)
+        .limit(1)
+        .maybeSingle();
 
       if (error) {
-        // PGRST116 = not found, which is not an error
-        if (error.code === 'PGRST116') {
-          console.log('ℹ️ Profile not found');
-          return { success: true, data: null };
-        }
         throw error;
+      }
+
+      if (!data) {
+        console.log('ℹ️ Profile not found');
+        return { success: true, data: null };
       }
 
       console.log('✅ Profile found:', data.name);
@@ -237,6 +273,60 @@ class SupabaseService {
       return { success: true, data };
     } catch (error: any) {
       console.error('❌ Profile fetch by ID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get user profile with referral data in a single optimized query (for login)
+   */
+  async getProfileWithReferralData(walletAddress: string): Promise<{
+    success: boolean;
+    profile?: UserProfile | null;
+    referralData?: ReferralData | null;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      console.log('🔍 Fetching profile with referral data for:', walletAddress);
+
+      // Fetch profile and referral data in parallel
+      const [profileResult, referralResult] = await Promise.all([
+        this.getProfile(walletAddress),
+        (async () => {
+          try {
+            const { data, error } = await this.client!
+              .from('wallet_users')
+              .select(`
+                id,
+                wallet_referrals (*)
+              `)
+              .eq('wallet_address', walletAddress)
+              .single();
+
+            if (error && error.code !== 'PGRST116') return null;
+            return data?.wallet_referrals?.[0] || null;
+          } catch (err) {
+            console.error('❌ Referral fetch error:', err);
+            return null;
+          }
+        })()
+      ]);
+
+      if (!profileResult.success) {
+        return { success: false, error: profileResult.error };
+      }
+
+      return {
+        success: true,
+        profile: profileResult.data,
+        referralData: referralResult
+      };
+    } catch (error: any) {
+      console.error('❌ Profile with referral fetch error:', error);
       return { success: false, error: error.message };
     }
   }
@@ -312,7 +402,8 @@ class SupabaseService {
   // ============================================================================
 
   /**
-   * Save transaction to database
+   * Save transaction to database.
+   * Uses upsert on tx_hash to silently ignore duplicates.
    */
   async saveTransaction(transaction: Partial<Transaction>): Promise<{
     success: boolean;
@@ -328,11 +419,17 @@ class SupabaseService {
 
       const { data, error } = await this.client
         .from('wallet_transactions')
-        .insert(transaction)
+        .upsert(transaction, { onConflict: 'tx_hash', ignoreDuplicates: true })
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+
+      // ignoreDuplicates=true returns null data when the row already exists — treat as success
+      if (!data) {
+        console.log('ℹ️ Transaction already exists, skipped:', transaction.tx_hash);
+        return { success: true };
+      }
 
       console.log('✅ Transaction saved:', data.id);
       return { success: true, data };
@@ -464,9 +561,9 @@ class SupabaseService {
             level: 1,
             updated_at: new Date().toISOString()
           },
-          { 
+          {
             onConflict: 'user_id',
-            ignoreDuplicates: false 
+            ignoreDuplicates: false
           }
         )
         .select()
@@ -760,6 +857,253 @@ class SupabaseService {
     if (channel) {
       await channel.unsubscribe();
       console.log('🔕 Unsubscribed from channel');
+    }
+  }
+
+  // ============================================================================
+  // CONFIGURATION MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Get configuration values by key prefix or specific key
+   */
+  async getConfig(key?: string): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      if (key) {
+        const { data, error } = await this.client
+          .from('rzc_config')
+          .select('value')
+          .eq('key', key)
+          .single();
+
+        if (error) {
+          if (error.code === 'PGRST116') {
+            return { success: true, data: null };
+          }
+          throw error;
+        }
+        return { success: true, data: data.value };
+      } else {
+        const { data, error } = await this.client
+          .from('rzc_config')
+          .select('*');
+
+        if (error) throw error;
+
+        const configMap = (data || []).reduce((acc: any, curr: any) => {
+          acc[curr.key] = curr.value;
+          return acc;
+        }, {});
+        return { success: true, data: configMap };
+      }
+    } catch (error: any) {
+      console.error('❌ Config fetch error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // SUPPORT SYSTEM
+  // ============================================================================
+
+  /**
+   * Submit a support ticket/help request
+   */
+  async submitSupportTicket(ticket: {
+    wallet_address: string;
+    subject: string;
+    message: string;
+    user_id?: string | null;
+  }): Promise<{
+    success: boolean;
+    data?: SupportTicket;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      console.log('🎫 Submitting support ticket for:', ticket.wallet_address);
+
+      const { data, error } = await this.client
+        .from('wallet_support_tickets')
+        .insert({
+          ...ticket,
+          status: 'open',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return { success: true, data };
+    } catch (error: any) {
+      console.error('❌ Support ticket submission error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get support tickets for a user
+   */
+  async getUserTickets(walletAddress: string): Promise<{
+    success: boolean;
+    data?: SupportTicket[];
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('wallet_support_tickets')
+        .select('*')
+        .eq('wallet_address', walletAddress)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      return { success: true, data: data || [] };
+    } catch (error: any) {
+      console.error('❌ User tickets fetch error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get all support tickets (admin)
+   */
+  async getAllTickets(limit: number = 100): Promise<{
+    success: boolean;
+    data?: SupportTicket[];
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('wallet_support_tickets')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      return { success: true, data: data || [] };
+    } catch (error: any) {
+      console.error('❌ All tickets fetch error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Update ticket status (admin)
+   */
+  async updateTicketStatus(
+    ticketId: string,
+    status: SupportTicket['status'],
+    adminNotes?: string
+  ): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { error } = await this.client
+        .from('wallet_support_tickets')
+        .update({
+          status,
+          admin_notes: adminNotes,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', ticketId);
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('❌ Ticket status update error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send admin message/response without changing ticket status
+   */
+  async sendTicketMessage(
+    ticketId: string,
+    adminMessage: string
+  ): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { error } = await this.client
+        .from('wallet_support_tickets')
+        .update({
+          admin_notes: adminMessage,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', ticketId);
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('❌ Ticket message send error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Set configuration value
+   */
+  async setConfig(key: string, value: number, updatedBy: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      // Use the function if it exists, otherwise use raw update
+      const { error } = await this.client
+        .from('rzc_config')
+        .upsert({
+          key,
+          value,
+          updated_at: new Date().toISOString(),
+          updated_by: updatedBy
+        }, { onConflict: 'key' });
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('❌ Config update error:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -1342,65 +1686,65 @@ class SupabaseService {
    * Get downline (users referred by this user) with their stats
    */
   async getDownline(userId: string): Promise<{
-      success: boolean;
-      data?: Array<UserProfile & { total_referrals?: number; rzc_earned?: number }>;
-      error?: string;
-    }> {
-      if (!this.client) {
-        return { success: false, error: 'Supabase not configured' };
-      }
-
-      try {
-        console.log('🔍 Fetching downline for user:', userId);
-
-        // Get all referral records where this user is the referrer
-        const { data: referralData, error: refError } = await this.client
-          .from('wallet_referrals')
-          .select('user_id, total_referrals, created_at')
-          .eq('referrer_id', userId)
-          .order('created_at', { ascending: false });
-
-        if (refError) throw refError;
-
-        if (!referralData || referralData.length === 0) {
-          console.log('ℹ️ No downline members found');
-          return { success: true, data: [] };
-        }
-
-        console.log(`📊 Found ${referralData.length} referral records`);
-
-        // Get user details for each downline member
-        const userIds = referralData.map(r => r.user_id);
-        const { data: userData, error: userError } = await this.client
-          .from('wallet_users')
-          .select('*')
-          .in('id', userIds);
-
-        if (userError) throw userError;
-
-        console.log(`📊 Found ${userData?.length || 0} user records`);
-
-        // Combine the data
-        const transformedData = referralData.map((ref: any) => {
-          const user = userData?.find((u: any) => u.id === ref.user_id);
-          if (!user) {
-            console.warn(`⚠️ User not found for referral record:`, ref.user_id);
-            return null;
-          }
-          return {
-            ...user,
-            total_referrals: ref.total_referrals,
-            rzc_earned: (user?.rzc_balance || 0) - 100 // Subtract signup bonus
-          };
-        }).filter(item => item !== null); // Remove any null entries
-
-        console.log(`✅ Found ${transformedData.length} downline members`);
-        return { success: true, data: transformedData };
-      } catch (error: any) {
-        console.error('❌ Get downline error:', error);
-        return { success: false, error: error.message };
-      }
+    success: boolean;
+    data?: Array<UserProfile & { total_referrals?: number; rzc_earned?: number }>;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
     }
+
+    try {
+      console.log('🔍 Fetching downline for user:', userId);
+
+      // Get all referral records where this user is the referrer
+      const { data: referralData, error: refError } = await this.client
+        .from('wallet_referrals')
+        .select('user_id, total_referrals, created_at')
+        .eq('referrer_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (refError) throw refError;
+
+      if (!referralData || referralData.length === 0) {
+        console.log('ℹ️ No downline members found');
+        return { success: true, data: [] };
+      }
+
+      console.log(`📊 Found ${referralData.length} referral records`);
+
+      // Get user details for each downline member
+      const userIds = referralData.map(r => r.user_id);
+      const { data: userData, error: userError } = await this.client
+        .from('wallet_users')
+        .select('*')
+        .in('id', userIds);
+
+      if (userError) throw userError;
+
+      console.log(`📊 Found ${userData?.length || 0} user records`);
+
+      // Combine the data
+      const transformedData = referralData.map((ref: any) => {
+        const user = userData?.find((u: any) => u.id === ref.user_id);
+        if (!user) {
+          console.warn(`⚠️ User not found for referral record:`, ref.user_id);
+          return null;
+        }
+        return {
+          ...user,
+          total_referrals: ref.total_referrals,
+          rzc_earned: (user?.rzc_balance || 0) - 100 // Subtract signup bonus
+        };
+      }).filter(item => item !== null); // Remove any null entries
+
+      console.log(`✅ Found ${transformedData.length} downline members`);
+      return { success: true, data: transformedData };
+    } catch (error: any) {
+      console.error('❌ Get downline error:', error);
+      return { success: false, error: error.message };
+    }
+  }
 
 
   // ============================================================================
@@ -1425,10 +1769,10 @@ class SupabaseService {
     error?: string;
   }> {
     if (!this.client) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         message: 'Database not configured',
-        error: 'Supabase not configured' 
+        error: 'Supabase not configured'
       };
     }
 
@@ -1837,7 +2181,8 @@ class SupabaseService {
   }
 
   /**
-   * Check wallet activation status
+   * Check wallet activation status.
+   * Handles all TON address formats (EQ/UQ/raw) so old accounts are found.
    */
   async checkWalletActivation(walletAddress: string): Promise<{
     is_activated: boolean;
@@ -1849,43 +2194,118 @@ class SupabaseService {
       return null;
     }
 
+    // Build all address variants to maximise the chance of a DB hit
+    const addressVariants = new Set<string>([walletAddress]);
     try {
-      // Try RPC function first
-      const { data, error } = await this.client.rpc('check_wallet_activation', {
-        p_wallet_address: walletAddress
-      });
-
-      if (error) {
-        // If RPC doesn't exist, fallback to direct query
-        console.warn('⚠️ RPC function not found, using fallback query');
-        return await this.checkWalletActivationFallback(walletAddress);
-      }
-
-      return data && data.length > 0 ? data[0] : null;
-    } catch (error: any) {
-      console.error('❌ Failed to check wallet activation:', error);
-      // Try fallback
-      return await this.checkWalletActivationFallback(walletAddress);
+      const { Address } = await import('@ton/ton');
+      const parsed = Address.parse(walletAddress);
+      addressVariants.add(parsed.toRawString());
+      addressVariants.add(parsed.toString({ bounceable: true,  testOnly: false }));
+      addressVariants.add(parsed.toString({ bounceable: false, testOnly: false }));
+      addressVariants.add(parsed.toString({ bounceable: false, testOnly: true  }));
+    } catch {
+      // Not a TON address — use as-is
     }
+
+    // Try each variant until we get a hit
+    for (const variant of addressVariants) {
+      try {
+        const { data, error } = await this.client.rpc('check_wallet_activation', {
+          p_wallet_address: variant
+        });
+
+        if (!error && data && data.length > 0) {
+          return data[0];
+        }
+      } catch {
+        // continue to next variant
+      }
+    }
+
+    // RPC returned nothing for any variant — try direct query fallback
+    console.warn('⚠️ RPC returned no activation data, using fallback query');
+    return await this.checkWalletActivationFallback(Array.from(addressVariants));
   }
 
   /**
-   * Fallback method to check activation without RPC
+   * Fallback method to check activation without RPC.
+   * Accepts an array of address variants to try.
    */
-  private async checkWalletActivationFallback(walletAddress: string): Promise<{
+  private async checkWalletActivationFallback(addressVariants: string | string[]): Promise<{
     is_activated: boolean;
     activated_at: string | null;
     activation_fee_paid: number;
   } | null> {
+    const variants = Array.isArray(addressVariants) ? addressVariants : [addressVariants];
     try {
-      // Check if user has any mining nodes
-      const { data: nodes, error: nodesError } = await this.client!
+      // 1. Get the user row (may have is_activated=false if out of sync)
+      const { data: userData, error: userError } = await this.client!
+        .from('wallet_users')
+        .select('id, is_activated, activated_at, activation_fee_paid')
+        .in('wallet_address', variants)
+        .limit(1)
+        .maybeSingle();
+
+      if (!userError && userData) {
+        // If already marked activated, return immediately
+        if (userData.is_activated) {
+          return {
+            is_activated: true,
+            activated_at: userData.activated_at || null,
+            activation_fee_paid: userData.activation_fee_paid || 0
+          };
+        }
+
+        // Not marked activated — check wallet_activations by user_id (format-agnostic)
+        const { data: activation } = await this.client!
+          .from('wallet_activations')
+          .select('completed_at, activation_fee_ton')
+          .eq('user_id', userData.id)
+          .eq('status', 'completed')
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (activation) {
+          console.log('🔄 Found activation record by user_id — syncing is_activated...');
+          // Auto-heal: sync back to wallet_users
+          await this.client!
+            .from('wallet_users')
+            .update({ is_activated: true, activated_at: activation.completed_at, updated_at: new Date().toISOString() })
+            .eq('id', userData.id);
+
+          return {
+            is_activated: true,
+            activated_at: activation.completed_at || null,
+            activation_fee_paid: activation.activation_fee_ton || 0
+          };
+        }
+      }
+
+      // 2. Check wallet_activations by address variants directly
+      const { data: activationByAddr } = await this.client!
+        .from('wallet_activations')
+        .select('completed_at, activation_fee_ton')
+        .in('wallet_address', variants)
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activationByAddr) {
+        return {
+          is_activated: true,
+          activated_at: activationByAddr.completed_at || null,
+          activation_fee_paid: activationByAddr.activation_fee_ton || 0
+        };
+      }
+
+      // 3. Check mining_nodes as last resort
+      const { data: nodes } = await this.client!
         .from('mining_nodes')
         .select('id, purchased_at, price_paid')
-        .eq('wallet_address', walletAddress)
+        .in('wallet_address', variants)
         .limit(1);
-
-      if (nodesError) throw nodesError;
 
       if (nodes && nodes.length > 0) {
         return {
@@ -1895,7 +2315,6 @@ class SupabaseService {
         };
       }
 
-      // Not activated
       return {
         is_activated: false,
         activated_at: null,

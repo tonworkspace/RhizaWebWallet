@@ -7,14 +7,14 @@ import { supabaseService } from './supabaseService';
 
 // RZC reward amounts
 export const RZC_REWARDS = {
-  SIGNUP_BONUS: 50,            // Initial bonus on wallet creation (halved from 100)
-  ACTIVATION_BONUS: 150,       // Bonus for $15 wallet activation
-  REFERRAL_BONUS: 25,          // Bonus for each successful referral (halved from 50)
-  REFERRAL_MILESTONE_10: 250,  // Bonus at 10 referrals (halved from 500)
-  REFERRAL_MILESTONE_50: 1250, // Bonus at 50 referrals (halved from 2500)
-  REFERRAL_MILESTONE_100: 5000, // Bonus at 100 referrals (halved from 10000)
+  SIGNUP_BONUS: 2.5,          // Initial bonus on wallet creation (reduced 4x from 50)
+  ACTIVATION_BONUS: 7.5,      // Bonus for $15 wallet activation (reduced 4x from 150)
+  REFERRAL_BONUS: 5,          // Bonus for each successful referral (halved from 50)
+  REFERRAL_MILESTONE_10: 25,  // Bonus at 10 referrals (halved from 500)
+  REFERRAL_MILESTONE_50: 125, // Bonus at 50 referrals (halved from 2500)
+  REFERRAL_MILESTONE_100: 500, // Bonus at 100 referrals (halved from 10000)
   TRANSACTION_BONUS: 1,        // Small bonus per transaction
-  DAILY_LOGIN: 5               // Daily login bonus
+  DAILY_LOGIN: 1              // Daily login bonus
 };
 
 // Milestone thresholds

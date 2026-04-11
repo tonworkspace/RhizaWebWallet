@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Users, 
-  Activity, 
-  TrendingUp, 
-  DollarSign, 
+import {
+  Users,
+  Activity,
+  TrendingUp,
+  DollarSign,
   Shield,
   RefreshCw,
   Search,
@@ -25,7 +25,8 @@ import {
   Save,
   X,
   Plus,
-  Upload
+  Upload,
+  MessageCircle
 } from 'lucide-react';
 import { supabaseService } from '../services/supabaseService';
 import { balanceVerificationService, BalanceVerificationRequest } from '../services/balanceVerificationService';
@@ -33,6 +34,7 @@ import { migrationService, MigrationRequest, StkMigrationRequest } from '../serv
 import { adminAirdropService, ManualSubmission } from '../services/adminAirdropService';
 import { AIRDROP_TASKS, getAirdropTaskById, AirdropTaskConfig, getAirdropTaskByIdSync } from '../config/airdropTasks';
 import { databaseAirdropService, DatabaseAirdropTask, CreateTaskData, UpdateTaskData } from '../services/databaseAirdropService';
+import { SupportTicket } from '../services/supabaseService';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
 
@@ -66,11 +68,11 @@ const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { userProfile, logout, address } = useWallet();
   const { showToast } = useToast();
-  
+
   // Add database task list state
   const [databaseTasks, setDatabaseTasks] = useState<DatabaseAirdropTask[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
-  
+
   const [stats, setStats] = useState<Stats>({
     totalUsers: 0,
     totalTransactions: 0,
@@ -80,7 +82,7 @@ const AdminDashboard: React.FC = () => {
     newUsersToday: 0,
     totalVolume: '0'
   });
-  
+
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,7 +90,7 @@ const AdminDashboard: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+
   // Migration requests state
   const [migrations, setMigrations] = useState<MigrationRequest[]>([]);
   const [migrationStats, setMigrationStats] = useState({
@@ -98,7 +100,7 @@ const AdminDashboard: React.FC = () => {
     rejected: 0,
     totalRzcMigrated: 0
   });
-  
+
   // STK Migration requests state
   const [stkMigrations, setStkMigrations] = useState<StkMigrationRequest[]>([]);
   const [stkMigrationStats, setStkMigrationStats] = useState({
@@ -108,8 +110,19 @@ const AdminDashboard: React.FC = () => {
     rejected: 0,
     totalRzcMigrated: 0
   });
-  
-  const [activeTab, setActiveTab] = useState<'users' | 'migrations' | 'stk-migrations' | 'airdrop-tasks' | 'balance-verification'>('users');
+
+  const [activeTab, setActiveTab] = useState<'users' | 'migrations' | 'stk-migrations' | 'airdrop-tasks' | 'balance-verification' | 'support'>('users');
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [supportStats, setSupportStats] = useState({
+    total: 0,
+    open: 0,
+    pending: 0,
+    resolved: 0,
+    closed: 0
+  });
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [supportAdminNotes, setSupportAdminNotes] = useState('');
   const [selectedMigration, setSelectedMigration] = useState<MigrationRequest | null>(null);
   const [selectedStkMigration, setSelectedStkMigration] = useState<StkMigrationRequest | null>(null);
   const [showMigrationModal, setShowMigrationModal] = useState(false);
@@ -170,13 +183,13 @@ const AdminDashboard: React.FC = () => {
       navigate('/login');
       return;
     }
-    
+
     if (userProfile.role !== 'admin') {
       showToast('Access denied. Admin only.', 'error');
       navigate('/wallet/dashboard');
       return;
     }
-    
+
     loadData();
   }, [userProfile, address]);
 
@@ -187,7 +200,7 @@ const AdminDashboard: React.FC = () => {
 
   const loadData = async () => {
     setIsLoading(true);
-    
+
     try {
       // Load statistics
       const statsResult = await supabaseService.getStats();
@@ -197,43 +210,43 @@ const AdminDashboard: React.FC = () => {
         if (usersResult.success && usersResult.data) {
           const allUsers = usersResult.data;
           const activeUsers = allUsers.filter(u => u.is_active).length;
-          
+
           // Users created today
           const today = new Date();
           today.setHours(0, 0, 0, 0);
-          const newUsersToday = allUsers.filter(u => 
+          const newUsersToday = allUsers.filter(u =>
             new Date(u.created_at) >= today
           ).length;
-          
+
           setStats({
             ...statsResult.data,
             activeUsers,
             newUsersToday,
             totalVolume: '0' // Calculate from transactions
           });
-          
+
           setUsers(allUsers);
           setFilteredUsers(allUsers);
         }
       }
-      
+
       // Load migration requests
       const migrationsResult = await migrationService.getAllMigrationRequests();
       if (migrationsResult.success && migrationsResult.data) {
         setMigrations(migrationsResult.data);
       }
-      
+
       // Load migration stats
       const migrationStatsResult = await migrationService.getMigrationStats();
       if (migrationStatsResult.success && migrationStatsResult.data) {
         setMigrationStats(migrationStatsResult.data);
       }
-      
+
       // Load STK migration requests
       const stkMigrationsResult = await migrationService.getAllStkMigrationRequests();
       if (stkMigrationsResult.success && stkMigrationsResult.data) {
         setStkMigrations(stkMigrationsResult.data);
-        
+
         // Calculate STK migration stats
         const stkData = stkMigrationsResult.data;
         setStkMigrationStats({
@@ -268,7 +281,7 @@ const AdminDashboard: React.FC = () => {
       const pendingSubmissionsResult = await adminAirdropService.getPendingSubmissions();
       if (pendingSubmissionsResult.success && pendingSubmissionsResult.data) {
         setPendingSubmissions(pendingSubmissionsResult.data);
-        
+
         // Update pending reviews count
         setAirdropStats(prev => ({
           ...prev,
@@ -283,7 +296,7 @@ const AdminDashboard: React.FC = () => {
       console.log('📋 Verification requests result:', verificationRequestsResult);
       if (verificationRequestsResult.success && verificationRequestsResult.requests) {
         setVerificationRequests(verificationRequestsResult.requests);
-        
+
         // Calculate verification stats
         const requests = verificationRequestsResult.requests;
         setVerificationStats({
@@ -297,11 +310,63 @@ const AdminDashboard: React.FC = () => {
       } else {
         console.error('❌ Failed to load verification requests:', verificationRequestsResult.error);
       }
+
+      // Load support tickets
+      console.log('🎫 Loading support tickets...');
+      try {
+        const supportTicketsResult = await supabaseService.getAllTickets(100);
+        console.log('📋 Support tickets result:', supportTicketsResult);
+        
+        if (supportTicketsResult.success && supportTicketsResult.data) {
+          console.log('✅ Loaded support tickets:', supportTicketsResult.data.length);
+          setSupportTickets(supportTicketsResult.data);
+
+          // Calculate support stats
+          const tickets = supportTicketsResult.data;
+          const stats = {
+            total: tickets.length,
+            open: tickets.filter(t => t.status === 'open').length,
+            pending: tickets.filter(t => t.status === 'pending').length,
+            resolved: tickets.filter(t => t.status === 'resolved').length,
+            closed: tickets.filter(t => t.status === 'closed').length
+          };
+          console.log('📊 Support stats:', stats);
+          setSupportStats(stats);
+        } else {
+          console.error('❌ Failed to load support tickets:', supportTicketsResult.error);
+          
+          // Check if it's a table not found error
+          if (supportTicketsResult.error?.includes('relation "wallet_support_tickets" does not exist')) {
+            console.warn('⚠️ Support tickets table does not exist. Please run the add_support_tickets_table.sql migration.');
+            showToast('Support tickets table not found. Please contact administrator.', 'error');
+          }
+          
+          // Set empty state
+          setSupportTickets([]);
+          setSupportStats({
+            total: 0,
+            open: 0,
+            pending: 0,
+            resolved: 0,
+            closed: 0
+          });
+        }
+      } catch (error: any) {
+        console.error('❌ Error loading support tickets:', error);
+        setSupportTickets([]);
+        setSupportStats({
+          total: 0,
+          open: 0,
+          pending: 0,
+          resolved: 0,
+          closed: 0
+        });
+      }
     } catch (error) {
       console.error('Failed to load admin data:', error);
       showToast('Failed to load data', 'error');
     }
-    
+
     setIsLoading(false);
   };
 
@@ -315,47 +380,47 @@ const AdminDashboard: React.FC = () => {
   // Filter users
   useEffect(() => {
     let filtered = [...users];
-    
+
     // Search filter
     if (searchQuery) {
-      filtered = filtered.filter(user => 
+      filtered = filtered.filter(user =>
         user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         user.wallet_address.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
-    
+
     // Role filter
     if (filterRole !== 'all') {
       filtered = filtered.filter(user => user.role === filterRole);
     }
-    
+
     // Status filter
     if (filterStatus !== 'all') {
-      filtered = filtered.filter(user => 
+      filtered = filtered.filter(user =>
         filterStatus === 'active' ? user.is_active : !user.is_active
       );
     }
-    
+
     setFilteredUsers(filtered);
   }, [searchQuery, filterRole, filterStatus, users]);
 
   const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
     const client = supabaseService.getClient();
     if (!client) return;
-    
+
     try {
       const { error } = await client
         .from('wallet_users')
         .update({ is_active: !currentStatus })
         .eq('id', userId);
-      
+
       if (error) throw error;
-      
+
       // Update local state
-      setUsers(users.map(u => 
+      setUsers(users.map(u =>
         u.id === userId ? { ...u, is_active: !currentStatus } : u
       ));
-      
+
       showToast(
         `User ${!currentStatus ? 'activated' : 'deactivated'}`,
         'success'
@@ -377,27 +442,27 @@ const AdminDashboard: React.FC = () => {
         new Date(u.created_at).toLocaleDateString()
       ].join(','))
     ].join('\n');
-    
+
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `users_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
-    
+
     showToast('Data exported', 'success');
   };
 
   const handleApproveMigration = async (migration: MigrationRequest) => {
     if (!address) return;
-    
+
     try {
       const result = await migrationService.approveMigration(
         migration.id,
         address,
         adminNotes || 'Approved by admin'
       );
-      
+
       if (result.success) {
         showToast(
           result.message || `Migration approved! ${migration.total_balance} RZC credited to user's wallet.`,
@@ -421,14 +486,14 @@ const AdminDashboard: React.FC = () => {
       showToast('Please provide a reason for rejection', 'error');
       return;
     }
-    
+
     try {
       const result = await migrationService.rejectMigration(
         migration.id,
         address,
         adminNotes
       );
-      
+
       if (result.success) {
         showToast('Migration rejected', 'success');
         setShowMigrationModal(false);
@@ -458,14 +523,14 @@ const AdminDashboard: React.FC = () => {
 
   const handleApproveStkMigration = async (migration: StkMigrationRequest) => {
     if (!address) return;
-    
+
     try {
       const result = await migrationService.approveStkMigration(
         migration.id,
         address,
         adminNotes || 'Approved by admin'
       );
-      
+
       if (result.success) {
         showToast(
           result.message || `STK migration approved! ${migration.rzc_equivalent} RZC credited to user's wallet.`,
@@ -489,14 +554,14 @@ const AdminDashboard: React.FC = () => {
       showToast('Please provide a reason for rejection', 'error');
       return;
     }
-    
+
     try {
       const result = await migrationService.rejectStkMigration(
         migration.id,
         address,
         adminNotes
       );
-      
+
       if (result.success) {
         showToast('STK migration rejected', 'success');
         setShowStkMigrationModal(false);
@@ -521,7 +586,7 @@ const AdminDashboard: React.FC = () => {
 
   const handleApproveVerificationRequest = async (request: BalanceVerificationRequest) => {
     if (!address) return;
-    
+
     try {
       const result = await balanceVerificationService.updateVerificationRequest(
         request.id,
@@ -530,12 +595,12 @@ const AdminDashboard: React.FC = () => {
         'Balance verified and approved',
         address
       );
-      
+
       if (result.success) {
         const creditedAmount = result.credited_amount || 0;
         const balanceUnlocked = result.balance_unlocked || false;
         const badgeAwarded = result.verification_badge_awarded || false;
-        
+
         let message = 'Verification approved!';
         if (balanceUnlocked) {
           message += ' User balance unlocked and verification badge awarded.';
@@ -543,7 +608,7 @@ const AdminDashboard: React.FC = () => {
         if (creditedAmount > 0) {
           message += ` ${creditedAmount.toLocaleString()} RZC credited to user's account.`;
         }
-        
+
         showToast(message, 'success');
         setShowVerificationModal(false);
         setSelectedVerificationRequest(null);
@@ -563,7 +628,7 @@ const AdminDashboard: React.FC = () => {
       showToast('Please provide a reason for rejection', 'error');
       return;
     }
-    
+
     try {
       const result = await balanceVerificationService.updateVerificationRequest(
         request.id,
@@ -572,7 +637,7 @@ const AdminDashboard: React.FC = () => {
         'Request rejected after review',
         address
       );
-      
+
       if (result.success) {
         showToast('Verification request rejected', 'success');
         setShowVerificationModal(false);
@@ -588,6 +653,81 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleSendTicketMessage = async () => {
+    if (!selectedTicket) return;
+
+    // Validate that admin response is provided
+    if (!supportAdminNotes.trim()) {
+      showToast('Please provide a message before sending', 'error');
+      return;
+    }
+
+    try {
+      const result = await supabaseService.sendTicketMessage(
+        selectedTicket.id,
+        supportAdminNotes.trim()
+      );
+
+      if (result.success) {
+        showToast('Message sent to user successfully', 'success');
+        setSupportAdminNotes(''); // Clear the message after sending
+        loadData(); // Refresh to show updated admin_notes
+      } else {
+        showToast(result.error || 'Failed to send message', 'error');
+      }
+    } catch (error) {
+      console.error('Send ticket message error:', error);
+      showToast('An unexpected error occurred while sending the message', 'error');
+    }
+  };
+
+  const handleUpdateSupportTicket = async (status: SupportTicket['status']) => {
+    if (!selectedTicket) return;
+
+    // For resolution, we don't require a new message if admin_notes already exist
+    const hasExistingResponse = selectedTicket.admin_notes && selectedTicket.admin_notes.trim().length > 0;
+    const hasCurrentResponse = supportAdminNotes.trim().length > 0;
+
+    if (status === 'resolved' && !hasExistingResponse && !hasCurrentResponse) {
+      showToast('Please send at least one message to the user before resolving the ticket', 'error');
+      return;
+    }
+
+    // For other status changes, require current response
+    if (status !== 'resolved' && !hasCurrentResponse) {
+      showToast('Please provide a message before updating the ticket status', 'error');
+      return;
+    }
+
+    try {
+      const result = await supabaseService.updateTicketStatus(
+        selectedTicket.id,
+        status,
+        supportAdminNotes.trim() || selectedTicket.admin_notes
+      );
+
+      if (result.success) {
+        const statusMessages = {
+          'pending': 'marked as pending',
+          'resolved': 'resolved successfully',
+          'closed': 'closed',
+          'open': 'reopened'
+        };
+        
+        showToast(`Ticket ${statusMessages[status] || status} successfully`, 'success');
+        setShowSupportModal(false);
+        setSupportAdminNotes('');
+        setSelectedTicket(null);
+        loadData(); // Refresh UI
+      } else {
+        showToast(result.error || 'Failed to update ticket', 'error');
+      }
+    } catch (error) {
+      console.error('Support ticket update error:', error);
+      showToast('An unexpected error occurred while updating the ticket', 'error');
+    }
+  };
+
   // Airdrop Task Management Handlers
   const handleManualVerificationAction = async (submissionId: string, action: 'approve' | 'reject') => {
     try {
@@ -597,7 +737,7 @@ const AdminDashboard: React.FC = () => {
       }
 
       console.log(`${action === 'approve' ? 'Approving' : 'Rejecting'} submission ${submissionId}`);
-      
+
       let result;
       if (action === 'approve') {
         result = await adminAirdropService.approveSubmission(submissionId, address, 'Approved by admin');
@@ -622,7 +762,7 @@ const AdminDashboard: React.FC = () => {
     try {
       // Get task from database first
       const taskResult = await databaseAirdropService.getTaskById(taskId);
-      
+
       if (taskResult.success && taskResult.data) {
         const task = taskResult.data;
         setEditingTask({
@@ -650,7 +790,7 @@ const AdminDashboard: React.FC = () => {
             ...taskConfig,
             completions: AIRDROP_TASKS.find(t => t.id === taskId)?.completions || 0
           };
-          
+
           setEditingTask(task);
           setTaskFormData({
             title: task.title,
@@ -677,7 +817,7 @@ const AdminDashboard: React.FC = () => {
 
   const handleExportTasks = () => {
     console.log('Exporting airdrop tasks data');
-    
+
     // Create sample CSV data
     const csvData = [
       ['Task ID', 'Title', 'Reward', 'Category', 'Difficulty', 'Status', 'Completions'].join(','),
@@ -688,14 +828,14 @@ const AdminDashboard: React.FC = () => {
       ['14', 'Write RZC Blog/Article', '750', 'content', 'hard', 'active', '23'].join(','),
       ['19', 'Influencer Collaboration', '1000', 'growth', 'expert', 'active', '8'].join(',')
     ].join('\n');
-    
+
     const blob = new Blob([csvData], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `airdrop_tasks_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
-    
+
     showToast('Airdrop tasks data exported successfully', 'success');
   };
 
@@ -777,12 +917,12 @@ const AdminDashboard: React.FC = () => {
       };
 
       const result = await databaseAirdropService.updateTask(editingTask.id, updateData, address);
-      
+
       if (result.success) {
         showToast(result.message, 'success');
         setShowTaskEditModal(false);
         setEditingTask(null);
-        
+
         // Refresh data
         loadData();
       } else {
@@ -799,7 +939,7 @@ const AdminDashboard: React.FC = () => {
       ...prev,
       [field]: value
     }));
-    
+
     // Clear error for this field
     if (taskFormErrors[field]) {
       setTaskFormErrors(prev => ({
@@ -829,7 +969,7 @@ const AdminDashboard: React.FC = () => {
   const toggleTaskStatus = async (taskId: number, currentStatus: boolean) => {
     try {
       const result = await databaseAirdropService.toggleTaskStatus(taskId, address);
-      
+
       if (result.success) {
         showToast(result.message, 'success');
         // Refresh data
@@ -845,10 +985,10 @@ const AdminDashboard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-black flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#00FF88] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500">Loading admin dashboard...</p>
+          <div className="w-16 h-16 border-4 border-emerald-200 dark:border-[#00FF88]/20 border-t-emerald-500 dark:border-t-[#00FF88] rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-slate-500 dark:text-gray-500">Loading admin dashboard...</p>
         </div>
       </div>
     );
@@ -858,197 +998,130 @@ const AdminDashboard: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-white p-3 sm:p-6">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
         {/* Header - Responsive */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <button
-              onClick={() => navigate('/wallet/dashboard')}
-              className="p-2 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl transition-colors flex-shrink-0"
-            >
-              <ArrowLeft size={20} />
-            </button>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black">Admin Dashboard</h1>
-              <p className="text-slate-600 dark:text-gray-500 text-xs sm:text-sm">Manage users and migrations</p>
-            </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-600/20">
+            <Shield size={24} />
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto pb-2 sm:pb-0">
-            <button
-              onClick={() => navigate('/admin/panel')}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs sm:text-sm font-bold transition-colors whitespace-nowrap"
-            >
-              <Shield size={14} className="sm:w-4 sm:h-4" />
-              <span className="hidden sm:inline">User Management</span>
-              <span className="sm:hidden">Users</span>
-            </button>
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="p-2 sm:p-3 bg-slate-200 dark:bg-white/5 hover:bg-slate-300 dark:hover:bg-white/10 rounded-xl transition-colors flex-shrink-0"
-            >
-              <RefreshCw size={18} className={`sm:w-5 sm:h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={logout}
-              className="px-3 sm:px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-xs sm:text-sm font-bold transition-colors whitespace-nowrap"
-            >
-              Logout
-            </button>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-heading font-black text-gray-900 dark:text-white tracking-tight">
+              Admin Control Panel
+            </h1>
+            <p className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mt-1">
+              RhizaCore Internal Systems
+            </p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-xs font-heading font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/10 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+        </div>
+      </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 border-b-2 border-slate-200 dark:border-white/10 overflow-x-auto">
+        <div className="flex border-b border-gray-200 dark:border-white/10 overflow-x-auto scrollbar-hide mb-6 sticky top-0 bg-gray-50/80 dark:bg-[#050505]/80 backdrop-blur-md z-10 -mx-4 px-4 sm:mx-0 sm:px-0">
+        {[
+          { id: 'users', label: 'Users', icon: Users },
+          { id: 'migrations', label: 'Migrations', icon: Activity },
+          { id: 'stk-migrations', label: 'STK Migr', icon: Activity },
+          { id: 'airdrop-tasks', label: 'Airdrop', icon: Gift },
+          { id: 'balance-verification', label: 'Verification', icon: Shield },
+          { id: 'support', label: 'Support', icon: MessageCircle }
+        ].map((tab) => (
           <button
-            onClick={() => setActiveTab('users')}
-            className={`px-4 py-3 font-bold text-sm whitespace-nowrap transition-all ${
-              activeTab === 'users'
-                ? 'text-primary border-b-2 border-primary -mb-0.5'
-                : 'text-slate-600 dark:text-gray-500 hover:text-slate-900 dark:hover:text-white'
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 px-6 py-4 text-xs font-heading font-black uppercase tracking-widest whitespace-nowrap border-b-2 transition-all ${
+              activeTab === tab.id
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
           >
-            <div className="flex items-center gap-2">
-              <Users size={16} />
-              <span>Users</span>
-              <span className="px-2 py-0.5 bg-slate-200 dark:bg-white/10 rounded-full text-xs">
-                {users.length}
+            <tab.icon size={14} />
+            {tab.label}
+            {tab.id === 'migrations' && migrationStats.pending > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white font-numbers text-[10px] rounded-full">
+                {migrationStats.pending}
               </span>
-            </div>
+            )}
+            {tab.id === 'stk-migrations' && stkMigrationStats.pending > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white font-numbers text-[10px] rounded-full">
+                {stkMigrationStats.pending}
+              </span>
+            )}
+            {tab.id === 'balance-verification' && verificationStats.pending > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-amber-500 text-white font-numbers text-[10px] rounded-full">
+                {verificationStats.pending}
+              </span>
+            )}
+            {tab.id === 'support' && supportStats.open > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-blue-500 text-white font-numbers text-[10px] rounded-full">
+                {supportStats.open}
+              </span>
+            )}
           </button>
-          <button
-            onClick={() => setActiveTab('migrations')}
-            className={`px-4 py-3 font-bold text-sm whitespace-nowrap transition-all ${
-              activeTab === 'migrations'
-                ? 'text-primary border-b-2 border-primary -mb-0.5'
-                : 'text-slate-600 dark:text-gray-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <ArrowRight size={16} />
-              <span>RZC Migrations</span>
-              {migrationStats.pending > 0 && (
-                <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 rounded-full text-xs font-black">
-                  {migrationStats.pending}
-                </span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('stk-migrations')}
-            className={`px-4 py-3 font-bold text-sm whitespace-nowrap transition-all ${
-              activeTab === 'stk-migrations'
-                ? 'text-primary border-b-2 border-primary -mb-0.5'
-                : 'text-slate-600 dark:text-gray-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Star size={16} />
-              <span>STK Migrations</span>
-              {stkMigrationStats.pending > 0 && (
-                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-600 dark:text-purple-400 rounded-full text-xs font-black">
-                  {stkMigrationStats.pending}
-                </span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('airdrop-tasks')}
-            className={`px-4 py-3 font-bold text-sm whitespace-nowrap transition-all ${
-              activeTab === 'airdrop-tasks'
-                ? 'text-primary border-b-2 border-primary -mb-0.5'
-                : 'text-slate-600 dark:text-gray-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Gift size={16} />
-              <span>Airdrop Tasks</span>
-              {airdropStats.pendingReviews > 0 && (
-                <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 rounded-full text-xs font-black">
-                  {airdropStats.pendingReviews}
-                </span>
-              )}
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveTab('balance-verification')}
-            className={`px-4 py-3 font-bold text-sm whitespace-nowrap transition-all ${
-              activeTab === 'balance-verification'
-                ? 'text-primary border-b-2 border-primary -mb-0.5'
-                : 'text-slate-600 dark:text-gray-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Shield size={16} />
-              <span>Balance Verification</span>
-              {verificationStats.pending > 0 && (
-                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-600 dark:text-orange-400 rounded-full text-xs font-black">
-                  {verificationStats.pending}
-                </span>
-              )}
-            </div>
-          </button>
-        </div>
+        ))}
+      </div>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Total Users */}
-          <div className="p-6 bg-gradient-to-br from-[#00FF88]/10 to-[#00CCFF]/10 border border-[#00FF88]/20 rounded-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <Users className="text-[#00FF88]" size={32} />
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Total</span>
-            </div>
-            <div className="text-4xl font-black text-white mb-1">
-              {stats.totalUsers.toLocaleString()}
-            </div>
-            <div className="text-sm text-gray-400">Total Users</div>
-            <div className="mt-2 text-xs text-[#00FF88]">
-              +{stats.newUsersToday} today
-            </div>
-          </div>
+          <div className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-gray-200 dark:border-white/5 p-4 sm:p-6 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform`}>
+          <Users size={20} />
+        </div>
+      </div>
+      <p className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">Total Users</p>
+      <h3 className="text-2xl font-numbers font-black text-gray-900 dark:text-white tabular-nums">
+        {stats.totalUsers.toLocaleString()}
+      </h3>
+    </div>
 
           {/* Active Users */}
-          <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <CheckCircle className="text-green-500" size={32} />
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Active</span>
-            </div>
-            <div className="text-4xl font-black text-white mb-1">
-              {stats.activeUsers.toLocaleString()}
-            </div>
-            <div className="text-sm text-gray-400">Active Users</div>
-            <div className="mt-2 text-xs text-gray-500">
-              {((stats.activeUsers / stats.totalUsers) * 100).toFixed(1)}% of total
-            </div>
-          </div>
+          <div className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-gray-200 dark:border-white/5 p-4 sm:p-6 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`p-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400 group-hover:scale-110 transition-transform`}>
+          <CheckCircle size={20} />
+        </div>
+      </div>
+      <p className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">Active Users</p>
+      <h3 className="text-2xl font-numbers font-black text-gray-900 dark:text-white tabular-nums">
+        {stats.activeUsers.toLocaleString()}
+      </h3>
+    </div>
 
           {/* Total Transactions */}
-          <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <Activity className="text-blue-400" size={32} />
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Transactions</span>
-            </div>
-            <div className="text-4xl font-black text-white mb-1">
-              {stats.totalTransactions.toLocaleString()}
-            </div>
-            <div className="text-sm text-gray-400">Total Transactions</div>
-            <div className="mt-2 text-xs text-gray-500">
-              Avg: {(stats.totalTransactions / Math.max(stats.totalUsers, 1)).toFixed(1)} per user
-            </div>
-          </div>
+          <div className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-gray-200 dark:border-white/5 p-4 sm:p-6 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform`}>
+          <Activity size={20} />
+        </div>
+      </div>
+      <p className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">Transactions</p>
+      <h3 className="text-2xl font-numbers font-black text-gray-900 dark:text-white tabular-nums">
+        {stats.totalTransactions.toLocaleString()}
+      </h3>
+    </div>
 
           {/* Total Referrals */}
-          <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <TrendingUp className="text-purple-400" size={32} />
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Referrals</span>
-            </div>
-            <div className="text-4xl font-black text-white mb-1">
-              {stats.totalReferrals.toLocaleString()}
-            </div>
-            <div className="text-sm text-gray-400">Total Referrals</div>
-            <div className="mt-2 text-xs text-gray-500">
-              {((stats.totalReferrals / Math.max(stats.totalUsers, 1)) * 100).toFixed(1)}% conversion
-            </div>
-          </div>
+          <div className="bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border border-gray-200 dark:border-white/5 p-4 sm:p-6 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`p-2 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform`}>
+          <TrendingUp size={20} />
+        </div>
+      </div>
+      <p className="text-xs font-heading font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">Referrals</p>
+      <h3 className="text-2xl font-numbers font-black text-gray-900 dark:text-white tabular-nums">
+        {stats.totalReferrals.toLocaleString()}
+      </h3>
+    </div>
         </div>
 
         {/* Additional Stats */}
@@ -1057,175 +1130,188 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center gap-3">
               <BarChart3 className="text-[#00CCFF]" size={24} />
               <div>
-                <div className="text-2xl font-black">{stats.totalEvents.toLocaleString()}</div>
-                <div className="text-xs text-gray-500">Analytics Events</div>
+                <div className="text-2xl font-numbers font-black">{stats.totalEvents.toLocaleString()}</div>
+                <div className="text-xs font-heading font-bold text-gray-500">Analytics Events</div>
               </div>
             </div>
           </div>
-          
+
           <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
             <div className="flex items-center gap-3">
               <Clock className="text-yellow-400" size={24} />
               <div>
-                <div className="text-2xl font-black">{stats.newUsersToday}</div>
-                <div className="text-xs text-gray-500">New Users Today</div>
+                <div className="text-2xl font-numbers font-black">{stats.newUsersToday}</div>
+                <div className="text-xs font-heading font-bold text-gray-500">New Users Today</div>
               </div>
             </div>
           </div>
-          
+
           <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
             <div className="flex items-center gap-3">
               <DollarSign className="text-green-400" size={24} />
               <div>
-                <div className="text-2xl font-black">{stats.totalVolume} TON</div>
-                <div className="text-xs text-gray-500">Total Volume</div>
+                <div className="text-2xl font-numbers font-black">{stats.totalVolume} TON</div>
+                <div className="text-xs font-heading font-bold text-gray-500">Total Volume</div>
               </div>
             </div>
           </div>
         </div>
 
+        {/* User Management Panel Link */}
+        <div
+          onClick={() => navigate('/admin/panel')}
+          className="cursor-pointer flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/20 rounded-2xl hover:scale-[1.01] active:scale-[0.99] transition-all group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center">
+              <Users size={20} className="text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <p className="text-sm font-black text-purple-900 dark:text-purple-300">User Management Panel</p>
+              <p className="text-xs text-purple-600 dark:text-purple-400">Activate, deactivate, edit users & manage global asset rates</p>
+            </div>
+          </div>
+          <ArrowRight size={18} className="text-purple-500 dark:text-purple-400 group-hover:translate-x-1 transition-transform" />
+        </div>
+
         {/* User Management */}
         {activeTab === 'users' && (
-        <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-black">User Management</h2>
-            <button
-              onClick={exportData}
-              className="flex items-center gap-2 px-4 py-2 bg-[#00FF88]/10 hover:bg-[#00FF88]/20 text-[#00FF88] rounded-xl text-sm font-bold transition-colors"
-            >
-              <Download size={16} />
-              Export CSV
-            </button>
-          </div>
-
-          {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by name or address..."
-                className="w-full pl-10 pr-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white text-sm outline-none focus:border-[#00FF88]/50 transition-all"
-              />
+          <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-heading font-black text-gray-900 dark:text-white">User Management</h2>
+              <button
+                onClick={exportData}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-heading font-bold hover:bg-emerald-700 transition-all shadow-md shadow-emerald-600/20 active:scale-95"
+              >
+                <Download size={14} />
+                Export CSV
+              </button>
             </div>
 
-            {/* Role Filter */}
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value as any)}
-              className="px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white text-sm outline-none focus:border-[#00FF88]/50 transition-all"
-            >
-              <option value="all">All Roles</option>
-              <option value="user">Users</option>
-              <option value="admin">Admins</option>
-            </select>
+            {/* Filters */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="relative">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm font-heading font-medium outline-none focus:border-blue-500/50 transition-all"
+                />
+              </div>
 
-            {/* Status Filter */}
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white text-sm outline-none focus:border-[#00FF88]/50 transition-all"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
+              {/* Role Filter */}
+              <select
+                value={filterRole}
+                onChange={(e) => setFilterRole(e.target.value as any)}
+                className="px-4 py-3 bg-white dark:bg-black/40 border border-gray-300 dark:border-white/10 rounded-xl text-gray-900 dark:text-white text-sm outline-none focus:border-emerald-500 dark:focus:border-[#00FF88]/50 transition-all"
+              >
+                <option value="all">All Roles</option>
+                <option value="user">Users</option>
+                <option value="admin">Admins</option>
+              </select>
 
-          {/* Results Count */}
-          <div className="mb-4 text-sm text-gray-500">
-            Showing {filteredUsers.length} of {users.length} users
-          </div>
+              {/* Status Filter */}
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as any)}
+                className="px-4 py-3 bg-white dark:bg-black/40 border border-gray-300 dark:border-white/10 rounded-xl text-gray-900 dark:text-white text-sm outline-none focus:border-emerald-500 dark:focus:border-[#00FF88]/50 transition-all"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
 
-          {/* Users Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">User</th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Wallet Address</th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Role</th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Status</th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Created</th>
-                  <th className="text-right py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="text-2xl">{user.avatar}</div>
-                        <div>
-                          <div className="font-bold text-sm">{user.name}</div>
-                          <div className="text-xs text-gray-500">{user.id.slice(0, 8)}...</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="font-mono text-xs text-gray-400">
-                        {user.wallet_address.slice(0, 8)}...{user.wallet_address.slice(-6)}
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className={`px-2 py-1 rounded-lg text-xs font-bold ${
-                        user.role === 'admin' 
-                          ? 'bg-purple-500/20 text-purple-400' 
-                          : 'bg-blue-500/20 text-blue-400'
-                      }`}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className={`px-2 py-1 rounded-lg text-xs font-bold ${
-                        user.is_active 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        {user.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-400">
-                      {new Date(user.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => navigate(`/admin/user/${user.id}`)}
-                          className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                          title="View Details"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        <button
-                          onClick={() => toggleUserStatus(user.id, user.is_active)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            user.is_active
-                              ? 'hover:bg-red-500/20 text-red-400'
-                              : 'hover:bg-green-500/20 text-green-400'
-                          }`}
-                          title={user.is_active ? 'Deactivate' : 'Activate'}
-                        >
-                          {user.is_active ? <Ban size={16} /> : <CheckCircle size={16} />}
-                        </button>
-                      </div>
-                    </td>
+            {/* Results Count */}
+            <div className="mb-4 text-sm text-gray-500">
+              Showing {filteredUsers.length} of {users.length} users
+            </div>
+
+            {/* Users Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">User</th>
+                    <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Wallet Address</th>
+                    <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Role</th>
+                    <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Status</th>
+                    <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Created</th>
+                    <th className="text-right py-3 px-4 text-xs font-black uppercase tracking-wider text-gray-500">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {filteredUsers.length === 0 && (
-            <div className="text-center py-12">
-              <Users className="mx-auto text-slate-400 dark:text-gray-600 mb-4" size={48} />
-              <p className="text-slate-600 dark:text-gray-500">No users found</p>
+                </thead>
+                <tbody>
+                  {filteredUsers.map((user) => (
+                    <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="text-2xl">{user.avatar}</div>
+                          <div>
+                            <div className="font-bold text-sm">{user.name}</div>
+                            <div className="text-xs text-gray-500">{user.id.slice(0, 8)}...</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="font-mono text-xs text-gray-400">
+                          {user.wallet_address.slice(0, 8)}...{user.wallet_address.slice(-6)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className={`px-2 py-1 rounded-lg text-xs font-bold ${user.role === 'admin'
+                            ? 'bg-purple-500/20 text-purple-400'
+                            : 'bg-blue-500/20 text-blue-400'
+                          }`}>
+                          {user.role}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className={`px-2 py-1 rounded-lg text-xs font-bold ${user.is_active
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-red-500/20 text-red-400'
+                          }`}>
+                          {user.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-400">
+                        {new Date(user.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => navigate(`/admin/user/${user.id}`)}
+                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                            title="View Details"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            onClick={() => toggleUserStatus(user.id, user.is_active)}
+                            className={`p-2 rounded-lg transition-colors ${user.is_active
+                                ? 'hover:bg-red-500/20 text-red-400'
+                                : 'hover:bg-green-500/20 text-green-400'
+                              }`}
+                            title={user.is_active ? 'Deactivate' : 'Activate'}
+                          >
+                            {user.is_active ? <Ban size={16} /> : <CheckCircle size={16} />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
+
+            {filteredUsers.length === 0 && (
+              <div className="text-center py-12">
+                <Users className="mx-auto text-slate-400 dark:text-gray-600 mb-4" size={48} />
+                <p className="text-slate-600 dark:text-gray-500">No users found</p>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Migration Management */}
@@ -1277,7 +1363,7 @@ const AdminDashboard: React.FC = () => {
             {/* Migrations List */}
             <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6">
               <h3 className="text-lg sm:text-xl font-black mb-4">Migration Requests</h3>
-              
+
               {migrations.length === 0 ? (
                 <div className="text-center py-12">
                   <FileText className="mx-auto text-slate-400 dark:text-gray-600 mb-4" size={48} />
@@ -1293,13 +1379,12 @@ const AdminDashboard: React.FC = () => {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-2">
-                            <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                              migration.status === 'pending'
+                            <span className={`px-2 py-1 rounded-lg text-xs font-black ${migration.status === 'pending'
                                 ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400'
                                 : migration.status === 'approved'
-                                ? 'bg-green-500/20 text-green-600 dark:text-green-400'
-                                : 'bg-red-500/20 text-red-600 dark:text-red-400'
-                            }`}>
+                                  ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                                  : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                              }`}>
                               {migration.status.toUpperCase()}
                             </span>
                             <span className="text-xs text-slate-500 dark:text-gray-500">
@@ -1392,7 +1477,7 @@ const AdminDashboard: React.FC = () => {
             {/* STK Migrations List */}
             <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6">
               <h3 className="text-lg sm:text-xl font-black mb-4">STK Migration Requests</h3>
-              
+
               {stkMigrations.length === 0 ? (
                 <div className="text-center py-12">
                   <Star className="mx-auto text-slate-400 dark:text-gray-600 mb-4" size={48} />
@@ -1408,13 +1493,12 @@ const AdminDashboard: React.FC = () => {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-2">
-                            <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                              migration.status === 'pending'
+                            <span className={`px-2 py-1 rounded-lg text-xs font-black ${migration.status === 'pending'
                                 ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400'
                                 : migration.status === 'approved'
-                                ? 'bg-green-500/20 text-green-600 dark:text-green-400'
-                                : 'bg-red-500/20 text-red-600 dark:text-red-400'
-                            }`}>
+                                  ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                                  : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                              }`}>
                               {migration.status.toUpperCase()}
                             </span>
                             <span className="text-xs text-slate-500 dark:text-gray-500">
@@ -1509,7 +1593,7 @@ const AdminDashboard: React.FC = () => {
                 <h3 className="text-lg sm:text-xl font-black">Task Management</h3>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {/* TODO: Add create task functionality */}}
+                    onClick={() => {/* TODO: Add create task functionality */ }}
                     className="px-3 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-bold transition-all flex items-center gap-2"
                   >
                     <Plus size={16} />
@@ -1523,7 +1607,7 @@ const AdminDashboard: React.FC = () => {
                   </button>
                 </div>
               </div>
-              
+
               {/* Task List */}
               <div className="space-y-3">
                 {tasksLoaded ? (
@@ -1541,19 +1625,17 @@ const AdminDashboard: React.FC = () => {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-2">
-                              <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                                task.is_active
+                              <span className={`px-2 py-1 rounded-lg text-xs font-black ${task.is_active
                                   ? 'bg-green-500/20 text-green-600 dark:text-green-400'
                                   : 'bg-gray-500/20 text-gray-600 dark:text-gray-400'
-                              }`}>
+                                }`}>
                                 {task.is_active ? 'ACTIVE' : 'INACTIVE'}
                               </span>
-                              <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                                task.difficulty === 'easy' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
-                                task.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
-                                task.difficulty === 'hard' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
-                                'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                              }`}>
+                              <span className={`px-2 py-1 rounded-lg text-xs font-black ${task.difficulty === 'easy' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
+                                  task.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
+                                    task.difficulty === 'hard' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
+                                      'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                                }`}>
                                 {task.difficulty.toUpperCase()}
                               </span>
                               <span className="px-2 py-1 bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-black">
@@ -1590,11 +1672,10 @@ const AdminDashboard: React.FC = () => {
                             </button>
                             <button
                               onClick={() => toggleTaskStatus(task.id, task.is_active)}
-                              className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                                task.is_active
+                              className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${task.is_active
                                   ? 'bg-red-500/10 hover:bg-red-500/20 text-red-600'
                                   : 'bg-green-500/10 hover:bg-green-500/20 text-green-600'
-                              }`}
+                                }`}
                             >
                               {task.is_active ? 'Disable' : 'Enable'}
                             </button>
@@ -1629,7 +1710,7 @@ const AdminDashboard: React.FC = () => {
                   </button>
                 </div>
               </div>
-              
+
               {/* Manual Verification Items */}
               <div className="space-y-3">
                 {pendingSubmissions.length === 0 ? (
@@ -1741,19 +1822,17 @@ const AdminDashboard: React.FC = () => {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                            task.is_active 
+                          <span className={`px-2 py-1 rounded-lg text-xs font-black ${task.is_active
                               ? 'bg-green-500/20 text-green-600 dark:text-green-400'
                               : 'bg-gray-500/20 text-gray-600 dark:text-gray-400'
-                          }`}>
+                            }`}>
                             {task.is_active ? 'ACTIVE' : 'INACTIVE'}
                           </span>
-                          <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                            task.difficulty === 'easy' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
-                            task.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
-                            task.difficulty === 'hard' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
-                            'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                          }`}>
+                          <span className={`px-2 py-1 rounded-lg text-xs font-black ${task.difficulty === 'easy' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
+                              task.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
+                                task.difficulty === 'hard' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
+                                  'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                            }`}>
                             {task.difficulty.toUpperCase()}
                           </span>
                           <span className="px-2 py-1 bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-black">
@@ -1783,11 +1862,10 @@ const AdminDashboard: React.FC = () => {
                         </button>
                         <button
                           onClick={() => toggleTaskStatus(task.id, task.is_active)}
-                          className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                            task.is_active
+                          className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${task.is_active
                               ? 'bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400'
                               : 'bg-green-500/10 hover:bg-green-500/20 text-green-600 dark:text-green-400'
-                          }`}
+                            }`}
                         >
                           {task.is_active ? 'Disable' : 'Enable'}
                         </button>
@@ -1846,7 +1924,7 @@ const AdminDashboard: React.FC = () => {
             {/* Balance Verification Requests List */}
             <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6">
               <h3 className="text-lg sm:text-xl font-black mb-4">Balance Verification Requests</h3>
-              
+
               {verificationRequests.length === 0 ? (
                 <div className="text-center py-12">
                   <Shield className="mx-auto text-slate-400 dark:text-gray-600 mb-4" size={48} />
@@ -1858,7 +1936,7 @@ const AdminDashboard: React.FC = () => {
                     const statusInfo = balanceVerificationService.getStatusInfo(request.status);
                     const priorityInfo = balanceVerificationService.getPriorityInfo(request.priority);
                     const discrepancyInfo = balanceVerificationService.formatDiscrepancy(request.discrepancy_amount);
-                    
+
                     return (
                       <div
                         key={request.id}
@@ -1934,6 +2012,246 @@ const AdminDashboard: React.FC = () => {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Support Ticket Management */}
+        {activeTab === 'support' && (
+          <div className="space-y-4">
+            {/* Support Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+              <div className="p-4 bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl">
+                <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
+                  {supportStats.total}
+                </div>
+                <div className="text-xs text-slate-600 dark:text-gray-500 mt-1">Total</div>
+              </div>
+              <div className="p-4 bg-red-50 dark:bg-red-500/10 border-2 border-red-200 dark:border-red-500/20 rounded-2xl">
+                <div className="text-2xl sm:text-3xl font-black text-red-700 dark:text-red-400">
+                  {supportStats.open}
+                </div>
+                <div className="text-xs text-red-600 dark:text-red-500 mt-1">Open</div>
+              </div>
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-500/10 border-2 border-yellow-200 dark:border-yellow-500/20 rounded-2xl">
+                <div className="text-2xl sm:text-3xl font-black text-yellow-700 dark:text-yellow-400">
+                  {supportStats.pending}
+                </div>
+                <div className="text-xs text-yellow-600 dark:text-yellow-500 mt-1">Pending</div>
+              </div>
+              <div className="p-4 bg-green-50 dark:bg-green-500/10 border-2 border-green-200 dark:border-green-500/20 rounded-2xl">
+                <div className="text-2xl sm:text-3xl font-black text-green-700 dark:text-green-400">
+                  {supportStats.resolved}
+                </div>
+                <div className="text-xs text-green-600 dark:text-green-500 mt-1">Resolved</div>
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-500/10 border-2 border-slate-200 dark:border-slate-500/20 rounded-2xl">
+                <div className="text-2xl sm:text-3xl font-black text-slate-700 dark:text-slate-400">
+                  {supportStats.closed}
+                </div>
+                <div className="text-xs text-slate-600 dark:text-gray-500 mt-1">Closed</div>
+              </div>
+            </div>
+
+            {/* Tickets List */}
+            <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 text-slate-900 dark:text-white">
+              <h3 className="text-lg sm:text-xl font-black mb-4">Support Requests</h3>
+              
+              {supportTickets.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageCircle className="mx-auto text-slate-400 dark:text-gray-600 mb-4" size={48} />
+                  <p className="text-slate-600 dark:text-gray-500">No support tickets found</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {supportTickets.map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      className="p-4 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl hover:border-primary/50 transition-all cursor-pointer"
+                      onClick={() => {
+                        setSelectedTicket(ticket);
+                        setSupportAdminNotes(ticket.admin_notes || '');
+                        setShowSupportModal(true);
+                      }}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                              ticket.status === 'open' ? 'bg-red-500/10 text-red-500' :
+                              ticket.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
+                              ticket.status === 'resolved' ? 'bg-green-500/10 text-green-500' :
+                              'bg-slate-500/10 text-slate-500'
+                            }`}>
+                              {ticket.status}
+                            </span>
+                            <span className="text-xs font-bold text-slate-500">
+                              {ticket.subject.toUpperCase()}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {new Date(ticket.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="text-sm font-bold truncate mb-1">
+                            {ticket.wallet_address}
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-gray-400 line-clamp-1">
+                            {ticket.message}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs font-black uppercase tracking-widest transition-all">
+                            Reply
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Support Ticket Modal */}
+        {showSupportModal && selectedTicket && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-[#0a0a0a] border-2 border-slate-300 dark:border-white/20 rounded-[32px] max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+              <div className="p-8 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Support Case</h2>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">ID: {selectedTicket.id}</p>
+                  </div>
+                  <button onClick={() => setShowSupportModal(false)} className="p-3 hover:bg-slate-100 dark:hover:bg-white/10 rounded-2xl transition-all">
+                    <X size={24} className="text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Status</p>
+                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                        selectedTicket.status === 'open' ? 'bg-red-500/10 text-red-500' :
+                        selectedTicket.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
+                        selectedTicket.status === 'resolved' ? 'bg-green-500/10 text-green-500' :
+                        'bg-slate-500/10 text-slate-500'
+                      }`}>
+                        {selectedTicket.status}
+                      </span>
+                    </div>
+                    <div className="p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Subject</p>
+                      <p className="text-sm font-black text-slate-900 dark:text-white">{selectedTicket.subject}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">User Message</p>
+                    <p className="text-sm text-slate-700 dark:text-gray-300 font-medium leading-relaxed italic">
+                      "{selectedTicket.message}"
+                    </p>
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/10 flex justify-between items-center">
+                       <code className="text-[10px] font-mono text-slate-400">{selectedTicket.wallet_address}</code>
+                       <span className="text-[10px] text-slate-400">{new Date(selectedTicket.created_at).toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {selectedTicket.admin_notes && (
+                    <div className="p-6 bg-blue-50 dark:bg-blue-500/10 rounded-2xl border border-blue-200 dark:border-blue-500/20">
+                      <p className="text-[10px] font-black text-blue-700 dark:text-blue-400 uppercase tracking-[0.2em] mb-3">Previous Admin Response</p>
+                      <p className="text-sm text-blue-800 dark:text-blue-300 font-medium leading-relaxed italic">
+                        "{selectedTicket.admin_notes}"
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                        {selectedTicket.admin_notes ? 'Send New Message' : 'Admin Response'}
+                      </label>
+                      <span className={`text-[10px] font-mono ${
+                        supportAdminNotes.length > 0
+                          ? 'text-green-500'
+                          : 'text-slate-400'
+                      }`}>
+                        {supportAdminNotes.length}/500 {supportAdminNotes.length > 0 ? '✓' : ''}
+                      </span>
+                    </div>
+                    <textarea
+                      value={supportAdminNotes}
+                      onChange={(e) => setSupportAdminNotes(e.target.value)}
+                      placeholder={selectedTicket.admin_notes 
+                        ? "Type additional message to the user here..." 
+                        : "Type your response to the user here..."
+                      }
+                      maxLength={500}
+                      className={`w-full h-32 bg-slate-50 dark:bg-white/5 border-2 rounded-2xl p-4 text-sm text-slate-900 dark:text-white outline-none transition-all resize-none ${
+                        supportAdminNotes.length > 0
+                          ? 'border-green-300 dark:border-green-500/30 focus:border-green-500'
+                          : 'border-slate-200 dark:border-white/10 focus:border-primary'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Send Message Button */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSendTicketMessage}
+                      disabled={!supportAdminNotes.trim()}
+                      className="flex-1 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={!supportAdminNotes.trim() ? "Please type a message first" : "Send message to user"}
+                    >
+                      <MessageCircle size={16} className="inline mr-2" />
+                      {!supportAdminNotes.trim() ? 'Type Message First' : 'Send Message'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 dark:border-white/10 pt-6">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Ticket Actions</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <button
+                      onClick={() => handleUpdateSupportTicket('pending')}
+                      disabled={!supportAdminNotes.trim()}
+                      className="py-3 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={!supportAdminNotes.trim() ? "Please provide a message first" : "Mark as pending"}
+                    >
+                      {!supportAdminNotes.trim() ? 'Message Required' : 'Mark Pending'}
+                    </button>
+                    <button
+                      onClick={() => handleUpdateSupportTicket('closed')}
+                      disabled={!supportAdminNotes.trim()}
+                      className="py-3 bg-slate-500/10 hover:bg-slate-500/20 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={!supportAdminNotes.trim() ? "Please provide a message first" : "Close ticket"}
+                    >
+                      {!supportAdminNotes.trim() ? 'Message Required' : 'Close Ticket'}
+                    </button>
+                    <button
+                      onClick={() => handleUpdateSupportTicket('resolved')}
+                      disabled={!selectedTicket.admin_notes && !supportAdminNotes.trim()}
+                      className="lg:col-span-2 py-4 bg-primary hover:bg-primary-hover text-black rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-300"
+                      title={
+                        !selectedTicket.admin_notes && !supportAdminNotes.trim()
+                          ? "Please send at least one message to the user before resolving"
+                          : "Mark ticket as resolved"
+                      }
+                    >
+                      {!selectedTicket.admin_notes && !supportAdminNotes.trim()
+                        ? 'Send Message First'
+                        : 'Mark as Resolved'
+                      }
+                    </button>
+                  </div>
+                  {selectedTicket.admin_notes && (
+                    <p className="text-xs text-green-600 dark:text-green-400 font-medium mt-2 text-center">
+                      ✓ User has received admin response - ticket can be resolved
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2277,41 +2595,37 @@ const AdminDashboard: React.FC = () => {
                       <div className="text-xs text-purple-600 dark:text-purple-400">RZC</div>
                     </div>
 
-                    <div className={`p-4 rounded-xl border ${
-                      selectedVerificationRequest.discrepancy_amount > 0
+                    <div className={`p-4 rounded-xl border ${selectedVerificationRequest.discrepancy_amount > 0
                         ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20'
                         : selectedVerificationRequest.discrepancy_amount < 0
-                        ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20'
-                        : 'bg-gray-50 dark:bg-gray-500/10 border-gray-200 dark:border-gray-500/20'
-                    }`}>
-                      <div className={`text-xs font-black uppercase tracking-wider mb-2 ${
-                        selectedVerificationRequest.discrepancy_amount > 0
+                          ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20'
+                          : 'bg-gray-50 dark:bg-gray-500/10 border-gray-200 dark:border-gray-500/20'
+                      }`}>
+                      <div className={`text-xs font-black uppercase tracking-wider mb-2 ${selectedVerificationRequest.discrepancy_amount > 0
                           ? 'text-red-700 dark:text-red-400'
                           : selectedVerificationRequest.discrepancy_amount < 0
-                          ? 'text-green-700 dark:text-green-400'
-                          : 'text-gray-700 dark:text-gray-400'
-                      }`}>
+                            ? 'text-green-700 dark:text-green-400'
+                            : 'text-gray-700 dark:text-gray-400'
+                        }`}>
                         Discrepancy
                       </div>
-                      <div className={`text-xl font-black ${
-                        selectedVerificationRequest.discrepancy_amount > 0
+                      <div className={`text-xl font-black ${selectedVerificationRequest.discrepancy_amount > 0
                           ? 'text-red-900 dark:text-red-300'
                           : selectedVerificationRequest.discrepancy_amount < 0
-                          ? 'text-green-900 dark:text-green-300'
-                          : 'text-gray-900 dark:text-gray-300'
-                      }`}>
+                            ? 'text-green-900 dark:text-green-300'
+                            : 'text-gray-900 dark:text-gray-300'
+                        }`}>
                         {selectedVerificationRequest.discrepancy_amount > 0 ? '+' : ''}
                         {selectedVerificationRequest.discrepancy_amount.toLocaleString()}
                       </div>
-                      <div className={`text-xs ${
-                        selectedVerificationRequest.discrepancy_amount > 0
+                      <div className={`text-xs ${selectedVerificationRequest.discrepancy_amount > 0
                           ? 'text-red-600 dark:text-red-400'
                           : selectedVerificationRequest.discrepancy_amount < 0
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-gray-600 dark:text-gray-400'
-                      }`}>
-                        {selectedVerificationRequest.discrepancy_amount > 0 ? 'Claiming more' : 
-                         selectedVerificationRequest.discrepancy_amount < 0 ? 'Claiming less' : 'No difference'}
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-gray-600 dark:text-gray-400'
+                        }`}>
+                        {selectedVerificationRequest.discrepancy_amount > 0 ? 'Claiming more' :
+                          selectedVerificationRequest.discrepancy_amount < 0 ? 'Claiming less' : 'No difference'}
                       </div>
                     </div>
                   </div>
@@ -2441,11 +2755,10 @@ const AdminDashboard: React.FC = () => {
                       value={taskFormData.title}
                       onChange={(e) => handleTaskFormChange('title', e.target.value)}
                       placeholder="Enter task title..."
-                      className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${
-                        taskFormErrors.title 
-                          ? 'border-red-500 focus:border-red-500' 
+                      className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${taskFormErrors.title
+                          ? 'border-red-500 focus:border-red-500'
                           : 'border-slate-300 dark:border-white/10 focus:border-primary'
-                      }`}
+                        }`}
                     />
                     {taskFormErrors.title && (
                       <p className="text-red-500 text-xs mt-1">{taskFormErrors.title}</p>
@@ -2462,11 +2775,10 @@ const AdminDashboard: React.FC = () => {
                       onChange={(e) => handleTaskFormChange('description', e.target.value)}
                       placeholder="Enter task description..."
                       rows={3}
-                      className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all resize-none ${
-                        taskFormErrors.description 
-                          ? 'border-red-500 focus:border-red-500' 
+                      className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all resize-none ${taskFormErrors.description
+                          ? 'border-red-500 focus:border-red-500'
                           : 'border-slate-300 dark:border-white/10 focus:border-primary'
-                      }`}
+                        }`}
                     />
                     {taskFormErrors.description && (
                       <p className="text-red-500 text-xs mt-1">{taskFormErrors.description}</p>
@@ -2483,11 +2795,10 @@ const AdminDashboard: React.FC = () => {
                       onChange={(e) => handleTaskFormChange('instructions', e.target.value)}
                       placeholder="Enter detailed instructions for users..."
                       rows={2}
-                      className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all resize-none ${
-                        taskFormErrors.instructions 
-                          ? 'border-red-500 focus:border-red-500' 
+                      className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all resize-none ${taskFormErrors.instructions
+                          ? 'border-red-500 focus:border-red-500'
                           : 'border-slate-300 dark:border-white/10 focus:border-primary'
-                      }`}
+                        }`}
                     />
                     {taskFormErrors.instructions && (
                       <p className="text-red-500 text-xs mt-1">{taskFormErrors.instructions}</p>
@@ -2507,11 +2818,10 @@ const AdminDashboard: React.FC = () => {
                         placeholder="0"
                         min="1"
                         max="10000"
-                        className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${
-                          taskFormErrors.reward 
-                            ? 'border-red-500 focus:border-red-500' 
+                        className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${taskFormErrors.reward
+                            ? 'border-red-500 focus:border-red-500'
                             : 'border-slate-300 dark:border-white/10 focus:border-primary'
-                        }`}
+                          }`}
                       />
                       {taskFormErrors.reward && (
                         <p className="text-red-500 text-xs mt-1">{taskFormErrors.reward}</p>
@@ -2527,11 +2837,10 @@ const AdminDashboard: React.FC = () => {
                         value={taskFormData.action}
                         onChange={(e) => handleTaskFormChange('action', e.target.value)}
                         placeholder="e.g., follow, retweet, create_video"
-                        className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${
-                          taskFormErrors.action 
-                            ? 'border-red-500 focus:border-red-500' 
+                        className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${taskFormErrors.action
+                            ? 'border-red-500 focus:border-red-500'
                             : 'border-slate-300 dark:border-white/10 focus:border-primary'
-                        }`}
+                          }`}
                       />
                       {taskFormErrors.action && (
                         <p className="text-red-500 text-xs mt-1">{taskFormErrors.action}</p>
@@ -2585,11 +2894,10 @@ const AdminDashboard: React.FC = () => {
                         value={taskFormData.timeLimit}
                         onChange={(e) => handleTaskFormChange('timeLimit', e.target.value)}
                         placeholder="e.g., 24h, 7 days, 1 week"
-                        className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${
-                          taskFormErrors.timeLimit 
-                            ? 'border-red-500 focus:border-red-500' 
+                        className={`w-full px-4 py-3 bg-slate-100 dark:bg-white/5 border-2 rounded-xl text-slate-900 dark:text-white text-sm outline-none transition-all ${taskFormErrors.timeLimit
+                            ? 'border-red-500 focus:border-red-500'
                             : 'border-slate-300 dark:border-white/10 focus:border-primary'
-                        }`}
+                          }`}
                       />
                       {taskFormErrors.timeLimit && (
                         <p className="text-red-500 text-xs mt-1">{taskFormErrors.timeLimit}</p>
@@ -2630,19 +2938,17 @@ const AdminDashboard: React.FC = () => {
                     <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Preview</h4>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                          taskFormData.is_active 
+                        <span className={`px-2 py-1 rounded-lg text-xs font-black ${taskFormData.is_active
                             ? 'bg-green-500/20 text-green-600 dark:text-green-400'
                             : 'bg-gray-500/20 text-gray-600 dark:text-gray-400'
-                        }`}>
+                          }`}>
                           {taskFormData.is_active ? 'ACTIVE' : 'INACTIVE'}
                         </span>
-                        <span className={`px-2 py-1 rounded-lg text-xs font-black ${
-                          taskFormData.difficulty === 'easy' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
-                          taskFormData.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
-                          taskFormData.difficulty === 'hard' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
-                          'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                        }`}>
+                        <span className={`px-2 py-1 rounded-lg text-xs font-black ${taskFormData.difficulty === 'easy' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
+                            taskFormData.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
+                              taskFormData.difficulty === 'hard' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
+                                'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                          }`}>
                           {taskFormData.difficulty.toUpperCase()}
                         </span>
                         <span className="px-2 py-1 bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-black">

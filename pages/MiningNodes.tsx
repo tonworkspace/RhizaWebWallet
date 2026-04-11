@@ -16,7 +16,6 @@ import {
   AlertCircle,
   ExternalLink,
   DollarSign,
-  Store,
   ShieldCheck,
   Star,
   Lock,
@@ -28,7 +27,6 @@ import { useToast } from '../context/ToastContext';
 import { useBalance } from '../hooks/useBalance';
 import { usePurchaseModal } from '../context/PurchaseModalContext';
 import { SalesPackage } from '../types';
-import StoreUI from '../components/StoreUI';
 import { useSalesPackages } from '../hooks/useSalesPackages';
 
 
@@ -37,9 +35,9 @@ const MiningNodes: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { address, network, isActivated, activatedAt, activationFeePaid, userProfile } = useWallet();
-  const { tonBalance, tonPrice, isLoading: balanceLoading } = useBalance();
+  const { tonBalance, tonPrice, rzcPrice, isLoading: balanceLoading } = useBalance();
   const toast = useToast();
-  const [selectedTier, setSelectedTier] = useState<'starter' | 'professional' | 'enterprise' | 'store'>('starter');
+  const [selectedTier, setSelectedTier] = useState<'starter' | 'professional' | 'enterprise'>('starter');
   const { openPurchaseModal } = usePurchaseModal();
   const [purchasedPackages, setPurchasedPackages] = useState<string[]>([]);
   const [showActivationBanner, setShowActivationBanner] = useState(true);
@@ -102,35 +100,32 @@ const MiningNodes: React.FC = () => {
 
   return (
     <div className="space-y-6 p-4 sm:p-0">
-      {/* Premium UI Header */}
-      <div className="relative mb-8 mt-2">
-        <div className="absolute -inset-1 bg-gradient-to-r from-blue-500/20 to-purple-500/20 blur-2xl opacity-50 pointer-events-none"></div>
-        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 p-5 rounded-2xl shadow-xl backdrop-blur-md">
-          <div className="flex items-start sm:items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-[0_0_20px_rgba(79,70,229,0.3)]">
-              <Package size={24} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">
-                Nodes Packages
-              </h1>
-              <p className="text-xs text-gray-400 font-medium mt-1">
-                {isActivated
-                  ? 'Acquire protocol allocations & instantly earn RZC rewards.'
-                  : 'Activate your wallet matrix to unlock the ecosystem.'
-                }
-              </p>
-            </div>
+      {/* Page Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
+            <Package size={20} className="text-white" />
           </div>
-          {isActivated && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl shadow-[inset_0_0_10px_rgba(16,185,129,0.1)]">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_5px_#10b981]"></div>
-              <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                Activated Matrix
-              </span>
-            </div>
-          )}
+          <div>
+            <h1 className="text-2xl font-black text-gray-900 dark:text-white">
+              Node Packages
+            </h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {isActivated
+                ? 'Acquire protocol allocations & earn RZC rewards'
+                : 'Activate your wallet to unlock the ecosystem'
+              }
+            </p>
+          </div>
         </div>
+        {isActivated && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+              Activated
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Activation Status Card - Show when activated */}
@@ -266,7 +261,7 @@ const MiningNodes: React.FC = () => {
           {!balanceLoading && tonBalance < 0.1 && (
             <div className="flex-1 sm:max-w-xs flex items-center gap-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg backdrop-blur-md">
               <AlertCircle size={14} className="text-amber-400 flex-shrink-0" />
-              <p className="text-[10px] text-amber-200/90 leading-tight">
+              <p className="text-[10px] text-amber-200/90 font-body leading-tight">
                 <strong>Low Balance.</strong> Fund wallet to purchase nodes.
               </p>
               <button
@@ -312,17 +307,6 @@ const MiningNodes: React.FC = () => {
         >
           <Crown size={18} className={selectedTier === 'enterprise' ? 'animate-pulse' : ''} />
           <span>VIP</span>
-        </button>
-        <div className="w-px bg-white/10 hidden sm:block mx-1 my-2"></div>
-        <button
-          onClick={() => setSelectedTier('store')}
-          className={`flex-1 min-w-[100px] px-2 sm:px-4 py-3 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 ${selectedTier === 'store'
-            ? 'bg-gradient-to-r from-zinc-800 to-black text-white shadow-[0_0_15px_rgba(255,255,255,0.1)] ring-1 ring-white/20'
-            : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300 border border-transparent hover:border-white/5'
-            }`}
-        >
-          <Store size={16} className={selectedTier === 'store' ? 'text-green-400' : ''} />
-          <span>Custom</span>
         </button>
       </div>
 
@@ -373,170 +357,152 @@ const MiningNodes: React.FC = () => {
           <h2 className="text-xl font-black text-gray-950 dark:text-white">
             Activate Your Wallet
           </h2>
-          <p className="text-sm text-gray-700 dark:text-gray-400 font-semibold">
+          <p className="text-sm font-body text-gray-700 dark:text-gray-400">
             Complete the one-time activation to unlock node packages and all wallet features.
           </p>
         </div>
       )}
 
       {/* Package Cards Grid */}
-      {selectedTier === 'store' ? (
-        <div className="bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-2xl h-[700px] overflow-hidden">
-          <StoreUI
-            tonPrice={tonPrice || 0.1}
-            tonAddress={address}
-            walletActivated={isActivated}
-            onActivateWallet={() => setSelectedTier('starter')}
-            userId={userProfile?.id}
-            showSnackbar={({ message, description, type }) => {
-              const fullMessage = description ? `${message}: ${description}` : message;
-              if (type === 'error' && toast.error) toast.error(fullMessage);
-              else if (type === 'success' && toast.success) toast.success(fullMessage);
-              else if (toast.info) toast.info(fullMessage);
-            }}
-          />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredPackages.map((pkg) => {
-            const Icon = pkg.icon;
-            const isPurchased = purchasedPackages.includes(pkg.id);
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {filteredPackages.map((pkg) => {
+          const Icon = pkg.icon;
+          const isPurchased = purchasedPackages.includes(pkg.id);
 
-            return (
-              <div
-                key={pkg.id}
-                className={`relative group bg-white dark:bg-white/5 border-2 rounded-2xl p-5 transition-all duration-300 hover:shadow-xl ${isPurchased
-                  ? 'border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/5 ring-2 ring-emerald-200 dark:ring-emerald-500/20'
-                  : 'border-gray-300 dark:border-white/10 hover:border-primary/50 dark:hover:border-primary/50 hover:shadow-primary/10'
-                  }`}
-              >
-                {/* Purchased Badge */}
-                {isPurchased && (
-                  <div className="absolute -top-2 -right-2 z-10">
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-emerald-500 rounded-full blur-md opacity-50 animate-pulse"></div>
-                      <span className="relative flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-emerald-500 text-white px-3 py-1.5 rounded-full shadow-lg">
-                        <Check size={12} className="animate-bounce" />
-                        Purchased
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Badge */}
-                {pkg.badge && !isPurchased && (
-                  <div className="absolute top-4 right-4">
-                    <span className="text-[8px] font-black uppercase tracking-wider bg-primary/10 text-primary px-2 py-1 rounded-full">
-                      {pkg.badge}
+          return (
+            <div
+              key={pkg.id}
+              className={`relative group bg-white dark:bg-white/5 border-2 rounded-2xl p-5 transition-all duration-300 hover:shadow-xl ${isPurchased
+                ? 'border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/5 ring-2 ring-emerald-200 dark:ring-emerald-500/20'
+                : 'border-gray-300 dark:border-white/10 hover:border-primary/50 dark:hover:border-primary/50 hover:shadow-primary/10'
+                }`}
+            >
+              {/* Purchased Badge */}
+              {isPurchased && (
+                <div className="absolute -top-2 -right-2 z-10">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-emerald-500 rounded-full blur-md opacity-50 animate-pulse"></div>
+                    <span className="relative flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-emerald-500 text-white px-3 py-1.5 rounded-full shadow-lg">
+                      <Check size={12} className="animate-bounce" />
+                      Purchased
                     </span>
                   </div>
-                )}
-
-                {/* Icon & Title */}
-                <div className="flex items-start gap-3 mb-4">
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${pkg.gradient} flex items-center justify-center flex-shrink-0`}>
-                    <Icon size={24} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-bold text-gray-950 dark:text-white">
-                      {pkg.tierName}
-                    </h3>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 font-semibold">
-                      {pkg.rzcReward > 0 ? `${pkg.rzcReward.toLocaleString()} RZC Instant` : 'Activation Only'}
-                    </p>
-                  </div>
                 </div>
+              )}
 
-                {/* Price */}
-                <div className="mb-4 pb-4 border-b-2 border-gray-200 dark:border-white/10">
-                  {pkg.pricePoint > 0 ? (
-                    <div>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-black text-gray-950 dark:text-white">
-                          ${pkg.pricePoint}
+              {/* Badge */}
+              {pkg.badge && !isPurchased && (
+                <div className="absolute top-4 right-4">
+                  <span className="text-[8px] font-black uppercase tracking-wider bg-primary/10 text-primary px-2 py-1 rounded-full">
+                    {pkg.badge}
+                  </span>
+                </div>
+              )}
+
+              {/* Icon & Title */}
+              <div className="flex items-start gap-3 mb-4">
+                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${pkg.gradient} flex items-center justify-center flex-shrink-0`}>
+                  <Icon size={24} className="text-white" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-gray-950 dark:text-white">
+                    {pkg.tierName}
+                  </h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 font-semibold">
+                    {pkg.rzcReward > 0 ? `${pkg.rzcReward.toLocaleString()} RZC Instant` : 'Activation Only'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Price */}
+              <div className="mb-4 pb-4 border-b-2 border-gray-200 dark:border-white/10">
+                {pkg.pricePoint > 0 ? (
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black text-gray-950 dark:text-white">
+                        ${pkg.pricePoint}
+                      </span>
+                      {pkg.activationFee > 0 ? (
+                        <span className="text-sm text-gray-600 dark:text-gray-400 font-semibold">
+                          + ${pkg.activationFee} activation
                         </span>
-                        {pkg.activationFee > 0 ? (
-                          <span className="text-sm text-gray-600 dark:text-gray-400 font-semibold">
-                            + ${pkg.activationFee} activation
-                          </span>
-                        ) : (
-                          <span className="text-xs text-emerald-600 dark:text-primary font-bold">
-                            No activation fee
-                          </span>
-                        )}
-                      </div>
-                      {isActivated && pkg.activationFee === 0 && (
-                        <p className="text-xs text-emerald-700 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
-                          <Check size={12} />
-                          Wallet activated - Pay package price only
-                        </p>
+                      ) : (
+                        <span className="text-xs text-emerald-600 dark:text-primary font-bold">
+                          No activation fee
+                        </span>
                       )}
                     </div>
-                  ) : (
-                    <div>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-black text-gray-950 dark:text-white">
-                          ${pkg.activationFee}
-                        </span>
-                        <span className="text-sm text-gray-600 dark:text-gray-400 font-semibold">
-                          one-time
-                        </span>
-                      </div>
-                      <p className="text-xs text-blue-700 dark:text-blue-400 font-bold mt-1">
-                        Activation Only - No Package Purchase
+                    {isActivated && pkg.activationFee === 0 && (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
+                        <Check size={12} />
+                        Wallet activated - Pay package price only
                       </p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black text-gray-950 dark:text-white">
+                        ${pkg.activationFee}
+                      </span>
+                      <span className="text-sm text-gray-600 dark:text-gray-400 font-semibold">
+                        one-time
+                      </span>
                     </div>
-                  )}
-                  {pkg.directReferralBonus > 0 && (
-                    <div className="mt-2 space-y-1">
-                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                        <Percent size={14} />
-                        {pkg.directReferralBonus}% Direct Referral Bonus
-                      </div>
-                      <div className="flex items-center gap-2 text-xs font-bold text-blue-700 dark:text-blue-400">
-                        <Users size={14} />
-                        {pkg.teamSalesBonus}% Weekly Team Sales
-                      </div>
+                    <p className="text-xs text-blue-700 dark:text-blue-400 font-bold mt-1">
+                      Activation Only - No Package Purchase
+                    </p>
+                  </div>
+                )}
+                {pkg.directReferralBonus > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      <Percent size={14} />
+                      {pkg.directReferralBonus}% Direct Referral Bonus
                     </div>
-                  )}
-                </div>
-
-                {/* Features */}
-                <div className="space-y-2 mb-5">
-                  {pkg.features.map((feature, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-400 font-semibold">
-                      <Check size={14} className="text-emerald-600 dark:text-primary flex-shrink-0" />
-                      <span>{feature}</span>
+                    <div className="flex items-center gap-2 text-xs font-bold text-blue-700 dark:text-blue-400">
+                      <Users size={14} />
+                      {pkg.teamSalesBonus}% Weekly Team Sales
                     </div>
-                  ))}
-                </div>
-
-                {/* Purchase Button */}
-                <button
-                  onClick={() => handlePurchase(pkg)}
-                  disabled={isPurchased}
-                  className={`w-full py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 ${isPurchased
-                    ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 cursor-not-allowed border-2 border-emerald-300 dark:border-emerald-500/30'
-                    : 'bg-emerald-600 dark:bg-primary text-white dark:text-black hover:bg-emerald-700 dark:hover:bg-[#00dd77] active:scale-95'
-                    }`}
-                >
-                  {isPurchased ? (
-                    <>
-                      <Check size={16} className="animate-pulse" />
-                      ✅ Package Activated
-                    </>
-                  ) : (
-                    <>
-                      Purchase Package
-                      <ArrowRight size={16} />
-                    </>
-                  )}
-                </button>
+                  </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              {/* Features */}
+              <div className="space-y-2 mb-5">
+                {pkg.features.map((feature, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-400 font-semibold">
+                    <Check size={14} className="text-emerald-600 dark:text-primary flex-shrink-0" />
+                    <span>{feature}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Purchase Button */}
+              <button
+                onClick={() => handlePurchase(pkg)}
+                disabled={isPurchased}
+                className={`w-full py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 ${isPurchased
+                  ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 cursor-not-allowed border-2 border-emerald-300 dark:border-emerald-500/30'
+                  : 'bg-emerald-600 dark:bg-primary text-white dark:text-black hover:bg-emerald-700 dark:hover:bg-[#00dd77] active:scale-95'
+                  }`}
+              >
+                {isPurchased ? (
+                  <>
+                    <Check size={16} className="animate-pulse" />
+                    ✅ Package Activated
+                  </>
+                ) : (
+                  <>
+                    Purchase Package
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            </div>
+          );
+        })}
+      </div>
 
     </div>
   );

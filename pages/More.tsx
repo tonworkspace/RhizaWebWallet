@@ -320,8 +320,8 @@ const More: React.FC = () => {
     <div className="space-y-6 p-4 sm:p-0">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tight">More</h1>
-        <p className="text-sm text-slate-600 dark:text-gray-400">
+        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-gray-950 dark:text-white">More</h1>
+        <p className="text-sm text-gray-700 dark:text-gray-400">
           Explore the RhizaCore ecosystem and resources
         </p>
       </div>

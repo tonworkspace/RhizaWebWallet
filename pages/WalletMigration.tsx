@@ -222,8 +222,8 @@ const WalletMigration: React.FC = () => {
         </p>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex gap-2 p-1 bg-gray-100 dark:bg-white/5 rounded-xl border-2 border-gray-200 dark:border-white/10">
+      {/* Tab Navigation - hidden, STK tab disabled for now */}
+      <div className="hidden">
         <button
           onClick={() => setActiveTab('rzc')}
           className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${
@@ -458,8 +458,8 @@ const WalletMigration: React.FC = () => {
         </>
       )}
 
-      {/* STK to StarFi Tab */}
-      {activeTab === 'stk' && (
+      {/* STK to StarFi Tab - hidden */}
+      {false && activeTab === 'stk' && (
         <>
           {/* Info Banner */}
           <div className="p-4 bg-purple-50 dark:bg-purple-500/10 border-2 border-purple-200 dark:border-purple-500/20 rounded-2xl">

@@ -8,13 +8,14 @@ import StoreUI from '../components/StoreUI';
 const RzcStore: React.FC = () => {
   const navigate = useNavigate();
   const { address, isActivated, userProfile } = useWallet();
-  const { tonPrice } = useBalance();
+  const { tonPrice, rzcPrice } = useBalance();
   const toast = useToast();
 
   return (
-    <div className="flex flex-col h-full min-h-screen bg-black page-enter">
+    <div className="flex flex-col h-full min-h-screen bg-slate-50 dark:bg-black page-enter">
       <StoreUI
         tonPrice={tonPrice || 0.1}
+        rzcPrice={rzcPrice}
         tonAddress={address}
         walletActivated={isActivated}
         onActivateWallet={() => navigate('/wallet/sales-package')}

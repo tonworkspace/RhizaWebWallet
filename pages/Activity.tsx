@@ -128,9 +128,9 @@ const Activity: React.FC = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black text-white">Activity Log</h1>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {activities.length} {activities.length === 1 ? 'activity' : 'activities'} recorded
+            <h1 className="text-xl sm:text-2xl font-heading font-black text-white uppercase tracking-widest leading-relaxed">Activity Log</h1>
+            <p className="text-[10px] font-heading font-bold text-gray-500 uppercase tracking-widest mt-1">
+              <span className="font-numbers">{activities.length}</span> {activities.length === 1 ? 'activity' : 'activities'} recorded
             </p>
           </div>
         </div>
@@ -141,7 +141,7 @@ const Activity: React.FC = () => {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-[#00FF88]/50"
+          className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-xs font-heading font-black uppercase tracking-[0.2em] text-white focus:outline-none focus:ring-2 focus:ring-[#00FF88]/50"
         >
           <option value="all">All Activities</option>
           <option value="login">Login</option>
@@ -183,7 +183,7 @@ const Activity: React.FC = () => {
               {/* Date Header */}
               <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-700" />
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                <span className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-[0.2em] px-3">
                   {date}
                 </span>
                 <div className="h-px flex-1 bg-slate-700" />
@@ -209,10 +209,10 @@ const Activity: React.FC = () => {
                         {/* Content */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1">
-                            <h4 className={`text-sm font-bold ${style.color}`}>
+                            <h4 className={`text-xs font-heading font-black uppercase tracking-widest ${style.color}`}>
                               {activity.description}
                             </h4>
-                            <span className="text-xs text-gray-500 whitespace-nowrap">
+                            <span className="text-[10px] font-numbers font-bold text-gray-500 whitespace-nowrap uppercase tracking-widest">
                               {timeAgo(activity.created_at)}
                             </span>
                           </div>
@@ -223,10 +223,10 @@ const Activity: React.FC = () => {
                               <div className="grid grid-cols-2 gap-2 text-xs">
                                 {Object.entries(activity.metadata).map(([key, value]) => (
                                   <div key={key} className="flex flex-col">
-                                    <span className="text-gray-500 capitalize">
-                                      {key.replace(/_/g, ' ')}:
+                                    <span className="text-[9px] font-heading font-black uppercase tracking-widest text-gray-500 mb-0.5">
+                                      {key.replace(/_/g, ' ')}
                                     </span>
-                                    <span className="text-white font-mono truncate">
+                                    <span className="text-[10px] font-numbers font-bold text-white uppercase tracking-widest truncate">
                                       {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                                     </span>
                                   </div>
@@ -236,7 +236,7 @@ const Activity: React.FC = () => {
                           )}
 
                           {/* Full timestamp */}
-                          <p className="text-[10px] text-gray-600 mt-2">
+                          <p className="text-[9px] font-numbers font-bold text-gray-600 uppercase tracking-widest mt-2">
                             {formatDate(activity.created_at)}
                           </p>
                         </div>

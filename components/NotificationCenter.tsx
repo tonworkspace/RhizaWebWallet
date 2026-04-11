@@ -94,14 +94,8 @@ const NotificationCenter: React.FC = () => {
         setNotifications(prev => [newNotification, ...prev]);
         setUnreadCount(prev => prev + 1);
         
-        // Show browser notification if supported
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(newNotification.title, {
-            body: newNotification.message,
-            icon: '/logo.png',
-            badge: '/logo.png'
-          });
-        }
+        // Note: Toast notifications are now handled by Layout.tsx
+        // Browser notifications are also handled by Layout.tsx
       }
     );
 

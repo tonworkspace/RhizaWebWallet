@@ -291,7 +291,8 @@ const Landing: React.FC = () => {
         }
       } else {
         // Use the airdrop service for other task verification
-        isVerified = await airdropService.verifyTaskCompletion(task.action, userProfile?.wallet_address);
+        const verificationResult = await airdropService.verifyTaskCompletion(task.action, userProfile?.wallet_address);
+        isVerified = verificationResult.success;
       }
 
       if (isVerified) {

@@ -141,15 +141,19 @@ const ImportWallet: React.FC = () => {
       }
     }
 
-    // ── 2. BIP-39 checksum validation (SECURITY ISSUE #5 FIX) ────────────────
-    const mnemonicPhrase = words.join(' ');
-    const isValidChecksum = validateMnemonic(mnemonicPhrase, wordlist);
-    
-    if (!isValidChecksum) {
-      setPhraseError(
-        'Invalid mnemonic checksum. The words are valid but the combination is incorrect. Please double-check your backup phrase.'
-      );
-      return;
+    // ── 2. BIP-39 checksum validation ────────────────────────────────────────
+    // Only apply BIP-39 checksum for multi-12 (BIP-39 standard).
+    // TON 24-word mnemonics use a TON-native derivation (not BIP-39 checksum),
+    // so validateMnemonic will always return false for valid TON phrases.
+    if (walletType === 'multi-12') {
+      const mnemonicPhrase = words.join(' ');
+      const isValidChecksum = validateMnemonic(mnemonicPhrase, wordlist);
+      if (!isValidChecksum) {
+        setPhraseError(
+          'Invalid mnemonic checksum. The words are valid but the combination is incorrect. Please double-check your backup phrase.'
+        );
+        return;
+      }
     }
 
     setPhraseError(null);
@@ -163,7 +167,8 @@ const ImportWallet: React.FC = () => {
 
       if (walletType === 'ton-24') {
         const { tonWalletService } = await import('../services/tonWalletService');
-        const initResult = await tonWalletService.initializeWallet(words, 'temp_validation_key');
+        // Pass no password so initializeWallet skips session/secret storage during validation
+        const initResult = await tonWalletService.initializeWallet(words, undefined, undefined, true);
 
         if (!initResult.success || !initResult.address) {
           setPhraseError('Invalid recovery phrase. The words are valid but the combination is incorrect.');
@@ -175,9 +180,7 @@ const ImportWallet: React.FC = () => {
         const { tetherWdkService } = await import('../services/tetherWdkService');
         const initResult = await tetherWdkService.initializeManagers(words.join(' '));
         if (!initResult || !initResult.tonAddress) {
-          setPhraseError('Invalid recovery phrase. Cannot derive Multi-Chain wallet.');
-          setIsValidating(false);
-          return;
+          throw new Error('Could not derive TON address for Multi-Chain wallet.');
         }
         derivedAddress = initResult.tonAddress;
       }
@@ -202,7 +205,7 @@ const ImportWallet: React.FC = () => {
       setStep(2);
     } catch (err: any) {
       console.error('Phrase validation error:', err);
-      setPhraseError('Invalid recovery phrase. Could not derive a valid wallet from these words. Please double-check your backup.');
+      setPhraseError(err.message || 'Invalid recovery phrase. Could not derive a valid wallet.');
     }
 
     setIsValidating(false);
@@ -252,9 +255,7 @@ const ImportWallet: React.FC = () => {
         const { tetherWdkService } = await import('../services/tetherWdkService');
         addrs = await tetherWdkService.initializeManagers(words.join(' '));
         if (!addrs || !addrs.tonAddress) {
-          setPasswordError('Invalid recovery phrase. Cannot derive Multi-Chain wallet.');
-          setIsVerifying(false);
-          return;
+          throw new Error('Multi-Chain initialization failed: Could not derive TON address.');
         }
         walletAddress = addrs.tonAddress;
       }
@@ -264,12 +265,16 @@ const ImportWallet: React.FC = () => {
       const exists = existingWallets.find(w => w.address === walletAddress);
 
       if (exists) {
-        // Wallet already stored — try logging in with the NEW password the user just set
-        // By re-adding it with the new password we ensure the stored key matches
-        const addResult = await WalletManager.addWallet(words, password, walletAddress, walletType === 'multi-12' ? 'Multi-Chain Wallet' : 'TON Vault', walletType === 'multi-12' ? 'secondary' : 'primary', addrs ? { evm: addrs.evmAddress, ton: addrs.tonAddress, btc: addrs.btcAddress } : undefined);
+        // Wallet already stored — re-encrypt with the new password so future logins work
+        const updateResult = await WalletManager.updateWalletPassword(exists.id, words, password);
+        if (!updateResult.success) {
+          setPasswordError(updateResult.error || 'Failed to update wallet password');
+          setIsVerifying(false);
+          return;
+        }
         const success = await login(words, password, walletType === 'multi-12' ? 'secondary' : 'primary');
         if (success) {
-          WalletManager.setActiveWallet(addResult.walletId ?? exists.id);
+          WalletManager.setActiveWallet(exists.id);
           showToast('Wallet imported and re-secured!', 'success');
           navigate('/wallet/dashboard');
         } else {
@@ -298,7 +303,7 @@ const ImportWallet: React.FC = () => {
       }
 
       // Add wallet with the user-chosen password (NEVER a default/empty password)
-      const addResult = await WalletManager.addWallet(words, password, walletAddress, walletType === 'multi-12' ? 'Multi-Chain Wallet' : 'TON Vault', walletType === 'multi-12' ? 'secondary' : 'primary', addrs ? { evm: addrs.evmAddress, ton: addrs.tonAddress, btc: addrs.btcAddress } : undefined);
+      const addResult = await WalletManager.addWallet(words, password, walletAddress, walletType === 'multi-12' ? 'Multi-Chain Wallet' : 'TON Vault', walletType === 'multi-12' ? 'secondary' : 'primary', addrs ? { evm: addrs.evmAddress, ton: addrs.tonAddress, btc: addrs.btcAddress, sol: addrs.solAddress || undefined, tron: addrs.tronAddress || undefined } : undefined);
       if (!addResult.success) {
         setPasswordError(addResult.error || 'Failed to save wallet');
         setIsVerifying(false);
@@ -313,9 +318,9 @@ const ImportWallet: React.FC = () => {
       } else {
         setPasswordError('Failed to initialize wallet. Please try again.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Wallet import error:', err);
-      setPasswordError('An unexpected error occurred');
+      setPasswordError(err.message || 'An unexpected error occurred during import');
     }
 
     setIsVerifying(false);
@@ -325,13 +330,13 @@ const ImportWallet: React.FC = () => {
   const strength = getPasswordStrength();
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'transparent' }}>
+    <div className="min-h-screen flex flex-col bg-white dark:bg-transparent">
 
       {/* Header */}
       <div className="flex items-center justify-between px-6 pt-6 pb-4">
         <button
           onClick={() => step === 1 ? navigate(isLoggedIn ? '/wallet/dashboard' : '/onboarding') : setStep(1)}
-          className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+          className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10 transition-all"
         >
           <ChevronLeft size={18} />
         </button>
@@ -339,35 +344,35 @@ const ImportWallet: React.FC = () => {
         {/* Step dots */}
         <div className="flex items-center gap-1.5">
           {STEPS.map((_, i) => (
-            <div key={i} className={`rounded-full transition-all duration-300 ${i + 1 === step ? 'w-6 h-2 bg-[#00FF88]' : i + 1 < step ? 'w-2 h-2 bg-[#00FF88]/40' : 'w-2 h-2 bg-white/10'}`} />
+            <div key={i} className={`rounded-full transition-all duration-300 ${i + 1 === step ? 'w-6 h-2 bg-[#00FF88]' : i + 1 < step ? 'w-2 h-2 bg-[#00FF88]/40' : 'w-2 h-2 bg-gray-300 dark:bg-white/10'}`} />
           ))}
         </div>
 
-        <div className="text-xs text-gray-500 font-semibold">{step}/{STEPS.length}</div>
+        <div className="text-xs text-gray-600 dark:text-gray-500 font-semibold">{step}/{STEPS.length}</div>
       </div>
 
-      <div className="flex-1 flex flex-col px-6 pb-8 max-w-lg mx-auto w-full">
+      <div className="flex-1 flex flex-col px-6 pb-8 max-w-lg mx-auto w-full bg-white dark:bg-transparent">
 
         {/* ── STEP 1: Enter Recovery Phrase ── */}
         {step === 1 && (
           <div className="flex flex-col flex-1 pt-4 space-y-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-white">Enter Recovery Phrase</h1>
-                <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Enter Recovery Phrase</h1>
+                <p className="text-gray-600 dark:text-gray-400 text-sm mt-1.5 leading-relaxed">
                   Enter your phrase in the correct order to restore your wallet.
                 </p>
               </div>
               <button
                 onClick={handlePaste}
-                className="shrink-0 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2"
+                className="shrink-0 px-4 py-2.5 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10 transition-all flex items-center gap-2"
               >
                 <Clipboard size={13} /> Paste
               </button>
             </div>
 
             {/* Wallet Type Toggle */}
-            <div className="flex bg-white/5 p-1 rounded-xl">
+            <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-xl">
               <button 
                 onClick={() => {
                   setWalletType('ton-24');
@@ -375,7 +380,7 @@ const ImportWallet: React.FC = () => {
                   while(newWords.length < 24) newWords.push('');
                   setWords(newWords);
                 }} 
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${walletType === 'ton-24' ? 'bg-[#00FF88] text-black shadow-lg shadow-[#00FF88]/20' : 'text-gray-400 hover:text-white'}`}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${walletType === 'ton-24' ? 'bg-[#00FF88] text-black shadow-lg shadow-[#00FF88]/20' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
               >
                 TON Vault (24 Words)
               </button>
@@ -384,7 +389,7 @@ const ImportWallet: React.FC = () => {
                   setWalletType('multi-12');
                   setWords(words.slice(0, 12));
                 }} 
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${walletType === 'multi-12' ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20' : 'text-gray-400 hover:text-white'}`}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${walletType === 'multi-12' ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
               >
                 Multi-Chain (12 Words)
               </button>
@@ -395,7 +400,7 @@ const ImportWallet: React.FC = () => {
               {words.map((word, idx) => (
                 <div key={idx} className="relative">
                   <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-600 pointer-events-none select-none w-5 text-right">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-500 dark:text-gray-400 pointer-events-none select-none w-5 text-right">
                       {idx + 1}
                     </span>
                     <input
@@ -404,12 +409,12 @@ const ImportWallet: React.FC = () => {
                       onChange={e => handleInputChange(idx, e.target.value)}
                       onFocus={() => suggestions[idx].length > 0 && setActiveSuggestion(idx)}
                       onBlur={() => setTimeout(() => setActiveSuggestion(null), 150)}
-                      className={`w-full pl-8 pr-2 py-2.5 bg-white/5 border rounded-xl text-xs font-semibold text-white placeholder-gray-700 outline-none transition-all ${
+                      className={`w-full pl-8 pr-2 py-2.5 bg-gray-50 dark:bg-white/5 border rounded-xl text-xs font-semibold text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 outline-none transition-all ${
                         word.length > 0 && bip39Words.length > 0 && !bip39Words.includes(word)
                           ? 'border-amber-500/40 focus:border-amber-500/60'
                           : word.length > 0 && bip39Words.length > 0 && bip39Words.includes(word)
                           ? 'border-[#00FF88]/30 focus:border-[#00FF88]/50'
-                          : 'border-white/8 focus:border-white/20'
+                          : 'border-gray-200 dark:border-white/10 focus:border-gray-300 dark:focus:border-white/20'
                       }`}
                       placeholder="word"
                       autoComplete="off"
@@ -420,12 +425,12 @@ const ImportWallet: React.FC = () => {
 
                   {/* Word autocomplete dropdown */}
                   {suggestions[idx].length > 0 && activeSuggestion === idx && (
-                    <div className="absolute left-0 right-0 top-full mt-1 bg-gray-900 border border-white/10 rounded-xl overflow-hidden z-20 shadow-xl">
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden z-20 shadow-xl">
                       {suggestions[idx].map(w => (
                         <button
                           key={w}
                           onMouseDown={() => applySuggestion(idx, w)}
-                          className="w-full px-3 py-2 text-left text-xs text-white hover:bg-white/5 transition-colors font-medium"
+                          className="w-full px-3 py-2 text-left text-xs text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors font-medium"
                         >
                           {w}
                         </button>
@@ -468,8 +473,8 @@ const ImportWallet: React.FC = () => {
         {step === 2 && (
           <div className="flex flex-col flex-1 pt-4 space-y-6">
             <div>
-              <h1 className="text-2xl font-bold text-white">Set a New Password</h1>
-              <p className="text-gray-400 text-sm mt-1.5 leading-relaxed">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Set a New Password</h1>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mt-1.5 leading-relaxed">
                 Create a new password to secure this wallet on this device.
               </p>
             </div>
@@ -481,7 +486,7 @@ const ImportWallet: React.FC = () => {
                 <div>
                   <p className="text-sm font-bold text-[#00FF88]">Rhiza Wallet Detected</p>
                   <p className="text-xs text-[#00FF88]/70 mt-0.5 font-medium">This wallet already has a Rhiza account. Your profile, referrals, and rewards will be restored.</p>
-                  {detectedAddress && <p className="text-[10px] text-gray-500 mt-1.5 font-mono break-all">{detectedAddress}</p>}
+                  {detectedAddress && <p className="text-[10px] text-gray-600 dark:text-gray-500 mt-1.5 font-mono break-all">{detectedAddress}</p>}
                 </div>
               </div>
             )}
@@ -490,26 +495,26 @@ const ImportWallet: React.FC = () => {
               <div className="flex items-start gap-3 p-4 bg-blue-500/8 border border-blue-500/20 rounded-2xl">
                 <AlertCircle size={16} className="text-blue-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-bold text-blue-300">External Wallet Detected</p>
-                  <p className="text-xs text-blue-400/70 mt-0.5 font-medium">This wallet was not created on Rhiza. A new profile will be created for it. Your on-chain assets will be accessible.</p>
-                  {detectedAddress && <p className="text-[10px] text-gray-500 mt-1.5 font-mono break-all">{detectedAddress}</p>}
+                  <p className="text-sm font-bold text-blue-600 dark:text-blue-300">External Wallet Detected</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-400/70 mt-0.5 font-medium">This wallet was not created on Rhiza. A new profile will be created for it. Your on-chain assets will be accessible.</p>
+                  {detectedAddress && <p className="text-[10px] text-gray-600 dark:text-gray-500 mt-1.5 font-mono break-all">{detectedAddress}</p>}
                 </div>
               </div>
             )}
 
             {walletOrigin === 'new' && (
-              <div className="flex items-start gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
-                <Check size={16} className="text-gray-400 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl">
+                <Check size={16} className="text-gray-600 dark:text-gray-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-bold text-gray-300">Phrase Verified</p>
-                  <p className="text-xs text-gray-500 mt-0.5 font-medium">Phrase is valid. Set a password to secure it on this device.</p>
-                  {detectedAddress && <p className="text-[10px] text-gray-500 mt-1.5 font-mono break-all">{detectedAddress}</p>}
+                  <p className="text-sm font-bold text-gray-800 dark:text-gray-300">Phrase Verified</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-500 mt-0.5 font-medium">Phrase is valid. Set a password to secure it on this device.</p>
+                  {detectedAddress && <p className="text-[10px] text-gray-600 dark:text-gray-500 mt-1.5 font-mono break-all">{detectedAddress}</p>}
                 </div>
               </div>
             )}
             <div className="flex items-start gap-3 p-4 bg-blue-500/8 border border-blue-500/15 rounded-2xl">
               <Lock size={14} className="text-blue-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-blue-400/90 leading-relaxed font-medium">
+              <p className="text-xs text-blue-700 dark:text-blue-400/90 leading-relaxed font-medium">
                 A password is <strong>required</strong> whenever importing a wallet. It encrypts your phrase locally and ensures only you can access this wallet on this device.
               </p>
             </div>
@@ -517,18 +522,18 @@ const ImportWallet: React.FC = () => {
             <div className="space-y-4">
               {/* New password */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">New Password</label>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">New Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => { setPassword(e.target.value); setPasswordError(''); }}
-                    className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 outline-none focus:border-[#00FF88]/50 focus:ring-1 focus:ring-[#00FF88]/20 transition-all font-medium text-sm"
+                    className="w-full px-4 py-3.5 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 outline-none focus:border-[#00FF88]/50 focus:ring-1 focus:ring-[#00FF88]/20 transition-all font-medium text-sm"
                     placeholder="Create a strong password"
                     autoComplete="new-password"
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors p-1">
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors p-1">
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
@@ -536,16 +541,16 @@ const ImportWallet: React.FC = () => {
                 {/* Strength bar */}
                 {password.length > 0 && (
                   <div className="space-y-1.5">
-                    <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-1 bg-gray-200 dark:bg-white/5 rounded-full overflow-hidden">
                       <div className="h-full rounded-full transition-all duration-500" style={{ width: strength.width, backgroundColor: strength.color }} />
                     </div>
                     <div className="flex justify-between items-center">
                       <div className="flex gap-1">
                         {[8, 12].map(len => (
-                          <span key={len} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${password.length >= len ? 'text-[#00FF88] bg-[#00FF88]/10' : 'text-gray-600 bg-white/5'}`}>{len}+</span>
+                          <span key={len} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${password.length >= len ? 'text-[#00FF88] bg-[#00FF88]/10' : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-white/5'}`}>{len}+</span>
                         ))}
                         {[/[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].map((re, i) => (
-                          <span key={i} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${re.test(password) ? 'text-[#00FF88] bg-[#00FF88]/10' : 'text-gray-600 bg-white/5'}`}>
+                          <span key={i} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${re.test(password) ? 'text-[#00FF88] bg-[#00FF88]/10' : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-white/5'}`}>
                             {['A-Z', '0-9', '!@#'][i]}
                           </span>
                         ))}
@@ -558,18 +563,18 @@ const ImportWallet: React.FC = () => {
 
               {/* Confirm password */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Confirm Password</label>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Confirm Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={e => { setConfirmPassword(e.target.value); setPasswordError(''); }}
-                    className={`w-full px-4 py-3.5 bg-white/5 border rounded-2xl text-white placeholder-gray-600 outline-none focus:ring-1 transition-all font-medium text-sm ${
+                    className={`w-full px-4 py-3.5 bg-gray-50 dark:bg-white/5 border rounded-2xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 outline-none focus:ring-1 transition-all font-medium text-sm ${
                       confirmPassword && password !== confirmPassword
                         ? 'border-red-500/40 focus:border-red-500/50 focus:ring-red-500/20'
                         : confirmPassword && password === confirmPassword
                         ? 'border-[#00FF88]/40 focus:border-[#00FF88]/50 focus:ring-[#00FF88]/20'
-                        : 'border-white/10 focus:border-[#00FF88]/50 focus:ring-[#00FF88]/20'
+                        : 'border-gray-200 dark:border-white/10 focus:border-[#00FF88]/50 focus:ring-[#00FF88]/20'
                     }`}
                     placeholder="Re-enter your password"
                     autoComplete="new-password"
@@ -604,7 +609,7 @@ const ImportWallet: React.FC = () => {
               )}
             </button>
 
-            <div className="flex items-center justify-center gap-2 text-gray-600">
+            <div className="flex items-center justify-center gap-2 text-gray-600 dark:text-gray-400">
               <ShieldCheck size={12} className="text-[#00FF88]/50" />
               <span className="text-[10px] font-semibold uppercase tracking-widest">Password never leaves this device</span>
             </div>

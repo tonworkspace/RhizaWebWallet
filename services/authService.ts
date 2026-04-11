@@ -25,24 +25,57 @@ export interface AuthResponse {
   error?: string;
 }
 
-class AuthService {
-  private client: SupabaseClient;
+// Singleton client instance — shared across all imports
+let clientInstance: SupabaseClient | null = null;
 
-  constructor() {
-    this.client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+function getSharedClient(): SupabaseClient {
+  if (!clientInstance) {
+    clientInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('🔧 Supabase auth client initialized (singleton)');
   }
+  return clientInstance;
+}
+
+class AuthService {
+  private sessionRestored: boolean = false;
 
   getClient(): SupabaseClient {
-    return this.client;
+    return getSharedClient();
+  }
+
+  /**
+   * Ensure session is restored before making authenticated requests.
+   * Call this before any RLS-protected operation.
+   */
+  async ensureSession(): Promise<boolean> {
+    const client = this.getClient();
+    
+    if (this.sessionRestored) {
+      const { data } = await client.auth.getSession();
+      return !!data.session;
+    }
+    
+    // Wait for initial restore
+    const { data } = await client.auth.getSession();
+    this.sessionRestored = true;
+    
+    if (data.session) {
+      console.log('✅ Auth session restored:', data.session.user.id);
+    } else {
+      console.warn('⚠️ No auth session found in storage');
+    }
+    
+    return !!data.session;
   }
 
   // Sign up with email and password
   async signUp(email: string, password: string, walletAddress: string, name?: string): Promise<AuthResponse> {
     try {
+      const client = this.getClient();
       // Note: Email confirmation behavior depends on Supabase settings
       // - If disabled: User is immediately logged in with session
       // - If enabled: User must confirm email before logging in
-      const { data, error } = await this.client.auth.signUp({
+      const { data, error } = await client.auth.signUp({
         email,
         password,
         options: {
@@ -80,7 +113,8 @@ class AuthService {
   // Sign in with email and password
   async signIn(email: string, password: string): Promise<AuthResponse> {
     try {
-      const { data, error } = await this.client.auth.signInWithPassword({
+      const client = this.getClient();
+      const { data, error } = await client.auth.signInWithPassword({
         email,
         password
       });
@@ -108,79 +142,139 @@ class AuthService {
   // Sign in with wallet (passwordless) - Creates anonymous session
   async signInWithWallet(walletAddress: string): Promise<AuthResponse> {
     try {
+      const client = this.getClient();
       console.log('🔐 Creating Supabase auth session for wallet:', walletAddress);
-      
-      // Check if user exists with this wallet address
-      const { data: walletUser, error: fetchError } = await this.client
-        .from('wallet_users')
-        .select('*')
-        .eq('wallet_address', walletAddress)
-        .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('❌ Error fetching wallet user:', fetchError);
-        throw fetchError;
+      // Normalize to non-bounceable (UQ...) so the derived email is stable
+      // regardless of whether the caller passes EQ... or UQ...
+      let normalizedAddress = walletAddress;
+      try {
+        const { Address } = await import('@ton/ton');
+        normalizedAddress = Address.parse(walletAddress).toString({ bounceable: false, testOnly: false });
+      } catch {
+        // Not a TON address — use as-is
       }
 
-      // Generate a deterministic email from wallet address
-      const walletEmail = `${walletAddress.toLowerCase()}@rhiza.wallet`;
-      const walletPassword = `wallet_${walletAddress}_${import.meta.env.VITE_WALLET_AUTH_SECRET || 'rhiza2024'}`;
+      // Generate deterministic credentials from wallet address.
+      // We try the current (UQ...) form first, then fall back to the legacy (EQ...) form
+      // so existing users whose auth account was created with EQ... are still found.
+      const makeCredentials = (addr: string) => ({
+        email: `${addr.toLowerCase()}@rhiza.wallet`,
+        password: `wallet_${addr}_${import.meta.env.VITE_WALLET_AUTH_SECRET || 'rhiza2024'}`
+      });
 
-      if (!walletUser) {
-        console.log('📝 Creating new wallet user with auth...');
-        
-        // Create new user with email/password (no confirmation needed)
-        const { data, error } = await this.client.auth.signUp({
-          email: walletEmail,
-          password: walletPassword,
-          options: {
-            data: {
-              wallet_address: walletAddress,
-              name: `Rhiza User #${walletAddress.slice(-4)}`
-            },
-            emailRedirectTo: undefined // Disable email confirmation
-          }
-        });
+      const primaryCreds = makeCredentials(normalizedAddress);
 
-        if (error) {
-          console.error('❌ Sign up error:', error);
-          throw error;
+      // Build legacy EQ... credentials for fallback
+      let legacyCreds: { email: string; password: string } | null = null;
+      try {
+        const { Address } = await import('@ton/ton');
+        const eqAddress = Address.parse(walletAddress).toString({ bounceable: true, testOnly: false });
+        if (eqAddress !== normalizedAddress) {
+          legacyCreds = makeCredentials(eqAddress);
         }
+      } catch {
+        // ignore
+      }
 
-        console.log('✅ Wallet user created with auth session');
-        
-        // Wait for trigger to create wallet_users record
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const newWalletUser = await this.getWalletUser(data.user!.id);
-        
+      // Helper: attempt sign-in with given credentials
+      const trySignIn = async (creds: { email: string; password: string }) => {
+        return client.auth.signInWithPassword({ email: creds.email, password: creds.password });
+      };
+
+      // 1. Try primary (UQ...) credentials
+      let { data: signInData, error: signInError } = await trySignIn(primaryCreds);
+
+      // 2. If not found, try legacy (EQ...) credentials
+      if (signInError && legacyCreds) {
+        const legacyResult = await trySignIn(legacyCreds);
+        if (!legacyResult.error && legacyResult.data.session) {
+          console.log('✅ Wallet user signed in via legacy EQ address credentials');
+          signInData = legacyResult.data;
+          signInError = null;
+        }
+      }
+
+      if (!signInError && signInData?.session) {
+        console.log('✅ Wallet user signed in with auth session');
+        // Ensure auth_user_id is linked
+        await client.rpc('sync_auth_user_id', {
+          p_auth_user_id: signInData.user.id,
+          p_email: signInData.user.email
+        }).then(({ error }) => {
+          if (error) console.warn('[auth] sync_auth_user_id failed (non-fatal):', error.message);
+        });
+        const walletUser = await this.getWalletUser(signInData.user.id);
         return {
           success: true,
-          user: data.user || undefined,
-          session: data.session || undefined,
+          user: signInData.user,
+          session: signInData.session,
+          walletUser: walletUser || undefined
+        };
+      }
+
+      // Sign-in failed — user likely doesn't exist yet, create them
+      const isNewUser = signInError?.message?.toLowerCase().includes('invalid login') ||
+                        signInError?.message?.toLowerCase().includes('invalid credentials') ||
+                        signInError?.message?.toLowerCase().includes('user not found') ||
+                        signInError?.status === 400;
+
+      if (!isNewUser) {
+        console.error('❌ Sign in error:', signInError);
+        throw signInError;
+      }
+
+      console.log('📝 Creating new wallet user with auth...');
+      const { data: signUpData, error: signUpError } = await client.auth.signUp({
+        email: primaryCreds.email,
+        password: primaryCreds.password,
+        options: {
+          data: {
+            wallet_address: normalizedAddress,
+            name: `Rhiza User #${normalizedAddress.slice(-4)}`
+          },
+          emailRedirectTo: undefined
+        }
+      });
+
+      if (signUpError) {
+        console.error('❌ Sign up error:', signUpError);
+        throw signUpError;
+      }
+
+      if (signUpData.session) {
+        console.log('✅ Wallet user created with auth session');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const newWalletUser = await this.getWalletUser(signUpData.user!.id);
+        return {
+          success: true,
+          user: signUpData.user || undefined,
+          session: signUpData.session,
           walletUser: newWalletUser || undefined
         };
       }
 
-      // User exists, sign in with password
-      console.log('🔑 Signing in existing wallet user...');
-      const { data, error } = await this.client.auth.signInWithPassword({
-        email: walletEmail,
-        password: walletPassword
-      });
+      // Retry sign-in after sign-up (email confirmation may not be required)
+      console.warn('⚠️ signUp returned no session, retrying signIn...');
+      const { data: retryData, error: retryError } = await trySignIn(primaryCreds);
 
-      if (error) {
-        console.error('❌ Sign in error:', error);
-        throw error;
+      if (!retryError && retryData.session) {
+        console.log('✅ Wallet user signed in after signUp');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const walletUser = await this.getWalletUser(retryData.user.id);
+        return {
+          success: true,
+          user: retryData.user,
+          session: retryData.session,
+          walletUser: walletUser || undefined
+        };
       }
 
-      console.log('✅ Wallet user signed in with auth session');
-
+      console.warn('⚠️ Email confirmation required — no session established');
       return {
         success: true,
-        user: data.user,
-        session: data.session,
-        walletUser: walletUser
+        user: signUpData.user || undefined,
+        session: undefined
       };
     } catch (error: any) {
       console.error('❌ Wallet sign in error:', error);
@@ -191,7 +285,8 @@ class AuthService {
   // Sign out
   async signOut(): Promise<{ success: boolean; error?: string }> {
     try {
-      const { error } = await this.client.auth.signOut();
+      const client = this.getClient();
+      const { error } = await client.auth.signOut();
       if (error) throw error;
       return { success: true };
     } catch (error: any) {
@@ -203,7 +298,8 @@ class AuthService {
   // Get current session
   async getSession(): Promise<{ session: Session | null; error?: string }> {
     try {
-      const { data, error } = await this.client.auth.getSession();
+      const client = this.getClient();
+      const { data, error } = await client.auth.getSession();
       if (error) throw error;
       return { session: data.session };
     } catch (error: any) {
@@ -215,7 +311,8 @@ class AuthService {
   // Get current user
   async getCurrentUser(): Promise<{ user: User | null; error?: string }> {
     try {
-      const { data, error } = await this.client.auth.getUser();
+      const client = this.getClient();
+      const { data, error} = await client.auth.getUser();
       if (error) throw error;
       return { user: data?.user || null };
     } catch (error: any) {
@@ -227,7 +324,8 @@ class AuthService {
   // Get wallet user profile
   async getWalletUser(authUserId: string): Promise<WalletUser | null> {
     try {
-      const { data, error } = await this.client
+      const client = this.getClient();
+      const { data, error } = await client
         .from('wallet_users')
         .select('*')
         .eq('auth_user_id', authUserId)
@@ -248,7 +346,8 @@ class AuthService {
   // Update wallet user profile
   async updateWalletUser(userId: string, updates: Partial<WalletUser>): Promise<{ success: boolean; error?: string }> {
     try {
-      const { error } = await this.client
+      const client = this.getClient();
+      const { error } = await client
         .from('wallet_users')
         .update(updates)
         .eq('id', userId);
@@ -296,7 +395,8 @@ class AuthService {
   // Admin: Get all users
   async getAllUsers(limit = 50, offset = 0): Promise<{ users: WalletUser[]; error?: string }> {
     try {
-      const { data, error } = await this.client
+      const client = this.getClient();
+      const { data, error } = await client
         .from('wallet_users')
         .select('*')
         .order('created_at', { ascending: false })
@@ -313,7 +413,8 @@ class AuthService {
   // Admin: Update user role
   async updateUserRole(userId: string, role: 'user' | 'admin'): Promise<{ success: boolean; error?: string }> {
     try {
-      const { error } = await this.client
+      const client = this.getClient();
+      const { error } = await client
         .from('wallet_users')
         .update({ role })
         .eq('id', userId);
@@ -333,7 +434,8 @@ class AuthService {
   // Admin: Deactivate user
   async deactivateUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const { error } = await this.client
+      const client = this.getClient();
+      const { error } = await client
         .from('wallet_users')
         .update({ is_active: false })
         .eq('id', userId);
@@ -359,7 +461,8 @@ class AuthService {
       const walletUser = await this.getWalletUser(currentUser.id);
       if (!walletUser) return;
 
-      await this.client
+      const client = this.getClient();
+      await client
         .from('wallet_admin_audit')
         .insert({
           admin_id: walletUser.id,
@@ -374,7 +477,8 @@ class AuthService {
 
   // Listen to auth state changes
   onAuthStateChange(callback: (event: string, session: Session | null) => void) {
-    return this.client.auth.onAuthStateChange(callback);
+    const client = this.getClient();
+    return client.auth.onAuthStateChange(callback);
   }
 }
 

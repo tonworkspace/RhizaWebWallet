@@ -15,7 +15,7 @@ export interface StoredWallet {
   lastUsed: number;
   isActive: boolean;
   type?: 'primary' | 'secondary';
-  addresses?: { evm?: string; ton?: string; btc?: string };
+  addresses?: { evm?: string; ton?: string; btc?: string; sol?: string; tron?: string };
 }
 
 export interface WalletMetadata {
@@ -25,7 +25,7 @@ export interface WalletMetadata {
   createdAt: number;
   lastUsed: number;
   type?: 'primary' | 'secondary';
-  addresses?: { evm?: string; ton?: string; btc?: string };
+  addresses?: { evm?: string; ton?: string; btc?: string; sol?: string; tron?: string };
 }
 
 const STORAGE_KEY = 'rhiza_wallets';
@@ -83,7 +83,7 @@ export class WalletManager {
     address: string,
     name?: string,
     type: 'primary' | 'secondary' = 'primary',
-    addresses?: { evm?: string; ton?: string; btc?: string }
+    addresses?: { evm?: string; ton?: string; btc?: string; sol?: string; tron?: string }
   ): Promise<{ success: boolean; walletId?: string; error?: string }> {
     try {
       // ── SECURITY FIX #19: Sanitize wallet name ────────────────────────────
@@ -116,7 +116,22 @@ export class WalletManager {
       const wallets = this.getAllWallets();
       
       // Check if wallet already exists (by address)
-      const exists = wallets.find(w => w.address === address);
+      let exists = wallets.find(w => w.address === address);
+      
+      if (!exists) {
+        // Try exact match with TON raw addresses formatting if they look like TON addresses
+        try {
+          const { Address } = await import('@ton/ton');
+          const incomingRaw = Address.parse(address).toRawString();
+          exists = wallets.find(w => {
+            try { return Address.parse(w.address).toRawString() === incomingRaw; } 
+            catch { return false; }
+          });
+        } catch(e) {
+          // Ignore if string is not a valid TON address
+        }
+      }
+
       if (exists) {
         return { success: false, error: 'Wallet already exists' };
       }
@@ -149,32 +164,24 @@ export class WalletManager {
         return { success: false, error: 'Wallet not found' };
       }
       
-      // Check if wallet needs migration
-      const needsUpgrade = needsMigration(wallet.encryptedMnemonic);
-      
       // Decrypt mnemonic (works with both old and new formats)
       const mnemonic = await decryptMnemonic(wallet.encryptedMnemonic, password);
-      
-      // Auto-migrate if needed
-      if (needsUpgrade) {
+
+      // Auto-migrate if needed — re-use already-decrypted mnemonic, no second PBKDF2 run
+      if (needsMigration(wallet.encryptedMnemonic)) {
         console.log('🔄 Auto-migrating wallet to new encryption format...');
-        
-        const migrationResult = await migrateEncryption(wallet.encryptedMnemonic, password);
-        
-        if (migrationResult.success && migrationResult.newEncryptedData) {
-          // Update wallet with new encrypted data
-          wallet.encryptedMnemonic = migrationResult.newEncryptedData;
+        try {
+          const newEncryptedData = await encryptMnemonic(mnemonic, password);
+          wallet.encryptedMnemonic = newEncryptedData;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
-          
           console.log('✅ Wallet migrated successfully');
           return { success: true, mnemonic, migrated: true };
-        } else {
-          console.warn('⚠️ Migration failed, but wallet still accessible:', migrationResult.error);
-          // Still return success since decryption worked
+        } catch (migErr) {
+          console.warn('⚠️ Migration failed, but wallet still accessible:', migErr);
           return { success: true, mnemonic, migrated: false };
         }
       }
-      
+
       return { success: true, mnemonic, migrated: false };
     } catch (error) {
       return { success: false, error: 'Invalid password or corrupted data' };
@@ -230,6 +237,52 @@ export class WalletManager {
       return true;
     } catch (error) {
       console.error('Failed to remove wallet:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Re-encrypt a wallet's mnemonic with a new password.
+   * Used when re-importing an existing wallet with a different password.
+   */
+  static async updateWalletPassword(
+    walletId: string,
+    mnemonic: string[],
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const wallets = this.getAllWallets();
+      const wallet = wallets.find(w => w.id === walletId);
+      if (!wallet) return { success: false, error: 'Wallet not found' };
+
+      wallet.encryptedMnemonic = await encryptMnemonic(mnemonic, newPassword);
+      wallet.lastUsed = Date.now();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
+   * Update the addresses for a specific wallet
+   */
+  static updateWalletAddresses(
+    walletId: string, 
+    addresses: { evm?: string; ton?: string; btc?: string; sol?: string; tron?: string }
+  ): boolean {
+    try {
+      const wallets = this.getAllWallets();
+      const wallet = wallets.find(w => w.id === walletId);
+      
+      if (!wallet) return false;
+      
+      wallet.addresses = { ...wallet.addresses, ...addresses };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to update wallet addresses:', error);
       return false;
     }
   }

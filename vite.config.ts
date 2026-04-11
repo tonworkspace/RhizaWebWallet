@@ -40,12 +40,30 @@ export default defineConfig(({ mode }) => {
             __dirname,
             'node_modules/sodium-javascript'
           ),
+          // tronweb ships a separate browser bundle — alias it so Vite
+          // doesn't bundle the Node-only build (TronWeb.node.js)
+          'tronweb': path.resolve(
+            __dirname,
+            'node_modules/tronweb/dist/TronWeb.js'
+          ),
+          // @noble/hashes v2.0.1 renamed export keys to include .js extension.
+          // wdk-wallet-btc imports the bare '/hmac' and '/sha2' specifiers
+          // (v1.x style). These aliases bridge the gap without downgrading the package.
+          '@noble/hashes/hmac': path.resolve(
+            __dirname,
+            'node_modules/@noble/hashes/hmac.js'
+          ),
+          '@noble/hashes/sha2': path.resolve(
+            __dirname,
+            'node_modules/@noble/hashes/sha2.js'
+          ),
         }
       },
       optimizeDeps: {
-        include: ['sodium-javascript'],
+        // Force Vite to pre-bundle wdk-wallet-btc so esbuild resolves
+        // its raw src/ ESM imports (including the @noble/hashes subpaths) in one pass.
+        include: ['sodium-javascript', 'tronweb', '@tetherto/wdk-wallet-btc'],
         esbuildOptions: {
-          // sodium-javascript uses BigInt and other modern features
           target: 'es2020',
         },
       },

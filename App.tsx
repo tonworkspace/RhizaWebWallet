@@ -2,53 +2,56 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './i18n/config';
-import Landing from './pages/Landing';
-import Dashboard from './pages/Dashboard';
-import Assets from './pages/Assets';
-import AssetDetail from './pages/AssetDetail';
-import History from './pages/History';
-import Settings from './pages/Settings';
-import Referral from './pages/Referral';
-import Onboarding from './pages/Onboarding';
-import CreateWallet from './pages/CreateWallet';
-import ImportWallet from './pages/ImportWallet';
-import WalletLogin from './pages/WalletLogin';
-import ProfileSetup from './pages/ProfileSetup';
-import ProfileEdit from './pages/ProfileEdit';
-import Transfer from './pages/Transfer';
-import Receive from './pages/Receive';
-import AIAssistant from './pages/AIAssistant';
-import Notifications from './pages/Notifications';
-import Activity from './pages/Activity';
+const Landing = React.lazy(() => import('./pages/Landing'));
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const Assets = React.lazy(() => import('./pages/Assets'));
+const AssetDetail = React.lazy(() => import('./pages/AssetDetail'));
+const History = React.lazy(() => import('./pages/History'));
+const Settings = React.lazy(() => import('./pages/Settings'));
+const Referral = React.lazy(() => import('./pages/Referral'));
+const Onboarding = React.lazy(() => import('./pages/Onboarding'));
+const CreateWallet = React.lazy(() => import('./pages/CreateWallet'));
+const ImportWallet = React.lazy(() => import('./pages/ImportWallet'));
+const WalletLogin = React.lazy(() => import('./pages/WalletLogin'));
+const ProfileSetup = React.lazy(() => import('./pages/ProfileSetup'));
+const ProfileEdit = React.lazy(() => import('./pages/ProfileEdit'));
+const Transfer = React.lazy(() => import('./pages/Transfer'));
+const Receive = React.lazy(() => import('./pages/Receive'));
+const AIAssistant = React.lazy(() => import('./pages/AIAssistant'));
+const Notifications = React.lazy(() => import('./pages/Notifications'));
+const Activity = React.lazy(() => import('./pages/Activity'));
 
-import MiningNodes from './pages/MiningNodes';
-import AdminRegister from './pages/AdminRegister';
-import AdminSetup from './pages/AdminSetup';
-import AdminDashboard from './pages/AdminDashboard';
-import AdminPanel from './pages/AdminPanel';
-import DatabaseTest from './pages/DatabaseTest';
-import SupabaseConnectionTest from './pages/SupabaseConnectionTest';
-import Whitepaper from './pages/Whitepaper';
-import Help from './pages/Help';
-import UserGuide from './pages/UserGuide';
-import FAQ from './pages/FAQ';
-import Tutorials from './pages/Tutorials';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TermsOfService from './pages/TermsOfService';
-import SecurityAudit from './pages/SecurityAudit';
-import Compliance from './pages/Compliance';
-import MerchantAPI from './pages/MerchantAPI';
-import DeveloperHub from './pages/DeveloperHub';
-import StakingEngine from './pages/StakingEngine';
-import Marketplace from './pages/Marketplace';
-import Launchpad from './pages/Launchpad';
-import ReferralPortal from './pages/ReferralPortal';
-import More from './pages/More';
-import RzcUtility from './pages/RzcUtility';
-import Swap from './pages/Swap';
-import WalletMigration from './pages/WalletMigration';
-import SecondaryWallet from './pages/SecondaryWallet';
-import RzcStore from './pages/RzcStore';
+const MiningNodes = React.lazy(() => import('./pages/MiningNodes'));
+const AdminRegister = React.lazy(() => import('./pages/AdminRegister'));
+const AdminSetup = React.lazy(() => import('./pages/AdminSetup'));
+const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const AdminPanel = React.lazy(() => import('./pages/AdminPanel'));
+const DatabaseTest = React.lazy(() => import('./pages/DatabaseTest'));
+const SupabaseConnectionTest = React.lazy(() => import('./pages/SupabaseConnectionTest'));
+const ActivationTest = React.lazy(() => import('./pages/ActivationTest'));
+const Whitepaper = React.lazy(() => import('./pages/Whitepaper'));
+const Help = React.lazy(() => import('./pages/Help'));
+const UserGuide = React.lazy(() => import('./pages/UserGuide'));
+const FAQ = React.lazy(() => import('./pages/FAQ'));
+const Tutorials = React.lazy(() => import('./pages/Tutorials'));
+const PrivacyPolicy = React.lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = React.lazy(() => import('./pages/TermsOfService'));
+const SecurityAudit = React.lazy(() => import('./pages/SecurityAudit'));
+const Compliance = React.lazy(() => import('./pages/Compliance'));
+const MerchantAPI = React.lazy(() => import('./pages/MerchantAPI'));
+const DeveloperHub = React.lazy(() => import('./pages/DeveloperHub'));
+const StakingEngine = React.lazy(() => import('./pages/StakingEngine'));
+const Marketplace = React.lazy(() => import('./pages/Marketplace'));
+const Launchpad = React.lazy(() => import('./pages/Launchpad'));
+const ReferralPortal = React.lazy(() => import('./pages/ReferralPortal'));
+const More = React.lazy(() => import('./pages/More'));
+const RzcUtility = React.lazy(() => import('./pages/RzcUtility'));
+const Swap = React.lazy(() => import('./pages/Swap'));
+const WalletMigration = React.lazy(() => import('./pages/WalletMigration'));
+const SecondaryWallet = React.lazy(() => import('./pages/SecondaryWallet'));
+const CloudBackup = React.lazy(() => import('./pages/CloudBackup'));
+const TwoFactorSetup = React.lazy(() => import('./pages/TwoFactorSetup'));
+const RzcStore = React.lazy(() => import('./pages/RzcStore'));
 import { SecondaryWalletProvider } from './context/SecondaryWalletContext';
 import BalanceVerification from './components/BalanceVerification';
 import { Layout } from './components/Layout';
@@ -64,27 +67,40 @@ import GlobalAirdropModal from './components/GlobalAirdropModal';
 import AirdropTrigger from './components/AirdropTrigger';
 import SettingsModals from './components/SettingsModals';
 import VerificationFormModal from './components/VerificationFormModal';
-import { supabaseService } from './services/supabaseService';
 import { PurchaseModalProvider } from './context/PurchaseModalContext';
 import GlobalPurchaseModal from './components/GlobalPurchaseModal';
 import GlobalNetworkModal from './components/GlobalNetworkModal';
+import GlobalWalletManager from './components/GlobalWalletManager';
+import { WalletManagerProvider } from './context/WalletManagerContext';
+import FloatingSupport from './components/FloatingSupport';
+import AddressChangelogModal from './components/AddressChangelogModal';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, isLoading } = useWallet();
 
-  // Show loading spinner while checking session
+  // Read saved theme to avoid flash of wrong color
+  const savedTheme = localStorage.getItem('rhiza_theme') || 'dark';
+  const isDark = savedTheme === 'dark';
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-[#00FF88] border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-gray-400 text-sm font-bold">Loading wallet...</p>
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#020202]' : 'bg-slate-50'}`}>
+        <div className="text-center space-y-5">
+          {/* Logo */}
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg ${isDark ? 'bg-white' : 'bg-slate-900'}`}>
+            <svg viewBox="0 0 24 24" className={`w-7 h-7 ${isDark ? 'text-black' : 'text-white'}`} fill="currentColor">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+          </div>
+          {/* Spinner */}
+          <p className={`text-sm font-bold tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+            Loading wallet...
+          </p>
         </div>
       </div>
     );
   }
 
-  // Redirect to login if not logged in
   if (!isLoggedIn) return <Navigate to="/login" replace />;
 
   return <>{children}</>;
@@ -92,44 +108,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const AppContent: React.FC = () => {
   const location = useLocation();
-  const { address, userProfile, isLoggedIn } = useWallet();
+  const { address, userProfile, isLoggedIn, isActivated } = useWallet();
   const { isAirdropModalOpen, closeAirdropModal } = useAirdrop();
   const isWalletMode = location.pathname.startsWith('/wallet') || location.pathname.startsWith('/admin');
   const previousPathRef = useRef<string>('');
-
-  // Global wallet activation state
-  const [walletActivated, setWalletActivated] = useState(true);
-  const [isLoadingActivation, setIsLoadingActivation] = useState(true);
-
-  // Check wallet activation status globally
-  useEffect(() => {
-    const checkActivationStatus = async () => {
-      // Only check if user is logged in and on a wallet route
-      if (!address || !isLoggedIn || !isWalletMode) {
-        setIsLoadingActivation(false);
-        setWalletActivated(true);
-        return;
-      }
-
-      try {
-        const data = await supabaseService.checkWalletActivation(address);
-
-        if (data) {
-          const isActivated = data.is_activated || false;
-          setWalletActivated(isActivated);
-        } else {
-          setWalletActivated(true); // Default to activated if wallet not found
-        }
-      } catch (err) {
-        console.error('Activation check error:', err);
-        setWalletActivated(true); // Default to activated on error
-      } finally {
-        setIsLoadingActivation(false);
-      }
-    };
-
-    checkActivationStatus();
-  }, [address, isLoggedIn, isWalletMode]);
 
   // Track page navigation
   useEffect(() => {
@@ -231,76 +213,89 @@ const AppContent: React.FC = () => {
       {/* Global Network Selector */}
       <GlobalNetworkModal />
 
-      {/* Global Airdrop FAB - Shows on wallet pages when logged in */}
-      {isLoggedIn && isWalletMode && (
-        <AirdropTrigger variant="fab" size="lg" />
-      )}
+      {/* Global Wallet Account Manager */}
+      <GlobalWalletManager />
+
+      {/* Global Floating Support Chat */}
+      <FloatingSupport />
+
+      {/* One-time address format changelog for existing users */}
+      <AddressChangelogModal />
 
       {/* Activation Banner - Shows when not activated (dismissible, non-blocking) */}
-      {!isLoadingActivation && !walletActivated && isLoggedIn && isWalletMode && (
+      {!isActivated && isLoggedIn && isWalletMode && (
         <WalletLockOverlay />
       )}
 
       <Layout isWalletMode={isWalletMode}>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/whitepaper" element={<Whitepaper />} />
-          <Route path="/help" element={<Help />} />
-          <Route path="/guide" element={<UserGuide />} />
-          <Route path="/faq" element={<FAQ />} />
-          <Route path="/tutorials" element={<Tutorials />} />
-          <Route path="/privacy" element={<PrivacyPolicy />} />
-          <Route path="/terms" element={<TermsOfService />} />
-          <Route path="/security" element={<SecurityAudit />} />
-          <Route path="/compliance" element={<Compliance />} />
-          <Route path="/merchant-api" element={<MerchantAPI />} />
-          <Route path="/developers" element={<DeveloperHub />} />
-          <Route path="/staking" element={<StakingEngine />} />
-          <Route path="/marketplace" element={<Marketplace />} />
-          <Route path="/launchpad" element={<Launchpad />} />
-          <Route path="/referral" element={<ReferralPortal />} />
-          <Route path="/use-rzc" element={<RzcUtility />} />
-          <Route path="/rzc-utility" element={<RzcUtility />} />
+        <React.Suspense fallback={
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        }>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/whitepaper" element={<Whitepaper />} />
+            <Route path="/help" element={<Help />} />
+            <Route path="/guide" element={<UserGuide />} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/tutorials" element={<Tutorials />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/security" element={<SecurityAudit />} />
+            <Route path="/compliance" element={<Compliance />} />
+            <Route path="/merchant-api" element={<MerchantAPI />} />
+            <Route path="/developers" element={<DeveloperHub />} />
+            <Route path="/staking" element={<StakingEngine />} />
+            <Route path="/marketplace" element={<Marketplace />} />
+            <Route path="/launchpad" element={<Launchpad />} />
+            <Route path="/referral" element={<ReferralPortal />} />
+            <Route path="/use-rzc" element={<RzcUtility />} />
+            <Route path="/rzc-utility" element={<RzcUtility />} />
 
-          {/* Wallet Auth Routes */}
-          <Route path="/login" element={<WalletLogin />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/create-wallet" element={<CreateWallet />} />
-          <Route path="/join" element={<WalletLogin />} />
-          <Route path="/import-wallet" element={<ImportWallet />} />
+            {/* Wallet Auth Routes */}
+            <Route path="/login" element={<WalletLogin />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/create-wallet" element={<CreateWallet />} />
+            <Route path="/join" element={<WalletLogin />} />
+            <Route path="/import-wallet" element={<ImportWallet />} />
 
-          {/* Admin Routes (Keep for backend management) */}
-          {/* <Route path="/admin-register" element={<AdminRegister />} /> */}
-          {/* <Route path="/admin-setup" element={<AdminSetup />} /> */}
-          <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
-          <Route path="/admin/panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
-          {/* <Route path="/database-test" element={<DatabaseTest />} /> */}
-          {/* <Route path="/supabase-test" element={<SupabaseConnectionTest />} /> */}
+            {/* Admin Routes (Keep for backend management) */}
+            {/* <Route path="/admin-register" element={<AdminRegister />} /> */}
+            {/* <Route path="/admin-setup" element={<AdminSetup />} /> */}
+            <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+            <Route path="/admin/panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin/activation-test" element={<ProtectedRoute><ActivationTest /></ProtectedRoute>} />
+            {/* <Route path="/database-test" element={<DatabaseTest />} /> */}
+            {/* <Route path="/supabase-test" element={<SupabaseConnectionTest />} /> */}
 
-          {/* Wallet Routes */}
-          <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
-          <Route path="/wallet/profile" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
-          <Route path="/wallet/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/wallet/assets" element={<ProtectedRoute><Assets /></ProtectedRoute>} />
-          <Route path="/wallet/asset-detail" element={<ProtectedRoute><AssetDetail /></ProtectedRoute>} />
-          <Route path="/wallet/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
-          <Route path="/wallet/referral" element={<ProtectedRoute><Referral /></ProtectedRoute>} />
-          <Route path="/wallet/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/wallet/transfer" element={<ProtectedRoute><Transfer /></ProtectedRoute>} />
-          <Route path="/wallet/receive" element={<ProtectedRoute><Receive /></ProtectedRoute>} />
-          <Route path="/wallet/ai-assistant" element={<ProtectedRoute><AIAssistant /></ProtectedRoute>} />
-          <Route path="/wallet/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
-          <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
-          <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
-          <Route path="/wallet/sales-package" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
-          <Route path="/wallet/store" element={<ProtectedRoute><RzcStore /></ProtectedRoute>} />
-          <Route path="/wallet/swap" element={<ProtectedRoute><Swap /></ProtectedRoute>} />
-          <Route path="/wallet/migration" element={<ProtectedRoute><WalletMigration /></ProtectedRoute>} />
-          <Route path="/wallet/multi-chain" element={<ProtectedRoute><SecondaryWallet /></ProtectedRoute>} />
-          <Route path="/wallet/verification" element={<ProtectedRoute><div className="max-w-xl mx-auto px-3 sm:px-4 md:px-0 py-6 space-y-4 page-enter"><div className="flex items-center gap-2 mb-2"><h1 className="text-xl font-black text-slate-900 dark:text-white">Balance Verification</h1></div><BalanceVerification /></div></ProtectedRoute>} />
+            {/* Wallet Routes */}
+            <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
+            <Route path="/wallet/profile" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
+            <Route path="/wallet/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/wallet/assets" element={<ProtectedRoute><Assets /></ProtectedRoute>} />
+            <Route path="/wallet/asset-detail" element={<ProtectedRoute><AssetDetail /></ProtectedRoute>} />
+            <Route path="/wallet/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
+            <Route path="/wallet/referral" element={<ProtectedRoute><Referral /></ProtectedRoute>} />
+            <Route path="/wallet/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/wallet/transfer" element={<ProtectedRoute><Transfer /></ProtectedRoute>} />
+            <Route path="/wallet/receive" element={<ProtectedRoute><Receive /></ProtectedRoute>} />
+            <Route path="/wallet/ai-assistant" element={<ProtectedRoute><AIAssistant /></ProtectedRoute>} />
+            <Route path="/wallet/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+            <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
+            <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
+            <Route path="/wallet/sales-package" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
+            <Route path="/wallet/store" element={<ProtectedRoute><RzcStore /></ProtectedRoute>} />
+            <Route path="/wallet/swap" element={<ProtectedRoute><Swap /></ProtectedRoute>} />
+            <Route path="/wallet/migration" element={<ProtectedRoute><WalletMigration /></ProtectedRoute>} />
+            <Route path="/wallet/multi-chain" element={<ProtectedRoute><SecondaryWallet /></ProtectedRoute>} />
+            <Route path="/wallet/cloud-backup" element={<ProtectedRoute><CloudBackup /></ProtectedRoute>} />
+            <Route path="/wallet/2fa" element={<ProtectedRoute><TwoFactorSetup /></ProtectedRoute>} />
+            <Route path="/wallet/verification" element={<ProtectedRoute><div className="max-w-xl mx-auto px-3 sm:px-4 md:px-0 py-6 space-y-4 page-enter"><div className="flex items-center gap-2 mb-2"><h1 className="text-xl font-black text-slate-900 dark:text-white">Balance Verification</h1></div><BalanceVerification /></div></ProtectedRoute>} />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </React.Suspense>
       </Layout>
     </>
   );
@@ -312,17 +307,19 @@ const App: React.FC = () => {
       <ToastProvider>
         <WalletProvider>
           <SecondaryWalletProvider>
-          <AirdropProvider>
-            <SettingsModalProvider>
-              <PurchaseModalProvider>
-                <VerificationFormProvider>
-                  <ActivationModalProvider>
-                    <AppContent />
-                  </ActivationModalProvider>
-                </VerificationFormProvider>
-              </PurchaseModalProvider>
-            </SettingsModalProvider>
-          </AirdropProvider>
+            <WalletManagerProvider>
+              <AirdropProvider>
+                <SettingsModalProvider>
+                  <PurchaseModalProvider>
+                    <VerificationFormProvider>
+                      <ActivationModalProvider>
+                        <AppContent />
+                      </ActivationModalProvider>
+                    </VerificationFormProvider>
+                  </PurchaseModalProvider>
+                </SettingsModalProvider>
+              </AirdropProvider>
+            </WalletManagerProvider>
           </SecondaryWalletProvider>
         </WalletProvider>
       </ToastProvider>

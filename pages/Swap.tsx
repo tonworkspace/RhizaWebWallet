@@ -44,8 +44,8 @@ const Swap: React.FC = () => {
 
       {/* ── Page header ────────────────────────────────────────────────────── */}
       <div>
-        <h1 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Swap</h1>
-        <p className="text-[11px] text-slate-500 dark:text-gray-500 font-medium mt-0.5">
+        <h1 className="text-xl font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest leading-relaxed">Swap</h1>
+        <p className="text-[11px] font-body text-slate-500 dark:text-gray-500 leading-relaxed mt-0.5">
           Live market updates — swap interface coming soon
         </p>
       </div>
@@ -64,16 +64,16 @@ const Swap: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-primary/20 text-primary rounded-full border border-primary/30">
+                <span className="text-[9px] font-heading font-black uppercase tracking-widest px-2 py-0.5 bg-primary/20 text-primary rounded-full border border-primary/30">
                   Mainnet Loading
                 </span>
               </div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
+              <h2 className="text-base sm:text-lg font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest leading-tight">
                 The Elite 20 — Coming to RhizaCore
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-gray-400 mt-0.5 leading-snug">
+              <p className="text-[11px] font-body text-slate-500 dark:text-gray-400 mt-1.5 leading-snug">
                 Swap, store and manage the world's top utility assets in one place — including{' '}
-                <span className="font-black text-primary">$PI Network</span>.
+                <span className="font-body font-bold text-primary">$PI Network</span>.
               </p>
             </div>
           </div>
@@ -86,7 +86,7 @@ const Swap: React.FC = () => {
                 className="flex flex-col items-center gap-1 p-2 rounded-xl bg-white/50 dark:bg-white/5 border border-slate-100 dark:border-white/5 hover:border-primary/30 hover:bg-primary/5 transition-all cursor-default"
               >
                 <span className="text-lg leading-none">{t.icon}</span>
-                <span className="text-[9px] font-black text-slate-700 dark:text-white">${t.symbol}</span>
+                <span className="text-[9px] font-heading font-black text-slate-700 dark:text-white uppercase tracking-widest">${t.symbol}</span>
               </div>
             ))}
           </div>
@@ -103,8 +103,8 @@ const Swap: React.FC = () => {
                   <Icon size={13} className={color} />
                 </div>
                 <div>
-                  <p className="text-[11px] font-black text-slate-900 dark:text-white">{label}</p>
-                  <p className="text-[10px] text-slate-400 dark:text-gray-500 font-medium">{desc}</p>
+                  <p className="text-[11px] font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest">{label}</p>
+                  <p className="text-[10px] font-body text-slate-400 dark:text-gray-500 leading-relaxed mt-0.5">{desc}</p>
                 </div>
               </div>
             ))}
@@ -112,10 +112,10 @@ const Swap: React.FC = () => {
 
           {/* Quote */}
           <div className="p-3.5 rounded-xl bg-white/40 dark:bg-white/5 border-l-4 border-primary">
-            <p className="text-[11px] italic text-slate-600 dark:text-gray-300 leading-snug">
+            <p className="text-[11px] font-body italic text-slate-600 dark:text-gray-300 leading-snug">
               "By including Pi, we are connecting with over 50 million Pioneers. RhizaCore Wallet isn't just a tool — it's a global distribution hub."
             </p>
-            <p className="text-[10px] font-black text-slate-700 dark:text-white mt-1.5">— RhizaCore Board</p>
+            <p className="text-[10px] font-heading font-black text-slate-700 dark:text-white uppercase tracking-[0.2em] mt-2">— RhizaCore Board</p>
           </div>
 
           {/* Links */}
@@ -128,10 +128,10 @@ const Swap: React.FC = () => {
             >
               <Globe size={11} /> Official Website <ExternalLink size={10} className="opacity-60" />
             </a>
-            <div className="px-3 py-2 bg-white/50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-xl text-[10px] font-black text-slate-600 dark:text-gray-300">
+            <div className="px-3 py-2 bg-white/50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-xl text-[10px] font-mono text-slate-600 dark:text-gray-300">
               💬 help@Rhizacore.xyz
             </div>
-            <div className="px-3 py-2 bg-gradient-to-r from-primary/10 to-secondary/10 border border-primary/10 rounded-xl text-[10px] font-black text-slate-700 dark:text-gray-200">
+            <div className="px-3 py-2 bg-gradient-to-r from-primary/10 to-secondary/10 border border-primary/10 rounded-xl text-[10px] font-heading font-black text-slate-700 dark:text-gray-200 uppercase tracking-[0.2em]">
               #RZC #PiNetwork
             </div>
           </div>
@@ -146,10 +146,10 @@ const Swap: React.FC = () => {
               <Coins size={20} className="text-white" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
+              <h2 className="text-base sm:text-lg font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest leading-tight">
                 RhizaCore Token Profile
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-gray-400 mt-0.5">
+              <p className="text-[11px] font-body text-slate-500 dark:text-gray-400 mt-1.5">
                 The native currency powering the ecosystem
               </p>
             </div>
@@ -163,8 +163,8 @@ const Swap: React.FC = () => {
               { label: 'Network', value: 'TON (native)' },
             ].map(item => (
               <div key={item.label} className="p-3 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-100 dark:border-white/5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-gray-500 mb-1">{item.label}</p>
-                <p className="text-xs sm:text-sm font-black text-slate-800 dark:text-gray-200">{item.value}</p>
+                <p className="text-[9px] font-heading font-black uppercase tracking-widest text-slate-400 dark:text-gray-500 mb-1">{item.label}</p>
+                <span className="text-[11px] font-numbers font-black text-slate-800 dark:text-gray-200 tabular-nums">{item.value}</span>
               </div>
             ))}
           </div>
@@ -179,10 +179,10 @@ const Swap: React.FC = () => {
               <PieChart size={20} className="text-white" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
+              <h2 className="text-base sm:text-lg font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest leading-tight">
                 RZC Tokenomics
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-gray-400 mt-0.5">
+              <p className="text-[11px] font-body text-slate-500 dark:text-gray-400 mt-1.5">
                 Sustainable distribution model
               </p>
             </div>
@@ -211,13 +211,13 @@ const Swap: React.FC = () => {
             ].map(item => (
               <div key={item.label}>
                 <div className="flex justify-between items-end mb-1.5">
-                  <span className="text-[11px] font-bold text-slate-700 dark:text-gray-300">{item.label}</span>
-                  <span className="text-[11px] font-black text-slate-900 dark:text-white">{item.percent}%</span>
+                  <span className="text-[11px] font-heading font-bold text-slate-700 dark:text-gray-300 uppercase tracking-widest leading-relaxed">{item.label}</span>
+                  <span className="text-[11px] font-numbers font-black text-slate-900 dark:text-white tracking-widest">{item.percent}%</span>
                 </div>
                 <div className="h-2 w-full bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden mb-1.5">
                   <div className={`h-full ${item.color} rounded-full`} style={{ width: `${item.percent}%` }} />
                 </div>
-                <p className="text-[10px] text-slate-500 dark:text-gray-400 font-medium leading-relaxed">
+                <p className="text-[10px] font-body text-slate-500 dark:text-gray-400 leading-relaxed mt-0.5">
                   {item.desc}
                 </p>
               </div>
@@ -235,10 +235,10 @@ const Swap: React.FC = () => {
               <Map size={20} className="text-black" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-white leading-tight">
+              <h2 className="text-base sm:text-lg font-heading font-black text-white uppercase tracking-widest leading-tight">
                 RhizaCore Roadmap
               </h2>
-              <p className="text-[11px] text-gray-400 mt-0.5">
+              <p className="text-[11px] font-body text-gray-400 mt-1.5">
                 Strategic Execution Timeline
               </p>
             </div>
@@ -249,17 +249,17 @@ const Swap: React.FC = () => {
             <div className="relative pl-6 pb-4 border-l border-white/10">
               <div className="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-xs font-black text-white">PHASE 1: ACQUISITION</span>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">
+                <span className="text-xs font-heading font-black text-white uppercase tracking-widest">PHASE 1: ACQUISITION</span>
+                <span className="text-[9px] font-heading font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">
                   Completed Jan 15, 2026
                 </span>
               </div>
-              <p className="text-[10px] text-gray-400 font-medium leading-relaxed mb-2">
+              <p className="text-[10px] font-body text-gray-400 leading-relaxed mb-2">
                 Launch Telegram Mini App. 100 Days of Mining. Premining Season conclusion.
               </p>
               <div className="space-y-1">
                 {['Telegram Mini App Launch', '100 Days Mining Campaign', 'Premining Season Complete'].map((txt, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-gray-300">
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] font-heading font-bold text-gray-300 uppercase tracking-widest">
                     <CheckCircle2 size={10} className="text-emerald-500 flex-shrink-0" />
                     <span>{txt}</span>
                   </div>
@@ -271,17 +271,17 @@ const Swap: React.FC = () => {
             <div className="relative pl-6 pb-4 border-l border-white/10">
               <div className="absolute -left-2 top-0 w-4 h-4 rounded-full bg-primary animate-pulse border-2 border-slate-900 shadow-[0_0_15px_rgba(250,204,21,0.6)]" />
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-xs font-black text-white">PHASE 2: THE BRIDGE</span>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-primary/20 text-primary rounded border border-primary/30 flex items-center gap-1">
+                <span className="text-xs font-heading font-black text-white uppercase tracking-widest">PHASE 2: THE BRIDGE</span>
+                <span className="text-[9px] font-heading font-black uppercase tracking-wider px-2 py-0.5 bg-primary/20 text-primary rounded border border-primary/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary" /> LIVE NOW
                 </span>
               </div>
-              <p className="text-[10px] text-gray-400 font-medium leading-relaxed mb-2">
+              <p className="text-[10px] font-body text-gray-400 leading-relaxed mb-2">
                 Protocol Online. Withdrawals open. Node Deployment on TON Network.
               </p>
               <div className="space-y-1">
                 {['Bridge Interface Active', 'Node Activation Live', 'RZC Marketplace Opening'].map((txt, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-gray-300">
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] font-heading font-bold text-gray-300 uppercase tracking-widest">
                     <Target size={10} className="text-primary flex-shrink-0" />
                     <span>{txt}</span>
                   </div>
@@ -293,17 +293,17 @@ const Swap: React.FC = () => {
             <div className="relative pl-6 pb-4 border-l border-white/10">
               <div className="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-slate-700 border-2 border-slate-900" />
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-xs font-black text-white">PHASE 3: UTILITY & STAKING</span>
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500">
+                <span className="text-xs font-heading font-black text-white uppercase tracking-widest">PHASE 3: UTILITY & STAKING</span>
+                <span className="text-[9px] font-heading font-black uppercase tracking-widest text-slate-500">
                   Q2 2026
                 </span>
               </div>
-              <p className="text-[10px] text-gray-400 font-medium leading-relaxed mb-2">
+              <p className="text-[10px] font-body text-gray-400 leading-relaxed mb-2">
                 Enable $RZC staking, governance voting, and initial DApp integrations within the Core Wallet.
               </p>
               <div className="space-y-1">
                 {['Staking Platform Launch', 'Governance Voting System', 'DApp Integration Suite'].map((txt, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] font-heading font-bold text-gray-500 uppercase tracking-widest">
                     <div className="w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
                     <span>{txt}</span>
                   </div>
@@ -315,17 +315,17 @@ const Swap: React.FC = () => {
             <div className="relative pl-6">
               <div className="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-slate-700 border-2 border-slate-900" />
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-xs font-black text-white">PHASE 4: MASS ADOPTION</span>
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500">
+                <span className="text-xs font-heading font-black text-white uppercase tracking-widest">PHASE 4: MASS ADOPTION</span>
+                <span className="text-[9px] font-heading font-black uppercase tracking-widest text-slate-500">
                   Q4 2026
                 </span>
               </div>
-              <p className="text-[10px] text-gray-400 font-medium leading-relaxed mb-2">
+              <p className="text-[10px] font-body text-gray-400 leading-relaxed mb-2">
                 Global Marketing Blitz targeting 1B+ Telegram users. Decentralized Marketplace launch.
               </p>
               <div className="space-y-1">
                 {['Global Marketing Campaign', 'Decentralized Marketplace', 'Cross-Chain Integration'].map((txt, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] font-heading font-bold text-gray-500 uppercase tracking-widest">
                     <div className="w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
                     <span>{txt}</span>
                   </div>

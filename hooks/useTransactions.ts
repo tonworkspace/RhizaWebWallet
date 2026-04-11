@@ -65,31 +65,23 @@ export const useTransactions = () => {
       // Integrate WDK Indexer REST API for Multi-Chain workflows dynamically
       const { WalletManager } = await import('../utils/walletManager');
       const allWallets = WalletManager.getWallets();
-      const multiWallet = allWallets.find(w => w.address === address && w.type === 'secondary');
-      
-      const WDK_INDEXER_URL = 'https://api.tether.to/wdk/v1'; // Standard fallback WDK indexer
-      const WDK_API_KEY = 'bd95c7a9502bb3a1a274b47325f844825daef409a21cc3ce1f3fe02a4e7d1e7e';
-
-      const indexerHeaders = {
-        'Accept': 'application/json',
-        'x-api-key': WDK_API_KEY,
-        'Authorization': `Bearer ${WDK_API_KEY}`,
-        'api-key': WDK_API_KEY
-      };
+      // Secondary wallet exists independently — find it regardless of which wallet is active
+      const multiWallet = allWallets.find(w => w.type === 'secondary');
 
       if (multiWallet && multiWallet.addresses) {
+        // Use public block explorers instead of WDK indexer (more reliable, no API key needed)
         if (multiWallet.addresses.evm) {
           fetchPromises.push(
-            fetch(`${WDK_INDEXER_URL}/address/${multiWallet.addresses.evm}/transactions?chain=ethereum&limit=20`, { headers: indexerHeaders })
-              .then(res => res.ok ? res.json() : { transactions: [] })
-              .catch(() => ({ transactions: [] }))
+            fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${multiWallet.addresses.evm}&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken`)
+              .then(res => res.ok ? res.json() : { result: [] })
+              .catch(() => ({ result: [] }))
           );
         }
         if (multiWallet.addresses.btc) {
           fetchPromises.push(
-            fetch(`${WDK_INDEXER_URL}/address/${multiWallet.addresses.btc}/transactions?chain=bitcoin&limit=20`, { headers: indexerHeaders })
-              .then(res => res.ok ? res.json() : { transactions: [] })
-              .catch(() => ({ transactions: [] }))
+            fetch(`https://mempool.space/api/address/${multiWallet.addresses.btc}/txs`)
+              .then(res => res.ok ? res.json() : [])
+              .catch(() => [])
           );
         }
       }
@@ -161,17 +153,39 @@ export const useTransactions = () => {
           console.error('❌ RZC transaction fetch failed:', rzcError.message);
         } else {
           for (const row of rows ?? []) {
-            // Determine direction from type field
-            const isSent = row.type === 'transfer_sent';
-            const isReceived = row.type === 'transfer_received';
-            const isPurchase = row.type === 'purchase' || row.type === 'bonus' || row.type === 'reward';
-
+            // Map all RZC activity types to display types
+            const t = row.type ?? '';
             let txType: Transaction['type'] = 'receive';
-            if (isSent) txType = 'send';
-            else if (isPurchase) txType = 'purchase';
-            else if (isReceived) txType = 'receive';
+            if (t === 'transfer_sent') {
+              txType = 'send';
+            } else if (
+              t === 'purchase' || t === 'bonus' || t === 'reward' ||
+              t === 'referral_bonus' || t === 'referral_reward' ||
+              t === 'activation_bonus' || t === 'squad_reward' ||
+              t === 'airdrop' || t === 'claim' || t === 'migration'
+            ) {
+              txType = 'purchase'; // shows ShoppingBag icon — represents "earned/received"
+            } else if (t === 'transfer_received' || t === 'transfer') {
+              txType = 'receive';
+            }
 
-            // Pull counterparty info from metadata if available
+            // Human-readable label for the comment/description
+            const typeLabel: Record<string, string> = {
+              purchase: 'RZC Purchase',
+              bonus: 'Bonus Reward',
+              reward: 'Reward',
+              referral_bonus: 'Referral Bonus',
+              referral_reward: 'Referral Reward',
+              activation_bonus: 'Activation Bonus',
+              squad_reward: 'Squad Reward',
+              airdrop: 'Airdrop',
+              claim: 'Claim',
+              migration: 'Migration',
+              transfer_sent: 'Sent',
+              transfer_received: 'Received',
+              transfer: 'Transfer',
+            };
+
             const meta = row.metadata ?? {};
             const counterpartyUsername: string | undefined =
               meta.recipient_username ?? meta.sender_username ?? undefined;
@@ -181,14 +195,13 @@ export const useTransactions = () => {
             rzcTransactions.push({
               id: row.id,
               type: txType,
-              // Always store as absolute value — direction is encoded in `type`
               amount: Math.abs(Number(row.amount)).toLocaleString(undefined, { maximumFractionDigits: 2 }),
               asset: 'RZC',
               timestamp: new Date(row.created_at).getTime(),
               status: 'completed',
               address: counterpartyWallet,
               counterpartyUsername,
-              comment: row.description ?? undefined
+              comment: row.description ?? typeLabel[t] ?? t
             });
           }
         }
@@ -196,28 +209,58 @@ export const useTransactions = () => {
         console.error('❌ RZC fetch promise rejected:', rzcResult.reason);
       }
 
-      // --- Multi-Chain WDK Indexer transactions ---
+      // --- Multi-Chain transactions from public explorers ---
       const multiChainTransactions: Transaction[] = [];
-      const processIndexerResult = (result: PromiseSettledResult<any>, asset: string) => {
-        if (result.status === 'fulfilled' && result.value?.transactions) {
-          const wdkData = result.value.transactions;
-          for (const tx of wdkData) {
+
+      // EVM (Etherscan-compatible)
+      if (results.length > 2 && results[2].status === 'fulfilled') {
+        const evmData = results[2].value?.result;
+        if (Array.isArray(evmData)) {
+          const evmAddr = multiWallet?.addresses?.evm?.toLowerCase();
+          for (const tx of evmData.slice(0, 20)) {
+            const isSend = tx.from?.toLowerCase() === evmAddr;
             multiChainTransactions.push({
-              id: tx.hash || tx.id || Math.random().toString(),
-              type: tx.direction === 'out' || tx.from === multiWallet?.addresses?.evm ? 'send' : 'receive',
-              amount: tx.amount ? (Number(tx.amount) / (asset === 'BTC' ? 1e8 : 1e18)).toFixed(asset === 'BTC' ? 8 : 4) : '0',
-              asset: asset,
-              timestamp: tx.timestamp ? new Date(tx.timestamp).getTime() : Date.now(),
-              status: tx.status === 'success' || tx.status === 'completed' ? 'completed' : 'pending',
-              address: tx.direction === 'out' ? tx.to : tx.from,
-              hash: tx.hash
+              id: tx.hash,
+              type: isSend ? 'send' : 'receive',
+              amount: (Number(tx.value) / 1e18).toFixed(6),
+              asset: 'ETH',
+              timestamp: Number(tx.timeStamp) * 1000,
+              status: tx.isError === '0' ? 'completed' : 'failed',
+              address: isSend ? tx.to : tx.from,
+              hash: tx.hash,
+              fee: (Number(tx.gasUsed) * Number(tx.gasPrice) / 1e18).toFixed(6)
             });
           }
         }
-      };
+      }
 
-      if (results.length > 2) processIndexerResult(results[2], 'ETH/Polygon');
-      if (results.length > 3) processIndexerResult(results[3], 'BTC');
+      // BTC (mempool.space)
+      if (results.length > 3 && results[3].status === 'fulfilled') {
+        const btcData = results[3].value;
+        if (Array.isArray(btcData)) {
+          const btcAddr = multiWallet?.addresses?.btc;
+          for (const tx of btcData.slice(0, 20)) {
+            const sentSats = tx.vin?.filter((v: any) => v.prevout?.scriptpubkey_address === btcAddr)
+              .reduce((sum: number, v: any) => sum + (v.prevout?.value || 0), 0) || 0;
+            const receivedSats = tx.vout?.filter((v: any) => v.scriptpubkey_address === btcAddr)
+              .reduce((sum: number, v: any) => sum + (v.value || 0), 0) || 0;
+            const isSend = sentSats > receivedSats;
+            const netSats = Math.abs(receivedSats - sentSats);
+            multiChainTransactions.push({
+              id: tx.txid,
+              type: isSend ? 'send' : 'receive',
+              amount: (netSats / 1e8).toFixed(8),
+              asset: 'BTC',
+              timestamp: tx.status?.block_time ? tx.status.block_time * 1000 : Date.now(),
+              status: tx.status?.confirmed ? 'completed' : 'pending',
+              address: isSend
+                ? tx.vout?.find((v: any) => v.scriptpubkey_address !== btcAddr)?.scriptpubkey_address
+                : tx.vin?.[0]?.prevout?.scriptpubkey_address,
+              hash: tx.txid
+            });
+          }
+        }
+      }
 
       // Merge and sort by timestamp descending
       const merged = [...tonTransactions, ...rzcTransactions, ...multiChainTransactions].sort(
@@ -241,6 +284,9 @@ export const useTransactions = () => {
 
   useEffect(() => {
     fetchTransactions();
+    // Auto-refresh every 60s for new incoming transactions
+    const interval = setInterval(() => fetchTransactions(), 60_000);
+    return () => clearInterval(interval);
   }, [fetchTransactions, refreshTick]);
 
   // Re-fetch once userProfile becomes available (loads after address)

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '../context/WalletContext';
 import { supabaseService } from '../services/supabaseService';
-import { RZC_CONFIG } from '../config/rzcConfig';
 
 interface RZCBalanceData {
   balance: number;
@@ -12,11 +11,11 @@ interface RZCBalanceData {
 }
 
 export const useRZCBalance = () => {
-  const { userProfile, address } = useWallet();
+  const { userProfile, address, rzcPrice: contextRzcPrice } = useWallet();
   
   const [balanceData, setBalanceData] = useState<RZCBalanceData>({
     balance: 0,
-    price: RZC_CONFIG.RZC_PRICE_USD,
+    price: contextRzcPrice,
     usdValue: 0,
     isLoading: false,
     error: null
@@ -35,12 +34,11 @@ export const useRZCBalance = () => {
       
       if (result.success && result.balance !== undefined) {
         const balance = result.balance;
-        const price = RZC_CONFIG.RZC_PRICE_USD;
-        const usdValue = balance * price;
+        const usdValue = balance * contextRzcPrice;
         
         setBalanceData({
           balance,
-          price,
+          price: contextRzcPrice,
           usdValue,
           isLoading: false,
           error: null
@@ -56,24 +54,30 @@ export const useRZCBalance = () => {
         error: error instanceof Error ? error.message : 'Unknown error'
       }));
     }
-  }, [userProfile?.id, address]);
+  }, [userProfile?.id, address, contextRzcPrice]);
 
-  // Refresh balance when user profile changes
+  // Refresh balance when user profile or context price changes
   useEffect(() => {
     if (userProfile?.rzc_balance !== undefined) {
       const balance = userProfile.rzc_balance;
-      const price = RZC_CONFIG.RZC_PRICE_USD;
-      const usdValue = balance * price;
+      const usdValue = balance * contextRzcPrice;
       
       setBalanceData({
         balance,
-        price,
+        price: contextRzcPrice,
         usdValue,
         isLoading: false,
         error: null
       });
     }
-  }, [userProfile?.rzc_balance]);
+  }, [userProfile?.rzc_balance, contextRzcPrice]);
+
+  // Periodic re-fetch from DB every 60s for accuracy
+  useEffect(() => {
+    if (!userProfile?.id || !address) return;
+    const interval = setInterval(() => fetchRZCBalance(), 60_000);
+    return () => clearInterval(interval);
+  }, [fetchRZCBalance, userProfile?.id, address]);
 
   const refreshBalance = useCallback(() => {
     fetchRZCBalance();

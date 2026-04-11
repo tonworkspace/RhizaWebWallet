@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
@@ -26,7 +26,13 @@ import {
   Pencil,
   Layers,
   Lock,
-  Activity
+  Activity,
+  Gift,
+  Send,
+  Download,
+  ChevronRight,
+  X,
+  MoreHorizontal as More,
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useActivationModal } from '../context/ActivationModalContext';
@@ -34,18 +40,20 @@ import AirdropTrigger from './AirdropTrigger';
 import LanguageSelector from './LanguageSelector';
 import { SOCIAL_LINKS } from '../constants';
 import { RZC_CONFIG, formatRzcAsUsd } from '../config/rzcConfig';
+import NotificationToast from './NotificationToast';
+import type { Notification } from '../services/notificationService';
 
 interface LayoutProps {
   children: React.ReactNode;
   isWalletMode: boolean;
 }
 
-const SidebarItem = ({ to, icon: Icon, label, requiresActivation = false }: { to: string, icon: any, label: string, requiresActivation?: boolean }) => {
-  const { isActivated } = useWallet();
+const SidebarItem = ({ to, icon: Icon, label, requiresActivation = false, primary = false }: { to: string, icon: any, label: string, requiresActivation?: boolean, primary?: boolean }) => {
+  const { isActivated, isLoading } = useWallet();
   const { showActivationModal } = useActivationModal();
 
   const handleClick = (e: React.MouseEvent) => {
-    if (requiresActivation && !isActivated) {
+    if (requiresActivation && !isActivated && !isLoading) {
       e.preventDefault();
       showActivationModal();
     }
@@ -62,9 +70,9 @@ const SidebarItem = ({ to, icon: Icon, label, requiresActivation = false }: { to
           : 'text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'}
       `}
     >
-      <Icon size={18} />
-      <span className="font-semibold text-sm tracking-tight">{label}</span>
-      {requiresActivation && !isActivated && (
+      <Icon size={primary ? 20 : 18} className={primary ? 'text-primary' : ''} />
+      <span className="font-nav text-[10px] tracking-[0.12em]">{label}</span>
+      {requiresActivation && !isActivated && !isLoading && (
         <Lock size={12} className="ml-auto text-amber-500" />
       )}
     </NavLink>
@@ -72,11 +80,11 @@ const SidebarItem = ({ to, icon: Icon, label, requiresActivation = false }: { to
 };
 
 const MobileNavItem = ({ to, icon: Icon, label, requiresActivation = false }: { to: string, icon: any, label: string, requiresActivation?: boolean }) => {
-  const { isActivated } = useWallet();
+  const { isActivated, isLoading } = useWallet();
   const { showActivationModal } = useActivationModal();
 
   const handleClick = (e: React.MouseEvent) => {
-    if (requiresActivation && !isActivated) {
+    if (requiresActivation && !isActivated && !isLoading) {
       e.preventDefault();
       showActivationModal();
     }
@@ -87,28 +95,39 @@ const MobileNavItem = ({ to, icon: Icon, label, requiresActivation = false }: { 
       to={to}
       onClick={handleClick}
       className={({ isActive }) => `
-        flex flex-col items-center justify-center gap-1.5 flex-1 py-1.5 px-2 rounded-2xl transition-all duration-300 active:scale-95
-        ${isActive ? 'text-primary' : 'text-slate-500 dark:text-gray-500'}
+        flex flex-col items-center justify-center gap-1.5 flex-1 py-2 px-2 rounded-xl transition-all duration-200 active:scale-95 relative min-h-[60px]
+        ${isActive
+          ? 'text-primary mobile-nav-item-active'
+          : 'text-slate-500 dark:text-gray-500 hover:text-slate-700 dark:hover:text-gray-300'}
       `}
     >
       {({ isActive }: { isActive: boolean }) => (
         <>
-          <div className={`relative p-2 rounded-xl transition-all duration-300 ${isActive
-            ? 'bg-primary/10 shadow-lg shadow-primary/20'
-            : 'hover:bg-slate-100 dark:hover:bg-white/5'
-            }`}>
-            <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-            {isActive && (
-              <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full animate-pulse" />
-            )}
-            {requiresActivation && !isActivated && (
+          {/* Icon container with lock indicator */}
+          <div className={`
+            relative w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200
+            ${isActive
+              ? 'bg-primary/10 scale-110'
+              : 'hover:bg-slate-100 dark:hover:bg-white/5'
+            }
+          `}>
+            <Icon
+              size={16}
+              strokeWidth={isActive ? 2.5 : 2}
+              className={isActive ? 'drop-shadow-sm' : ''}
+            />
+            {requiresActivation && !isActivated && !isLoading && (
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full flex items-center justify-center">
                 <Lock size={8} className="text-white" />
               </div>
             )}
           </div>
-          <span className={`text-[10px] font-bold tracking-tight transition-all duration-300 ${isActive ? 'scale-105' : ''
-            }`}>
+
+          {/* Label */}
+          <span className={`
+            text-[8px] font-bold uppercase tracking-wider leading-tight text-center max-w-[50px] truncate
+            ${isActive ? 'text-primary font-black' : 'font-semibold opacity-75'}
+          `}>
             {label}
           </span>
         </>
@@ -119,13 +138,16 @@ const MobileNavItem = ({ to, icon: Icon, label, requiresActivation = false }: { 
 
 export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
   const { t } = useTranslation();
-  const { address, balance, theme, toggleTheme, userProfile, referralData, network, switchNetwork } = useWallet();
+  const navigate = useNavigate();
+  const { address, balance, theme, toggleTheme, userProfile, referralData, network, switchNetwork, rzcPrice } = useWallet();
   const [showLanguageMenu, setShowLanguageMenu] = React.useState(false);
   const [showNetworkMenu, setShowNetworkMenu] = React.useState(false);
   const [showMobileMenu, setShowMobileMenu] = React.useState(false);
   const [showDesktopMenu, setShowDesktopMenu] = React.useState(false);
+  const [showAppMenu, setShowAppMenu] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [migrationStatus, setMigrationStatus] = React.useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
+  const [toastNotifications, setToastNotifications] = React.useState<Notification[]>([]);
 
   // Get wallet address
   const walletAddress = userProfile?.wallet_address || address;
@@ -176,6 +198,49 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
           if (!notification.is_read) {
             setUnreadCount(prev => prev + 1);
           }
+
+          // Show toast notification for new notifications
+          setToastNotifications(prev => [...prev, notification]);
+
+          // Play notification sound (if supported)
+          try {
+            // Create a subtle notification sound using Web Audio API
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            // Create a pleasant notification tone
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.1, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+          } catch (error) {
+            console.log('Audio notification not supported:', error);
+          }
+
+          // Show browser notification if supported and permission granted
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(notification.title, {
+              body: notification.message,
+              icon: '/logo.png',
+              badge: '/logo.png',
+              tag: notification.id, // Prevent duplicate notifications
+              requireInteraction: notification.priority === 'high'
+            });
+          }
+
+          // Vibrate on mobile if supported (for high priority notifications)
+          if (notification.priority === 'high' && 'vibrate' in navigator) {
+            navigator.vibrate([200, 100, 200]);
+          }
         });
       } catch (error) {
         console.error('Error setting up notification subscription:', error);
@@ -194,6 +259,29 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
       }
     };
   }, [walletAddress, isWalletMode]);
+
+  // Request notification permission on mount
+  React.useEffect(() => {
+    if (!isWalletMode) return;
+
+    // Request notification permission if not already granted
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        console.log('Notification permission:', permission);
+      });
+    }
+  }, [isWalletMode]);
+
+  // Handle toast notification removal
+  const handleRemoveToast = (notificationId: string) => {
+    setToastNotifications(prev => prev.filter(n => n.id !== notificationId));
+  };
+
+  // Handle toast notification action
+  const handleToastAction = () => {
+    // Navigate to notifications page when toast is clicked
+    navigate('/wallet/notifications');
+  };
 
   // Close menus when clicking outside
   React.useEffect(() => {
@@ -250,18 +338,20 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
           <div className="w-9 h-9 bg-slate-900 dark:bg-white text-white dark:text-black rounded-xl flex items-center justify-center shadow-lg transition-colors">
             <Zap className="fill-current" size={20} />
           </div>
-          <span className="text-xl font-extrabold tracking-tight luxury-gradient-text">RhizaCore</span>
+          <span className="text-xl font-heading font-black uppercase tracking-[0.2em] luxury-gradient-text">RhizaCore</span>
+
         </div>
 
         <nav className="flex flex-col gap-1">
           <SidebarItem to="/wallet/dashboard" icon={LayoutDashboard} label={t('nav.dashboard')} />
           <SidebarItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
-          <SidebarItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" requiresActivation />
+          <SidebarItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" />
           <SidebarItem to="/wallet/sales-package" icon={Package} label="Nodes" />
-          <SidebarItem to="/wallet/migration" icon={TrendingUp} label="Migrate" />
+          <SidebarItem to="/wallet/referral" icon={Gift} label="Affiliate" requiresActivation />
+          {/* <SidebarItem to="/wallet/migration" icon={TrendingUp} label="Migrate" /> */}
           <SidebarItem to="/wallet/multi-chain" icon={Layers} label="Multi-Chain" requiresActivation />
           <SidebarItem to="/wallet/history" icon={History} label={t('nav.history')} />
-          <SidebarItem to="/wallet/history" icon={Activity} label="Activity" requiresActivation />
+          {/* <SidebarItem to="/wallet/history" icon={Activity} label="Activity" requiresActivation /> */}
 
           {/* Airdrop Trigger */}
           <div className="px-4 py-2">
@@ -275,26 +365,26 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
             className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 text-slate-500 dark:text-gray-500 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5"
           >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            <span className="font-semibold text-sm tracking-tight">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            <span className="font-heading font-black text-xs uppercase tracking-widest">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
           </button>
           <SidebarItem to="/wallet/settings" icon={Settings} label={t('nav.settings')} />
 
           {/* RZC Price Display */}
           <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-cyan-50 dark:from-emerald-500/10 dark:to-cyan-500/10 border-2 border-emerald-200 dark:border-emerald-500/20">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">RZC Price</span>
+              <span className="text-[9px] font-heading font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">RZC Price</span>
               <TrendingUp size={12} className="text-emerald-600 dark:text-emerald-400" />
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-emerald-900 dark:text-emerald-300">
-                ${RZC_CONFIG.RZC_PRICE_USD}
+              <span className="text-2xl font-numbers font-black luxury-gradient-text font-glow">
+                ${rzcPrice}
               </span>
-              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+              <span className="text-[10px] font-heading font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">
                 per {RZC_CONFIG.SYMBOL}
               </span>
             </div>
-            <p className="text-[10px] text-emerald-600 dark:text-emerald-500 mt-2 font-semibold">
-              1,000 RZC = {formatRzcAsUsd(1000)}
+            <p className="text-[9px] font-heading font-black text-emerald-600 dark:text-emerald-500 mt-2 uppercase tracking-widest">
+              1,000 RZC = <span className="font-numbers">{formatRzcAsUsd(1000)}</span>
             </p>
           </div>
 
@@ -328,7 +418,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                     </svg>
                   )}
                 </div>
-                <span className="font-semibold text-xs tracking-tight flex-1">{social.label}</span>
+                <span className="font-heading font-black text-[10px] uppercase tracking-widest flex-1">{social.label}</span>
                 <ExternalLink size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
               </a>
             ))}
@@ -444,18 +534,26 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
       <main className="flex-1 lg:ml-72 relative min-h-screen pb-safe overflow-x-hidden">
         {/* Header - Transparent Glass */}
         <header className="h-20 lg:h-16 flex items-center justify-between px-4 sm:px-6 sticky top-0 bg-white/60 dark:bg-[#020202]/60 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-white/5 transition-colors">
-          {/* Left: Logo - Mobile Only */}
-          <div className="flex items-center gap-3 lg:hidden">
-            <div className="w-8 h-8 bg-slate-900 dark:bg-white text-white dark:text-black rounded-lg flex items-center justify-center transition-colors">
+          {/* Left: Logo - Mobile Only (tap to open app menu) */}
+          <button
+            onClick={() => setShowAppMenu(true)}
+            className="flex items-center gap-3 lg:hidden active:scale-95 transition-transform relative"
+          >
+            <div className="relative w-8 h-8 bg-slate-900 dark:bg-white text-white dark:text-black rounded-lg flex items-center justify-center transition-colors">
               <Zap size={18} fill="currentColor" />
+              {/* Menu indicator dot */}
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full border-2 border-white dark:border-[#020202]" />
             </div>
-            <div className="flex flex-col">
+            <div className="flex flex-col text-left">
               <span className="text-lg font-black tracking-tight leading-tight">RhizaCore</span>
-              <span className="text-[9px] text-slate-500 dark:text-gray-500 font-medium leading-tight">
+              <span className="text-[9px] text-slate-500 dark:text-gray-500 font-medium leading-tight flex items-center gap-1">
                 Welcome, {userProfile?.name?.split(' ')[0] || 'User'}
+                <ChevronRight size={8} className="text-primary" />
               </span>
             </div>
-          </div>
+          </button>
+
+          {/* App Menu Drawer - rendered OUTSIDE header to avoid z-index clipping */}
 
           {/* Right: All Controls in Profile Card */}
           <div className="flex items-center gap-2 ml-auto">
@@ -499,7 +597,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   onClick={() => setShowMobileMenu(!showMobileMenu)}
                   className="flex items-center gap-2 px-2 sm:px-3 py-1.5 sm:cursor-default active:scale-95 sm:active:scale-100 transition-transform"
                 >
-                  {/* Avatar */}
                   {isValidImageUrl(userProfile?.avatar) ? (
                     <img
                       src={userProfile.avatar}
@@ -524,7 +621,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                         className="group/name flex items-center gap-1 hover:text-primary transition-colors"
                         title="Edit profile"
                       >
-                        <span className="text-[11px] font-bold text-slate-900 dark:text-white group-hover/name:text-primary leading-tight transition-colors">
+                        <span className="text-[11px] font-heading font-black text-slate-900 dark:text-white group-hover/name:text-primary leading-tight transition-colors">
                           {userProfile?.name || 'User'}
                         </span>
                         <Pencil size={9} className="opacity-0 group-hover/name:opacity-60 transition-opacity text-primary" />
@@ -536,18 +633,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="hidden text-[9px] font-mono text-slate-500 dark:text-gray-500">
-                        {shortenAddress(address)}
-                      </span>
                       <span className="text-[9px] text-slate-400 dark:text-gray-600">•</span>
-                      <span className="text-[9px] font-bold text-primary">
+                      <span className="text-[9px] font-numbers font-black text-primary font-glow">
                         {formatBalance(balance)} TON
                       </span>
                       <span className="text-[9px] text-slate-400 dark:text-gray-600">•</span>
-                      <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
-                        ${RZC_CONFIG.RZC_PRICE_USD} RZC
+                      <span className="text-[9px] font-numbers font-black text-emerald-500 dark:text-emerald-400">
+                        ${rzcPrice} RZC
                       </span>
-
                     </div>
                   </div>
 
@@ -568,12 +661,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[8px] font-bold text-emerald-600 dark:text-emerald-400 leading-tight">
+                      <span className="text-[8px] font-numbers font-black text-emerald-600 dark:text-emerald-400 leading-tight">
                         {formatBalance(userProfile?.rzc_balance || 0)} RZC
                       </span>
                       <span className="text-[8px] text-gray-500 dark:text-gray-600">•</span>
-                      <span className="text-[8px] font-bold text-emerald-600 dark:text-emerald-400 leading-tight">
-                        ${RZC_CONFIG.RZC_PRICE_USD}
+                      <span className="text-[8px] font-numbers font-black text-emerald-600 dark:text-emerald-400 leading-tight">
+                        ${rzcPrice}
                       </span>
                     </div>
                   </div>
@@ -628,7 +721,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                       {network === 'testnet' && <span className="text-amber-600 dark:text-amber-400">✓</span>}
                     </button>
                   </div>
-                  
+
                   {/* WDK Multi-Chain Networks */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
@@ -729,7 +822,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                       {network === 'testnet' && <span className="text-amber-600 dark:text-amber-400">✓</span>}
                     </button>
                   </div>
-                  
+
                   {/* WDK Multi-Chain Networks */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-2 bg-gray-50 dark:bg-white/5">
@@ -785,22 +878,140 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
           </div>
         </header>
 
+        {/* App Menu Drawer - outside header to avoid stacking context clipping */}
+        {showAppMenu && (
+          <div className="lg:hidden fixed inset-0 z-[200] flex flex-col justify-end">
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowAppMenu(false)}
+            />
+            {/* Drawer */}
+            <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-3xl border-t border-slate-200 dark:border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto">
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 bg-slate-300 dark:bg-white/20 rounded-full" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-white/5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 bg-slate-900 dark:bg-white text-white dark:text-black rounded-lg flex items-center justify-center">
+                    <Zap size={16} fill="currentColor" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-900 dark:text-white">RhizaCore</p>
+                    <p className="text-[10px] text-slate-500 dark:text-gray-500">{userProfile?.name || 'User'}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAppMenu(false)}
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="px-5 py-4">
+                <p className="text-[9px] font-black text-slate-400 dark:text-gray-600 uppercase tracking-widest mb-3">Quick Actions</p>
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { icon: Send, label: 'Send', path: '/wallet/transfer', color: 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' },
+                    { icon: Download, label: 'Receive', path: '/wallet/receive', color: 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+                    { icon: Gift, label: 'Affiliate', path: '/wallet/referral', color: 'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400' },
+                    { icon: Package, label: 'Nodes', path: '/wallet/sales-package', color: 'bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+                  ].map(({ icon: Icon, label, path, color }) => (
+                    <button
+                      key={path}
+                      onClick={() => { navigate(path); setShowAppMenu(false); }}
+                      className="flex flex-col items-center gap-2 active:scale-95 transition-transform"
+                    >
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${color}`}>
+                        <Icon size={20} />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-700 dark:text-gray-300">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nav Links */}
+              <div className="px-5 pb-2">
+                <p className="text-[9px] font-black text-slate-400 dark:text-gray-600 uppercase tracking-widest mb-2">Navigate</p>
+                <div className="space-y-1">
+                  {[
+                    { icon: LayoutDashboard, label: 'Dashboard', path: '/wallet/dashboard' },
+                    { icon: Wallet, label: 'Assets', path: '/wallet/assets' },
+                    { icon: TrendingUp, label: 'Migrate', path: '/wallet/migration' },
+                    { icon: Layers, label: 'Multi-Chain', path: '/wallet/multi-chain' },
+                    { icon: History, label: 'History', path: '/wallet/history' },
+                    { icon: Settings, label: 'Settings', path: '/wallet/settings' },
+                  ].map(({ icon: Icon, label, path }) => (
+                    <button
+                      key={path}
+                      onClick={() => { navigate(path); setShowAppMenu(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-left"
+                    >
+                      <Icon size={16} className="text-slate-500 dark:text-gray-500 shrink-0" />
+                      <span className="text-sm font-semibold text-slate-800 dark:text-gray-200 flex-1">{label}</span>
+                      <ChevronRight size={14} className="text-slate-300 dark:text-gray-600" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Theme + More */}
+              <div className="px-5 py-3 border-t border-slate-100 dark:border-white/5 flex items-center gap-2 pb-8">
+                <button
+                  onClick={() => toggleTheme()}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-gray-400 text-xs font-bold transition-colors hover:bg-slate-200 dark:hover:bg-white/10"
+                >
+                  {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                  {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                </button>
+                <button
+                  onClick={() => { navigate('/wallet/more'); setShowAppMenu(false); }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary/10 text-primary text-xs font-bold transition-colors hover:bg-primary/20"
+                >
+                  <MoreHorizontal size={14} />
+                  More
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Content Container */}
-        <div className="max-w-4xl mx-auto pb-20 sm:p-5 lg:p-10 page-enter overflow-x-hidden">
+        <div className="max-w-4xl mx-auto pb-24 sm:pb-20 lg:pb-10 sm:p-5 lg:p-10 page-enter overflow-x-hidden">
           {children}
         </div>
 
         {/* Persistent Bottom Nav - Optimized for iOS/Android Gestures */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-2xl border-t-2 border-slate-200 dark:border-white/10 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.08)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.8)]">
-          <div className="flex items-center justify-around px-1 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <nav className="mobile-nav lg:hidden">
+          {/* Safe area spacer for devices with home indicator */}
+          <div className="mobile-nav-safe flex items-center justify-around px-2 py-3">
             <MobileNavItem to="/wallet/dashboard" icon={LayoutDashboard} label={t('nav.dashboard')} />
             <MobileNavItem to="/wallet/assets" icon={Wallet} label={t('nav.assets')} />
-            <MobileNavItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" requiresActivation />
-            <MobileNavItem to="/wallet/history" icon={Activity} label="Activity" requiresActivation />
+            <MobileNavItem to="/wallet/swap" icon={ArrowLeftRight} label="Swap" />
+            <MobileNavItem to="/wallet/referral" icon={Gift} label="Affiliate" requiresActivation />
             <MobileNavItem to="/wallet/settings" icon={Settings} label={t('nav.settings')} />
           </div>
         </nav>
       </main>
+
+      {/* Toast Notifications - Positioned at top-right */}
+      <div className="fixed top-4 right-4 z-[300] space-y-2 pointer-events-none">
+        {toastNotifications.map((notification) => (
+          <div key={notification.id} className="pointer-events-auto">
+            <NotificationToast
+              notification={notification}
+              onClose={() => handleRemoveToast(notification.id)}
+              onAction={handleToastAction}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

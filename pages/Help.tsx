@@ -195,19 +195,21 @@ const Help: React.FC = () => {
                 Can't find what you're looking for? Our support team is here to help you 24/7.
               </p>
               <div className="flex flex-wrap gap-4">
+                <button 
+                  onClick={() => {
+                    const bubble = document.querySelector('.fixed.bottom-6.right-6.z-\\[9999\\] button') as HTMLButtonElement;
+                    if (bubble) bubble.click();
+                  }}
+                  className="px-6 py-3 bg-primary text-black rounded-xl font-black text-sm uppercase tracking-widest hover:scale-105 shadow-[0_10px_20px_rgba(0,255,136,0.2)] transition-all flex items-center gap-2"
+                >
+                  <HelpCircle size={16} />
+                  Live Chat Support
+                </button>
                 <a 
                   href="mailto:help@rhizacore.xyz"
-                  className="px-6 py-3 bg-primary text-black rounded-xl font-black text-sm uppercase tracking-widest hover:scale-105 transition-all"
+                  className="px-6 py-3 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl font-black text-sm uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2"
                 >
                   Email Support
-                </a>
-                <a 
-                  href="https://t.me/rhizacore"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-6 py-3 bg-white dark:bg-black border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl font-black text-sm uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2"
-                >
-                  Join Forum <ExternalLink size={14} />
                 </a>
               </div>
             </div>

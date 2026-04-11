@@ -7,11 +7,12 @@ import { useWallet } from '../context/WalletContext';
 import { WalletManager } from '../utils/walletManager';
 import { useToast } from '../context/ToastContext';
 import { QRCodeSVG } from 'qrcode.react';
+import { CHAIN_META } from '../constants';
 
 const SecondaryWallet: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { address, isLoggedIn, logout } = useWallet();
+  const { address, isLoggedIn, logout, currentEvmChain, setCurrentEvmChain } = useWallet();
 
   const [addresses, setAddresses] = useState<any>(null);
   const [balances, setBalances] = useState<any>(null);
@@ -22,8 +23,6 @@ const SecondaryWallet: React.FC = () => {
   const [unlockPassword, setUnlockPassword] = useState('');
   const [showUnlockPassword, setShowUnlockPassword] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
-  const [evmChain, setEvmChain] = useState<string>('polygon');
-
   const [showQR, setShowQR] = useState<null | 'evm' | 'ton' | 'btc'>(null);
   const [copiedAddr, setCopiedAddr] = useState<null | 'evm' | 'ton' | 'btc'>(null);
 
@@ -45,7 +44,6 @@ const SecondaryWallet: React.FC = () => {
 
       if (addrs) {
         setAddresses(addrs);
-        setEvmChain(tetherWdkService.getCurrentEvmChain());
         const bals = await tetherWdkService.getBalances();
         if (bals) setBalances(bals);
       } else {
@@ -266,14 +264,14 @@ const SecondaryWallet: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <p className="text-xs font-black text-blue-800 dark:text-blue-300 uppercase tracking-widest">EVM Wallet</p>
                     <select 
-                      value={evmChain}
+                      value={currentEvmChain}
                       onChange={async (e) => {
                         const newChain = e.target.value as any;
-                        setEvmChain(newChain);
                         const { tetherWdkService } = await import('../services/tetherWdkService');
                         await tetherWdkService.switchEvmChain(newChain);
+                        if (setCurrentEvmChain) setCurrentEvmChain(newChain);
                         loadMultiChainData();
-                        showToast(`Switched to ${newChain}`, 'success');
+                        showToast(`Switched to ${CHAIN_META[newChain]?.name ?? newChain}`, 'success');
                       }}
                       className="bg-white/50 dark:bg-blue-900/30 text-[10px] font-bold text-blue-800 dark:text-blue-300 rounded px-1.5 py-0.5 border border-blue-200 dark:border-blue-500/30 outline-none"
                     >
@@ -292,7 +290,7 @@ const SecondaryWallet: React.FC = () => {
               </div>
               {balances && balances.evmBalance !== undefined && (
                 <span className="text-sm font-black text-blue-900 dark:text-blue-200">
-                  {parseFloat(balances.evmBalance).toFixed(4)} ETH
+                  {parseFloat(balances.evmBalance).toFixed(4)} {CHAIN_META[currentEvmChain]?.symbol ?? 'ETH'}
                 </span>
               )}
             </div>
@@ -316,7 +314,14 @@ const SecondaryWallet: React.FC = () => {
                   QR
                 </button>
                 <a
-                  href={`https://polygonscan.com/address/${addresses.evmAddress}`}
+                  href={`${({
+                    ethereum: 'https://etherscan.io',
+                    polygon: 'https://polygonscan.com',
+                    arbitrum: 'https://arbiscan.io',
+                    bsc: 'https://bscscan.com',
+                    avalanche: 'https://snowtrace.io',
+                    sepolia: 'https://sepolia.etherscan.io',
+                  }[currentEvmChain] ?? 'https://etherscan.io')}/address/${addresses.evmAddress}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-bold hover:scale-105 transition-all"
