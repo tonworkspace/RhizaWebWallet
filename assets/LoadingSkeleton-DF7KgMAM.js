@@ -1,0 +1,1 @@
+import{j as t}from"./index-Bj6eqf3L.js";const p=({width:e="100%",height:o=20,className:s=""})=>t.jsx("div",{className:`bg-white/5 rounded-lg animate-pulse ${s}`,style:{width:typeof e=="number"?`${e}px`:e,height:typeof o=="number"?`${o}px`:o}});export{p as L};
