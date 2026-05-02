@@ -56,8 +56,8 @@
     <!-- Security: Content Security Policy (Issue #11 FIX) -->
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval';
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://embed.tawk.to;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://embed.tawk.to;
       font-src 'self' data: https://fonts.gstatic.com;
       img-src 'self' data: https: blob:;
       connect-src 'self' 
@@ -71,8 +71,10 @@
         wss://electrum.blockstream.info:50004 
         wss://electrum.blockstream.info:60004
         https://api.ipify.org
-        https://api.coingecko.com;
-      frame-src 'none';
+        https://api.coingecko.com
+        https://embed.tawk.to
+        wss://*.tawk.to;
+      frame-src https://embed.tawk.to;
       object-src 'none';
       base-uri 'self';
       form-action 'self';
@@ -151,8 +153,8 @@
       }
     }
     </script>
-  <script type="module" crossorigin src="/assets/index-BiPHhiie.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-BMkoxo8e.css">
+  <script type="module" crossorigin src="/assets/index--Au8fXAO.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DI4x2ZkH.css">
 </head>
 <body>
     <div class="bg-retro">
