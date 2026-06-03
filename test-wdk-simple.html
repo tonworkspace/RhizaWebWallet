@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WDK Integration Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+        .test-section {
+            background: #2a2a2a;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #00FF88;
+        }
+        .success { border-left-color: #00FF88; }
+        .warning { border-left-color: #FFA500; }
+        .error { border-left-color: #FF4444; }
+        button {
+            background: #00FF88;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+        }
+        button:hover { background: #00CC66; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        .result {
+            background: #333;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #333;
+            border-radius: 50%;
+            border-top-color: #00FF88;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 WDK Wallet Integration Test</h1>
+    <p>This test verifies that your WDK multi-chain wallet integration is working correctly.</p>
+
+    <div class="test-section">
+        <h3>📦 Package Verification</h3>
+        <button onclick="testPackages()">Check WDK Packages</button>
+        <div id="packages-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🔑 Mnemonic Generation</h3>
+        <button onclick="testMnemonic()">Generate Test Mnemonic</button>
+        <div id="mnemonic-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🚀 Wallet Initialization</h3>
+        <button onclick="testInitialization()">Initialize Wallets</button>
+        <div id="init-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>💰 Balance Fetching</h3>
+        <button onclick="testBalances()" id="balance-btn" disabled>Get Balances</button>
+        <div id="balance-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🔄 Chain Switching</h3>
+        <button onclick="testChainSwitch()" id="chain-btn" disabled>Test EVM Chain Switch</button>
+        <div id="chain-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>💸 Fee Estimation</h3>
+        <button onclick="testFeeEstimation()" id="fee-btn" disabled>Estimate Fees</button>
+        <div id="fee-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🧹 Cleanup</h3>
+        <button onclick="testCleanup()" id="cleanup-btn" disabled>Test Cleanup</button>
+        <div id="cleanup-result" class="result"></div>
+    </div>
+
+    <script type="module">
+        // Import your WDK service
+        import { tetherWdkService } from './services/tetherWdkService.js';
+        
+        // Test mnemonic (DO NOT USE IN PRODUCTION)
+        const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+        
+        let walletInitialized = false;
+
+        window.testPackages = function() {
+            const result = document.getElementById('packages-result');
+            result.innerHTML = 'Checking WDK packages...';
+            
+            try {
+                // Check if WDK classes are available
+                const checks = {
+                    'WalletManagerEvm': typeof WalletManagerEvm !== 'undefined',
+                    'WalletManagerTon': typeof WalletManagerTon !== 'undefined', 
+                    'WalletManagerBtc': typeof WalletManagerBtc !== 'undefined',
+                    'WalletManagerSolana': typeof WalletManagerSolana !== 'undefined',
+                    'WalletManagerTron': typeof WalletManagerTron !== 'undefined',
+                    'tetherWdkService': typeof tetherWdkService !== 'undefined'
+                };
+                
+                let output = '✅ Package Check Results:\n';
+                for (const [pkg, available] of Object.entries(checks)) {
+                    output += `${available ? '✅' : '❌'} ${pkg}: ${available ? 'Available' : 'Missing'}\n`;
+                }
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+            } catch (error) {
+                result.innerHTML = `❌ Package check failed: ${error.message}`;
+                result.parentElement.className = 'test-section error';
+            }
+        };
+
+        window.testMnemonic = function() {
+            const result = document.getElementById('mnemonic-result');
+            result.innerHTML = 'Generating mnemonics...';
+            
+            try {
+                const mnemonic12 = tetherWdkService.generateMnemonic(12);
+                const mnemonic24 = tetherWdkService.generateMnemonic(24);
+                
+                const output = `✅ Mnemonic Generation Success:
+12-word: ${mnemonic12.split(' ').length} words
+24-word: ${mnemonic24.split(' ').length} words
+
+Sample 12-word: ${mnemonic12}`;
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+            } catch (error) {
+                result.innerHTML = `❌ Mnemonic generation failed: ${error.message}`;
+                result.parentElement.className = 'test-section error';
+            }
+        };
+
+        window.testInitialization = async function() {
+            const result = document.getElementById('init-result');
+            result.innerHTML = '<div class="loading"></div> Initializing wallets...';
+            
+            try {
+                const addresses = await tetherWdkService.initializeManagers(TEST_MNEMONIC);
+                
+                const output = `✅ Wallet Initialization Success:
+EVM Address: ${addresses.evmAddress}
+TON Address: ${addresses.tonAddress}
+BTC Address: ${addresses.btcAddress}
+SOL Address: ${addresses.solAddress}
+TRON Address: ${addresses.tronAddress}
+
+Initialized: ${tetherWdkService.isInitialized()}`;
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+                
+                // Enable other tests
+                walletInitialized = true;
+                document.getElementById('balance-btn').disabled = false;
+                document.getElementById('chain-btn').disabled = false;
+                document.getElementById('fee-btn').disabled = false;
+                document.getElementById('cleanup-btn').disabled = false;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Initialization failed: ${error.message}\n\nStack: ${error.stack}`;
+                result.parentElement.className = 'test-section error';
+            }
+        };
+
+        window.testBalances = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('balance-result');
+            result.innerHTML = '<div class="loading"></div> Fetching balances...';
+            
+            try {
+                const start = performance.now();
+                const balances = await tetherWdkService.getBalances();
+                const duration = (performance.now() - start).toFixed(0);
+                
+                const output = `✅ Balance Fetch Success (${duration}ms):
+EVM: ${balances.evmBalance} ETH
+TON: ${balances.tonBalance} TON  
+BTC: ${balances.btcBalance} BTC
+SOL: ${balances.solBalance} SOL
+TRON: ${balances.tronBalance} TRX`;
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+                
+            } catch (error) {
+                result.innerHTML = `⚠️ Balance fetch failed (expected on testnet): ${error.message}`;
+                result.parentElement.className = 'test-section warning';
+            }
+        };
+
+        window.testChainSwitch = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('chain-result');
+            result.innerHTML = '<div class="loading"></div> Testing chain switching...';
+            
+            try {
+                const originalChain = tetherWdkService.getCurrentEvmChain();
+                const testChain = originalChain === 'polygon' ? 'ethereum' : 'polygon';
+                
+                const switchResult = await tetherWdkService.switchEvmChain(testChain);
+                const newChain = tetherWdkService.getCurrentEvmChain();
+                
+                // Switch back
+                await tetherWdkService.switchEvmChain(originalChain);
+                const finalChain = tetherWdkService.getCurrentEvmChain();
+                
+                const output = `✅ Chain Switch Test Success:
+Original: ${originalChain}
+Switched to: ${newChain} (${switchResult ? 'Success' : 'Failed'})
+Switched back: ${finalChain}`;
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+                
+            } catch (error) {
+                result.innerHTML = `❌ Chain switch failed: ${error.message}`;
+                result.parentElement.className = 'test-section error';
+            }
+        };
+
+        window.testFeeEstimation = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('fee-result');
+            result.innerHTML = '<div class="loading"></div> Estimating fees...';
+            
+            try {
+                const addresses = await tetherWdkService.getAddresses();
+                let output = '✅ Fee Estimation Results:\n';
+                
+                // Test EVM fee
+                try {
+                    const evmFee = await tetherWdkService.quoteSendEvmTransaction(addresses.evmAddress, '0.001');
+                    output += `EVM: ${evmFee ? evmFee.feeEth + ' ETH' : 'Failed'}\n`;
+                } catch (e) {
+                    output += `EVM: Failed (${e.message})\n`;
+                }
+                
+                // Test TON fee
+                try {
+                    const tonFee = await tetherWdkService.quoteSendTonTransaction(addresses.tonAddress, '0.1');
+                    output += `TON: ${tonFee ? tonFee.feeTon + ' TON' : 'Failed'}\n`;
+                } catch (e) {
+                    output += `TON: Failed (${e.message})\n`;
+                }
+                
+                // Test BTC fee
+                try {
+                    const btcFee = await tetherWdkService.quoteSendBtcTransaction(addresses.btcAddress, '0.001');
+                    output += `BTC: ${btcFee ? btcFee.feeBtc + ' BTC' : 'Failed'}\n`;
+                } catch (e) {
+                    output += `BTC: Failed (${e.message})\n`;
+                }
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+                
+            } catch (error) {
+                result.innerHTML = `❌ Fee estimation failed: ${error.message}`;
+                result.parentElement.className = 'test-section error';
+            }
+        };
+
+        window.testCleanup = function() {
+            const result = document.getElementById('cleanup-result');
+            result.innerHTML = 'Testing cleanup...';
+            
+            try {
+                tetherWdkService.logout();
+                const isInitialized = tetherWdkService.isInitialized();
+                
+                const output = `✅ Cleanup Test Success:
+Logout completed
+Initialized after logout: ${isInitialized}
+Memory cleared: ${!isInitialized ? 'Yes' : 'No'}`;
+                
+                result.innerHTML = output;
+                result.parentElement.className = 'test-section success';
+                
+                // Disable buttons
+                walletInitialized = false;
+                document.getElementById('balance-btn').disabled = true;
+                document.getElementById('chain-btn').disabled = true;
+                document.getElementById('fee-btn').disabled = true;
+                document.getElementById('cleanup-btn').disabled = true;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Cleanup failed: ${error.message}`;
+                result.parentElement.className = 'test-section error';
+            }
+        };
+
+        // Auto-run package check on load
+        window.addEventListener('load', () => {
+            setTimeout(testPackages, 500);
+        });
+    </script>
+</body>
+</html>

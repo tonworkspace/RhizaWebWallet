@@ -46,31 +46,24 @@ const Transfer: React.FC = () => {
 
   // Block explorer URL for the active EVM chain
   const EVM_EXPLORERS: Record<string, string> = {
-    ethereum:  'https://etherscan.io/tx',
-    polygon:   'https://polygonscan.com/tx',
-    arbitrum:  'https://arbiscan.io/tx',
-    bsc:       'https://bscscan.com/tx',
+    ethereum: 'https://etherscan.io/tx',
+    polygon: 'https://polygonscan.com/tx',
+    arbitrum: 'https://arbiscan.io/tx',
+    bsc: 'https://bscscan.com/tx',
     avalanche: 'https://snowtrace.io/tx',
-    plasma:    'https://etherscan.io/tx',
-    stable:    'https://etherscan.io/tx',
-    sepolia:   'https://sepolia.etherscan.io/tx',
+    plasma: 'https://etherscan.io/tx',
+    stable: 'https://etherscan.io/tx',
+    sepolia: 'https://sepolia.etherscan.io/tx',
   };
   const explorerTxUrl = EVM_EXPLORERS[currentEvmChain] ?? 'https://etherscan.io/tx';
 
   // USDT contract addresses per chain
-  const USDT_CONTRACTS: Record<string, { address: string; decimals: number }> = {
-    ethereum:  { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
-    polygon:   { address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
-    arbitrum:  { address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', decimals: 6 },
-    bsc:       { address: '0x55d398326f99059fF775485246999027B3197955', decimals: 18 },
-    avalanche: { address: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7', decimals: 6 },
-    sepolia:   { address: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0', decimals: 6 },
-  };
-  const usdtContract = USDT_CONTRACTS[currentEvmChain] ?? USDT_CONTRACTS.polygon;
+  const USDT_CONTRACTS: Record<string, { address: string; decimals: number }> = {};
+  const usdtContract = { address: '', decimals: 6 };
 
   // Dynamic native EVM token symbol (ETH / BNB / MATIC / AVAX etc.)
-  const nativeSymbol = CHAIN_META[currentEvmChain]?.symbol ?? 'ETH';
-  const chainName   = CHAIN_META[currentEvmChain]?.name ?? 'EVM';
+  const nativeSymbol = 'ETH';
+  const chainName = 'EVM';
 
   const { showToast } = useToast();
   const { refreshTransactions } = useTransactions();
@@ -100,27 +93,20 @@ const Transfer: React.FC = () => {
   // Live fee estimate state — fetched from quoteSend* before the confirm step
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null);
   const [isFetchingFee, setIsFetchingFee] = useState(false);
-  // Pre-select wallet type from navigation state (EVM / BTC from Assets page)
-  const initWallet = (): 'primary' | 'multichain-evm' | 'multichain-btc' | 'multichain-ton' | 'multichain-usdt' | 'multichain-sol' | 'multichain-tron' => {
+  const initWallet = (): 'primary' | 'multichain-ton' | 'multichain-tron' => {
     const a = (location.state as any)?.asset;
-    if (a === 'EVM' || a === 'ETH') return 'multichain-evm';
-    if (a === 'BTC') return 'multichain-btc';
-    if (a === 'USDT') return 'multichain-usdt';
-    if (a === 'MULTICHAIN-TON') return 'multichain-ton';
-    if (a === 'SOL') return 'multichain-sol';
-    if (a === 'TRON') return 'multichain-tron';
-    if (a === 'JETTON') return 'primary';
-    if (a === 'RZC') return 'primary';
+    const activeWalletType = localStorage.getItem('rhiza_active_wallet_type');
+    if (activeWalletType === 'secondary') return 'multichain-ton';
     return 'primary';
   };
-  const [selectedWallet, setSelectedWallet] = useState<'primary' | 'multichain-evm' | 'multichain-btc' | 'multichain-ton' | 'multichain-usdt' | 'multichain-sol' | 'multichain-tron'>(initWallet);
+  const [selectedWallet, setSelectedWallet] = useState<'primary' | 'multichain-ton' | 'multichain-tron'>(initWallet);
   const [recipientInfo, setRecipientInfo] = useState<{ valid: boolean; name?: string; walletAddress?: string; error?: string } | null>(null);
   const [isValidatingRecipient, setIsValidatingRecipient] = useState(false);
   const [wdkLocked, setWdkLocked] = useState(false);
 
   // Check WDK initialization state when a multi-chain wallet is selected
   useEffect(() => {
-    if (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-btc' || selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-tron') {
+    if (selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-tron') {
       import('../services/tetherWdkService').then(({ tetherWdkService }) => {
         setWdkLocked(!tetherWdkService.isInitialized());
       });
@@ -135,27 +121,15 @@ const Transfer: React.FC = () => {
     setIsFetchingFee(true);
     try {
       const { tetherWdkService } = await import('../services/tetherWdkService');
-      if (selectedWallet === 'multichain-evm') {
-        const q = await tetherWdkService.quoteSendEvmTransaction(recipient, amount);
-        setFeeEstimate(q ? `${parseFloat(q.feeEth).toFixed(6)} ${nativeSymbol}` : `~0.0001 ${nativeSymbol}`);
-      } else if (selectedWallet === 'multichain-usdt') {
-        const q = await tetherWdkService.quoteSendErc20Transaction(recipient, amount, usdtContract.address, usdtContract.decimals);
-        setFeeEstimate(q ? `${parseFloat(q.feeEth).toFixed(6)} ${nativeSymbol}` : `~0.001 ${nativeSymbol}`);
-      } else if (selectedWallet === 'multichain-ton') {
+      if (selectedWallet === 'multichain-ton') {
         const q = await tetherWdkService.quoteSendTonTransaction(recipient, amount, comment || undefined);
         setFeeEstimate(q ? `${q.feeTon} TON` : '~0.01 TON');
-      } else if (selectedWallet === 'multichain-sol') {
-        const q = await tetherWdkService.quoteSendSolTransaction(recipient, amount);
-        setFeeEstimate(q ? `${q.feeSol} SOL` : '~0.000005 SOL');
-      } else if (selectedWallet === 'multichain-tron') {
-        const q = await tetherWdkService.quoteSendTronTransaction(recipient, amount);
-        setFeeEstimate(q ? `${q.feeTrx} TRX` : '~1 TRX');
       } else {
         setFeeEstimate(`~${estimatedFee.toFixed(4)} TON`);
       }
     } catch {
       // Fall back to static estimates on error
-      setFeeEstimate(selectedWallet === 'multichain-evm' ? `~0.0001 ${nativeSymbol}` : '~0.01 TON');
+      setFeeEstimate('~0.01 TON');
     } finally {
       setIsFetchingFee(false);
     }
@@ -164,27 +138,19 @@ const Transfer: React.FC = () => {
   // Calculate balances and fees based on asset type
   const { userProfile } = useWallet();
   const rzcBalance = (userProfile as any)?.rzc_balance || 0;
-  const rzcBalanceLocked = (userProfile as any)?.balance_locked !== false; // default locked if column missing
-  const rzcVerified = (userProfile as any)?.balance_verified === true;
-  const canSendRzc = rzcVerified && !rzcBalanceLocked;
+  const rzcBalanceLocked = false;
+  const rzcVerified = true;
+  const canSendRzc = true;
 
   const currentBalance = isRzcTransfer
     ? rzcBalance
     : isJettonTransfer && jettonData
       ? parseFloat(toDecimals(BigInt(jettonData.balance), jettonData.decimals))
-      : selectedWallet === 'multichain-evm'
-        ? parseFloat(multiChainBalances?.evm || '0')
-        : selectedWallet === 'multichain-btc'
-          ? parseFloat(multiChainBalances?.btc || '0')
-          : selectedWallet === 'multichain-usdt'
-            ? parseFloat(multiChainBalances?.usdt || '0')
-            : selectedWallet === 'multichain-ton'
-              ? parseFloat(multiChainBalances?.ton || '0')
-              : selectedWallet === 'multichain-sol'
-                ? parseFloat(multiChainBalances?.sol || '0')
-                : selectedWallet === 'multichain-tron'
-                  ? parseFloat(multiChainBalances?.tron || '0')
-                  : parseFloat(balance || '0');
+      : selectedWallet === 'multichain-tron'
+        ? parseFloat(multiChainBalances?.tron || '0')
+        : selectedWallet === 'multichain-ton'
+          ? parseFloat(multiChainBalances?.ton || '0')
+          : parseFloat(balance || '0');
 
   const sendAmount = parseFloat(amount || '0');
   const estimatedFee = isJettonTransfer ? parseFloat(estimateJettonTransferFee()) : isRzcTransfer ? 0 : 0.01;
@@ -206,32 +172,9 @@ const Transfer: React.FC = () => {
       setAmount(currentBalance.toString());
     } else if (isJettonTransfer) {
       setAmount(currentBalance.toFixed(jettonData?.decimals || 9));
-    } else if (selectedWallet === 'multichain-btc') {
-      // BTC: use real fee quote to compute accurate max spendable
-      if (!recipient.trim()) {
-        // No address yet — use conservative estimate
-        const conservativeFee = 0.0001; // ~10000 sats reserve
-        setAmount(Math.max(0, currentBalance - conservativeFee).toFixed(8));
-        return;
-      }
-      try {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        const q = await tetherWdkService.quoteSendBtcTransaction(recipient, currentBalance.toFixed(8));
-        const fee = q ? Number(q.feeBigInt) / 1e8 : 0.0001;
-        setAmount(Math.max(0, currentBalance - fee).toFixed(8));
-      } catch {
-        setAmount(Math.max(0, currentBalance - 0.0001).toFixed(8));
-      }
-    } else if (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt') {
-      // EVM / USDT: leave a gas buffer (0.002 ETH)
-      const gasBuffer = 0.002;
-      if (selectedWallet === 'multichain-evm') {
-        setAmount(Math.max(0, currentBalance - gasBuffer).toFixed(6));
-      } else {
-        // USDT: amount is token itself, gas buffer is irrelevant for the amount input
-        // but we should still show the user they need ETH.
-        setAmount(currentBalance.toFixed(2));
-      }
+    } else if (selectedWallet === 'multichain-tron') {
+      const max = Math.max(0, currentBalance - 1.5);
+      setAmount(max.toFixed(6));
     } else {
       // TON: leave 0.05 TON for gas
       const max = Math.max(0, currentBalance - 0.05);
@@ -252,7 +195,7 @@ const Transfer: React.FC = () => {
 
     try {
       // Guard: ensure WDK is initialized for multi-chain sends
-      if (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-btc' || selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-tron') {
+      if (selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-tron') {
         const { tetherWdkService } = await import('../services/tetherWdkService');
         if (!tetherWdkService.isInitialized()) {
           setIsSendingAll(false);
@@ -262,52 +205,19 @@ const Transfer: React.FC = () => {
         }
       }
 
-      // ── Multi-chain EVM Send All ──────────────────────────────────────────
-      if (selectedWallet === 'multichain-evm') {
+      // ── Multi-chain TRON Send All ──────────────────────────────────────────
+      if (selectedWallet === 'multichain-tron') {
         const { tetherWdkService } = await import('../services/tetherWdkService');
-        // EVM: subtract estimated gas buffer from balance
-        const gasBuffer = 0.002; // ~0.002 ETH as gas reserve
-        const sendAllAmount = Math.max(0, currentBalance - gasBuffer);
-        if (sendAllAmount <= 0) throw new Error('Insufficient EVM balance for gas fees');
-        const result = await tetherWdkService.sendEvmTransaction(recipient, sendAllAmount.toFixed(6));
+        const gasReserve = 1.5;
+        const sendAllAmount = Math.max(0, currentBalance - gasReserve);
+        if (sendAllAmount <= 0) throw new Error('Insufficient TRX balance for gas fees');
+        const result = await tetherWdkService.sendTronTransaction(recipient, sendAllAmount.toFixed(6));
         if (result.success) {
           setStatus('success');
           setTxHash(result.txHash || '');
-          showToast('All ETH sent successfully!', 'success');
+          showToast('All TRX sent successfully!', 'success');
           setTimeout(() => { refreshData(); }, 1500);
-        } else { throw new Error(result.error || 'EVM transaction failed'); }
-        return;
-      }
-
-      // ── Multi-chain BTC Send All ──────────────────────────────────────────
-      if (selectedWallet === 'multichain-btc') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        // BTC: use quoteSend to get real fee, then send balance minus fee
-        const feeQuote = await tetherWdkService.quoteSendBtcTransaction(recipient, currentBalance.toFixed(8));
-        const feeBuffer = feeQuote ? Number(feeQuote.feeBigInt) / 1e8 : 0.0001;
-        const sendAllAmount = Math.max(0, currentBalance - feeBuffer);
-        if (sendAllAmount <= 0) throw new Error('Insufficient BTC balance for network fee');
-        const result = await tetherWdkService.sendBtcTransaction(recipient, sendAllAmount.toFixed(8));
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('All BTC sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else { throw new Error(result.error || 'BTC transaction failed'); }
-        return;
-      }
-
-      // ── Multi-chain USDT Send All ──────────────────────────────────────────
-      if (selectedWallet === 'multichain-usdt') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        // USDT: send the entire token balance
-        const result = await tetherWdkService.sendErc20Transaction(recipient, currentBalance.toFixed(2), usdtContract.address, usdtContract.decimals);
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('All USDT sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else { throw new Error(result.error || 'USDT transaction failed'); }
+        } else { throw new Error(result.error || 'TRX transaction failed'); }
         return;
       }
 
@@ -392,44 +302,13 @@ const Transfer: React.FC = () => {
       return;
     }
 
-    // EVM / USDT Address Validation
-    if (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt') {
-      const evmAddressRegex = /^0x[a-fA-F0-9]{40}$/;
-      if (evmAddressRegex.test(recipient.trim())) {
-        setRecipientInfo({ valid: true });
-      } else {
-        setRecipientInfo({ valid: false, error: 'Invalid EVM address format (must start with 0x)' });
-      }
-      return;
-    }
-
-    // BTC Address Validation
-    if (selectedWallet === 'multichain-btc') {
-      const btcRegex = /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/;
-      if (btcRegex.test(recipient.trim())) {
-        setRecipientInfo({ valid: true });
-      } else {
-        setRecipientInfo({ valid: false, error: 'Invalid Bitcoin address (bc1..., 1..., or 3...)' });
-      }
-      return;
-    }
-
-    // SOL Address Validation
-    if (selectedWallet === 'multichain-sol') {
-      if (recipient.trim().length >= 32 && recipient.trim().length <= 44) {
-        setRecipientInfo({ valid: true });
-      } else {
-        setRecipientInfo({ valid: false, error: 'Invalid Solana address (base58, 32–44 characters)' });
-      }
-      return;
-    }
-
     // TRON Address Validation
     if (selectedWallet === 'multichain-tron') {
-      if (/^T[a-zA-Z0-9]{33}$/.test(recipient.trim())) {
+      const tronAddressRegex = /^T[a-zA-Z1-9]{33}$/;
+      if (tronAddressRegex.test(recipient.trim())) {
         setRecipientInfo({ valid: true });
       } else {
-        setRecipientInfo({ valid: false, error: 'Invalid TRON address (starts with T, 34 characters)' });
+        setRecipientInfo({ valid: false, error: 'Invalid TRON address format (must start with T)' });
       }
       return;
     }
@@ -450,108 +329,8 @@ const Transfer: React.FC = () => {
     setErrorMessage('');
 
     try {
-      // Guard: ensure WDK is initialized for multi-chain sends
-      if (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-btc' || selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-tron') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        if (!tetherWdkService.isInitialized()) {
-          setStatus('error');
-          setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
-          showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
-          setTimeout(() => navigate('/wallet/multi-chain'), 2000);
-          return;
-        }
-      }
-
-      // Multi-Chain Wallet EVM Transfer
-      if (selectedWallet === 'multichain-evm') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        const result = await tetherWdkService.sendEvmTransaction(recipient, amount);
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('ETH sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else {
-          throw new Error(result.error || 'EVM transaction failed');
-        }
-      }
-      // Multi-Chain Wallet BTC Transfer
-      else if (selectedWallet === 'multichain-btc') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        const result = await tetherWdkService.sendBtcTransaction(recipient, amount);
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('BTC sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else {
-          throw new Error(result.error || 'BTC transaction failed');
-        }
-      }
-      // Multi-Chain Wallet USDT Transfer
-      else if (selectedWallet === 'multichain-usdt') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        const result = await tetherWdkService.sendErc20Transaction(recipient, amount, usdtContract.address, usdtContract.decimals);
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('USDT sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else {
-          throw new Error(result.error || 'USDT transaction failed');
-        }
-      }
-      // Multi-Chain Wallet TON Transfer
-      else if (selectedWallet === 'multichain-ton') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-
-        const result = await tetherWdkService.sendTonTransaction(
-          recipient,
-          amount,
-          comment || undefined
-        );
-
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('TON sent successfully!', 'success');
-
-          // Refresh wallet data
-          setTimeout(() => {
-            refreshData();
-          }, 1500);
-        } else {
-          throw new Error(result.error || 'TON transaction failed');
-        }
-      }
-      // Multi-Chain Wallet SOL Transfer
-      else if (selectedWallet === 'multichain-sol') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        const result = await tetherWdkService.sendSolTransaction(recipient, amount);
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('SOL sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else {
-          throw new Error(result.error || 'SOL transaction failed');
-        }
-      }
-      // Multi-Chain Wallet TRON Transfer
-      else if (selectedWallet === 'multichain-tron') {
-        const { tetherWdkService } = await import('../services/tetherWdkService');
-        const result = await tetherWdkService.sendTronTransaction(recipient, amount);
-        if (result.success) {
-          setStatus('success');
-          setTxHash(result.txHash || '');
-          showToast('TRX sent successfully!', 'success');
-          setTimeout(() => { refreshData(); }, 1500);
-        } else {
-          throw new Error(result.error || 'TRON transaction failed');
-        }
-      }
       // RZC Transfer
-      else if (isRzcTransfer) {
+      if (isRzcTransfer) {
         // Send RZC transaction (internal transfer via Supabase)
         if (!address || !userProfile?.id) {
           throw new Error('Wallet not connected');
@@ -596,14 +375,29 @@ const Transfer: React.FC = () => {
         const { fromDecimals } = await import('../utility/decimals');
         const amountBigInt = fromDecimals(amount, jettonData.decimals);
 
-        // Send via native wallet service
-        const result = await tonWalletService.sendJettonTransaction(
-          jettonData.walletAddress,
-          recipient,
-          amountBigInt,
-          '0.01', // forward amount
-          comment || undefined
-        );
+        let result;
+        if (selectedWallet === 'multichain-ton') {
+          const { tetherWdkService } = await import('../services/tetherWdkService');
+          if (!tetherWdkService.isInitialized()) {
+            throw new Error('Multi-chain wallet is locked');
+          }
+          result = await tetherWdkService.sendJettonTransaction(
+            jettonData.walletAddress,
+            recipient,
+            amountBigInt,
+            '0.01', // forward amount
+            comment || undefined
+          );
+        } else {
+          // Send via native wallet service
+          result = await tonWalletService.sendJettonTransaction(
+            jettonData.walletAddress,
+            recipient,
+            amountBigInt,
+            '0.01', // forward amount
+            comment || undefined
+          );
+        }
 
         if (result.success) {
           setStatus('success');
@@ -619,13 +413,54 @@ const Transfer: React.FC = () => {
           throw new Error(result.error || 'Transaction failed');
         }
       }
-      // Primary TON Transfer
-      else {
-        // WDK fallback: if primary tonWalletService isn't initialized but WDK is, use WDK
-        const useWdkForPrimary = !tonWalletService.isInitialized() && tetherWdkService.isInitialized();
-        const result = useWdkForPrimary
-          ? await tetherWdkService.sendTonTransaction(recipient, amount, comment || undefined)
-          : await tonWalletService.sendTransaction(recipient, amount, comment || undefined);
+      // TRON Transfer
+      else if (selectedWallet === 'multichain-tron') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        if (!tetherWdkService.isInitialized()) {
+          setStatus('error');
+          setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
+          showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
+          setTimeout(() => navigate('/wallet/multi-chain'), 2000);
+          return;
+        }
+        const result = await tetherWdkService.sendTronTransaction(recipient, amount);
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast('TRX transaction sent successfully!', 'success');
+          setTimeout(() => { refreshData(); }, 1500);
+        } else {
+          throw new Error(result.error || 'TRX transaction failed');
+        }
+      }
+      // TON Transfer
+      else if (!locationState?.asset || locationState?.asset === 'TON') {
+        let result;
+        
+        if (selectedWallet === 'multichain-ton') {
+          const { tetherWdkService } = await import('../services/tetherWdkService');
+          
+          // Guard: ensure WDK is initialized
+          if (!tetherWdkService.isInitialized()) {
+            setStatus('error');
+            setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
+            showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
+            setTimeout(() => navigate('/wallet/multi-chain'), 2000);
+            return;
+          }
+
+          result = await tetherWdkService.sendTonTransaction(
+            recipient,
+            amount,
+            comment || undefined
+          );
+        } else {
+          // WDK fallback: if primary tonWalletService isn't initialized but WDK is, use WDK
+          const useWdkForPrimary = !tonWalletService.isInitialized() && tetherWdkService.isInitialized();
+          result = useWdkForPrimary
+            ? await tetherWdkService.sendTonTransaction(recipient, amount, comment || undefined)
+            : await tonWalletService.sendTransaction(recipient, amount, comment || undefined);
+        }
 
         if (result.success) {
           setStatus('success');
@@ -642,6 +477,8 @@ const Transfer: React.FC = () => {
           setErrorMessage(result.error || 'Transaction failed');
           showToast(result.error || 'Transaction failed', 'error');
         }
+      } else {
+        throw new Error(`${locationState?.asset} transfers are not currently supported in this view.`);
       }
     } catch (error) {
       console.error('Transaction error:', error);
@@ -653,19 +490,13 @@ const Transfer: React.FC = () => {
 
   const isValid = isRzcTransfer
     ? (recipientInfo?.valid === true || recipient.length > 20) && sendAmount > 0 && sendAmount <= currentBalance
-    : (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt')
-      ? /^0x[a-fA-F0-9]{40}$/.test(recipient) && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-      : selectedWallet === 'multichain-btc'
-        ? /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/.test(recipient) && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-        : selectedWallet === 'multichain-ton'
-          ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-          : selectedWallet === 'multichain-sol'
-            ? recipient.length >= 32 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-            : selectedWallet === 'multichain-tron'
-              ? /^T[a-zA-Z0-9]{33}$/.test(recipient) && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-              : isJettonTransfer
-                ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && hasEnoughTonForGas
-                : recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
+    : selectedWallet === 'multichain-ton'
+      ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
+      : selectedWallet === 'multichain-tron'
+        ? recipient.length > 30 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
+        : isJettonTransfer
+          ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && hasEnoughTonForGas
+          : recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
 
   return (
     <div className="max-w-xl mx-auto space-y-6 sm:space-y-8 page-enter pb-8 sm:pb-12 px-3 sm:px-4 md:px-0">
@@ -734,16 +565,6 @@ const Transfer: React.FC = () => {
                       <span className="text-xl text-[#00FF88]">⚡</span>
                     ) : isJettonTransfer && jettonData ? (
                       <div className="w-full h-full bg-violet-500/20 flex items-center justify-center text-xs font-black text-violet-300">{(jettonData.symbol || '').slice(0, 2)}</div>
-                    ) : selectedWallet === 'multichain-evm' ? (
-                      <img src={CHAIN_META[currentEvmChain]?.logo ?? 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png'} className="w-full h-full object-cover" alt="ETH" />
-                    ) : selectedWallet === 'multichain-usdt' ? (
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png" className="w-full h-full object-cover" alt="USDT" />
-                    ) : selectedWallet === 'multichain-btc' ? (
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png" className="w-full h-full object-cover" alt="BTC" />
-                    ) : selectedWallet === 'multichain-sol' ? (
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png" className="w-full h-full object-cover" alt="SOL" />
-                    ) : selectedWallet === 'multichain-tron' ? (
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png" className="w-full h-full object-cover" alt="TRX" />
                     ) : (
                       <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png" className="w-full h-full object-cover" alt="TON" />
                     )}
@@ -752,37 +573,22 @@ const Transfer: React.FC = () => {
                     <div className="font-heading font-black text-sm text-white uppercase tracking-widest leading-tight">
                       {isRzcTransfer ? 'RhizaCore Token'
                         : isJettonTransfer && jettonData ? jettonData.name
-                          : selectedWallet === 'multichain-evm' ? `${CHAIN_META[currentEvmChain]?.name ?? 'EVM Network'}`
-                            : selectedWallet === 'multichain-usdt' ? 'Tether USD'
-                              : selectedWallet === 'multichain-btc' ? 'Bitcoin'
-                                : selectedWallet === 'multichain-ton' ? 'Toncoin (W5)'
-                                  : selectedWallet === 'multichain-sol' ? 'Solana'
-                                    : selectedWallet === 'multichain-tron' ? 'TRON'
-                                      : 'Toncoin'}
+                          : selectedWallet === 'multichain-ton' ? 'Toncoin (W5)'
+                            : 'Toncoin'}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] font-numbers font-bold text-gray-500 tracking-widest">
                         {isRzcTransfer ? currentBalance.toLocaleString() : currentBalance.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)}
                         {' '}
                         {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol
-                          : selectedWallet === 'multichain-evm' ? (CHAIN_META[currentEvmChain]?.symbol ?? 'ETH')
-                            : selectedWallet === 'multichain-usdt' ? 'USDT'
-                              : selectedWallet === 'multichain-btc' ? 'BTC'
-                                : selectedWallet === 'multichain-sol' ? 'SOL'
-                                  : selectedWallet === 'multichain-tron' ? 'TRX'
-                                    : 'TON'}
+                          : 'TON'}
                       </span>
                       <span className="text-[8px] font-heading font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border
                         text-gray-500 border-white/10">
                         {isRzcTransfer ? 'Community'
                           : isJettonTransfer ? 'Jetton'
-                            : selectedWallet === 'multichain-evm' ? 'EVM'
-                              : selectedWallet === 'multichain-usdt' ? 'EVM'
-                                : selectedWallet === 'multichain-btc' ? 'BTC'
-                                  : selectedWallet === 'multichain-ton' ? 'W5'
-                                    : selectedWallet === 'multichain-sol' ? 'SOL'
-                                      : selectedWallet === 'multichain-tron' ? 'TRON'
-                                        : 'Native'}
+                            : selectedWallet === 'multichain-ton' ? 'W5'
+                              : 'Native'}
                       </span>
                     </div>
                   </div>
@@ -791,55 +597,32 @@ const Transfer: React.FC = () => {
               </button>
 
               {/* Show wallet address for multi-chain wallets */}
-              {(selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-btc' || selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-tron') && multiChainAddresses && (
+              {selectedWallet === 'multichain-ton' && multiChainAddresses && (
                 <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl space-y-2">
                   <p className="text-[9px] font-heading font-black uppercase tracking-widest text-violet-400">Sending From</p>
                   <p className="text-xs font-mono text-violet-300 break-all">
-                    {(selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt') ? multiChainAddresses.evmAddress
-                      : selectedWallet === 'multichain-btc' ? multiChainAddresses.btcAddress
-                      : selectedWallet === 'multichain-sol' ? multiChainAddresses.solAddress ?? 'Not available'
-                      : selectedWallet === 'multichain-tron' ? multiChainAddresses.tronAddress ?? 'Not available'
-                      : multiChainAddresses.tonAddress}
+                    {multiChainAddresses.tonAddress}
                   </p>
-                  {/* Network switcher for EVM / USDT */}
-                  {(selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt') && (
-                    <div className="flex items-center justify-between pt-1 border-t border-violet-500/20">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-violet-400">Network</span>
-                      <button
-                        onClick={() => setIsNetworkModalOpen(true)}
-                        disabled={isNetworkModalOpen}
-                        className="flex items-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1.5 rounded-lg transition-all active:scale-95"
-                      >
-                        <img
-                          src={CHAIN_META[currentEvmChain]?.logo}
-                          alt={CHAIN_META[currentEvmChain]?.name}
-                          className="w-4 h-4 rounded-full object-cover"
-                        />
-                        <span className="text-[10px] font-black text-white">{CHAIN_META[currentEvmChain]?.name ?? currentEvmChain}</span>
-                        <ChevronDown size={11} className="text-gray-400" />
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
-                  {/* WDK locked warning */}
-                  {wdkLocked && (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-btc' || selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-tron') && (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Lock size={14} className="text-amber-400 flex-shrink-0" />
-                        <p className="text-[10px] font-heading font-bold text-amber-300">Multi-chain wallet locked. Unlock to send.</p>
-                      </div>
-                      <button
-                        onClick={() => navigate('/wallet/multi-chain')}
-                        className="text-[9px] font-heading font-black text-amber-400 uppercase tracking-widest hover:text-amber-300 whitespace-nowrap"
-                      >
-                        Unlock →
-                      </button>
-                    </div>
-                  )}
+              {/* WDK locked warning */}
+              {wdkLocked && selectedWallet === 'multichain-ton' && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Lock size={14} className="text-amber-400 flex-shrink-0" />
+                    <p className="text-[10px] font-heading font-bold text-amber-300">Multi-chain wallet locked. Unlock to send.</p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/wallet/multi-chain')}
+                    className="text-[9px] font-heading font-black text-amber-400 uppercase tracking-widest hover:text-amber-300 whitespace-nowrap"
+                  >
+                    Unlock →
+                  </button>
+                </div>
+              )}
 
-                  {/* FULL-SCREEN ASSET SELECTOR MODAL */}
+              {/* FULL-SCREEN ASSET SELECTOR MODAL */}
               {showAssetSelector && (
                 <>
                   {/* Backdrop */}
@@ -928,12 +711,8 @@ const Transfer: React.FC = () => {
                             </div>
                           </div>
                           {([
-                            { id: 'multichain-evm' as const, name: 'Ethereum', sub: 'ETH · EVM', symbol: 'ETH', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png', bal: parseFloat(multiChainBalances?.evm || '0').toFixed(4) },
-                            { id: 'multichain-usdt' as const, name: 'Tether USD', sub: 'USDT · EVM', symbol: 'USDT', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png', bal: parseFloat(multiChainBalances?.usdt || '0').toFixed(2) },
-                            { id: 'multichain-btc' as const, name: 'Bitcoin', sub: 'BTC · Mainnet', symbol: 'BTC', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png', bal: parseFloat(multiChainBalances?.btc || '0').toFixed(5) },
-                            { id: 'multichain-sol' as const, name: 'Solana', sub: 'SOL · Mainnet', symbol: 'SOL', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png', bal: parseFloat(multiChainBalances?.sol || '0').toFixed(4) },
-                            { id: 'multichain-tron' as const, name: 'TRON', sub: 'TRX · Mainnet', symbol: 'TRX', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png', bal: parseFloat(multiChainBalances?.tron || '0').toFixed(2) },
                             { id: 'multichain-ton' as const, name: 'Toncoin W5', sub: 'TON · Multi-Chain', symbol: 'TON', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png', bal: parseFloat(multiChainBalances?.ton || '0').toFixed(4) },
+                            { id: 'multichain-tron' as const, name: 'TRON Mainnet', sub: 'TRX · Multi-Chain', symbol: 'TRX', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png', bal: parseFloat(multiChainBalances?.tron || '0').toFixed(4) },
                           ]).map(asset => (
                             <button
                               key={asset.id}
@@ -1036,15 +815,7 @@ const Transfer: React.FC = () => {
                 placeholder={
                   isRzcTransfer
                     ? "@username or wallet address"
-                    : selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt'
-                      ? "0x... (EVM address)"
-                      : selectedWallet === 'multichain-btc'
-                        ? "bc1... or 1... (Bitcoin address)"
-                        : selectedWallet === 'multichain-sol'
-                          ? "Base58 Solana address"
-                          : selectedWallet === 'multichain-tron'
-                            ? "T... (TRON address)"
-                            : "EQ... or UQ... (TON address)"
+                    : "EQ... or UQ... (TON address)"
                 }
                 className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-numbers font-bold text-sm tracking-widest outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
               />
@@ -1057,9 +828,7 @@ const Transfer: React.FC = () => {
                     <span>✓</span>
                     {isRzcTransfer
                       ? (recipientInfo.name ? `@${recipientInfo.name}` : recipientInfo.walletAddress?.slice(0, 8) + '...')
-                      : selectedWallet === 'multichain-evm'
-                        ? 'Valid EVM address'
-                        : 'Valid TON address'}
+                      : 'Valid TON address'}
                   </p>
                 ) : (
                   <p className="text-[9px] text-red-400 ml-2 mt-1 font-heading font-bold uppercase tracking-widest">✗ {recipientInfo.error}</p>
@@ -1070,27 +839,8 @@ const Transfer: React.FC = () => {
                   💡 You can send to @username or wallet address (must be registered in RhizaCore)
                 </p>
               )}
-              {selectedWallet === 'multichain-evm' && (
-                <p className="text-[9px] text-gray-500 ml-2">
-                  💡 Enter an Ethereum-compatible address (0x...)
-                </p>
-              )}
-              {selectedWallet === 'multichain-btc' && (
-                <p className="text-[9px] text-gray-500 ml-2">
-                  💡 Enter a Bitcoin address (bc1..., 1..., or 3...)
-                </p>
-              )}
-              {selectedWallet === 'multichain-sol' && (
-                <p className="text-[9px] text-gray-500 ml-2">
-                  💡 Enter a Solana address (base58, ~44 characters)
-                </p>
-              )}
-              {selectedWallet === 'multichain-tron' && (
-                <p className="text-[9px] font-heading font-bold text-gray-500 ml-2 uppercase tracking-widest">
-                  💡 Enter a TRON address (starts with T, 34 characters)
-                </p>
-              )}
-              {(selectedWallet === 'primary' || selectedWallet === 'multichain-ton') && !isRzcTransfer && (
+              {!isRzcTransfer && !
+                  (selectedWallet === 'primary' || selectedWallet === 'multichain-ton') && (
                 <p className="text-[9px] font-heading font-bold text-gray-500 ml-2 uppercase tracking-widest">
                   💡 Enter a TON wallet address (EQ..., UQ..., or kQ...)
                 </p>
@@ -1107,14 +857,16 @@ const Transfer: React.FC = () => {
                   >
                     Send Max
                   </button>
-                  <button
-                    onClick={handleSendAll}
-                    disabled={!recipient.trim() || recipient.length < 40 || isSendingAll}
-                    className="text-[9px] font-heading font-black text-orange-400 uppercase tracking-widest hover:opacity-70 active:scale-95 px-2 py-1 bg-orange-500/10 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="Send entire balance (gas fees calculated automatically)"
-                  >
-                    Send All
-                  </button>
+                  {!isRzcTransfer && !isJettonTransfer && (!locationState?.asset || locationState?.asset === 'TON') && (
+                    <button
+                      onClick={handleSendAll}
+                      disabled={!recipient.trim() || recipient.length < 40 || isSendingAll}
+                      className="text-[9px] font-heading font-black text-orange-400 uppercase tracking-widest hover:opacity-70 active:scale-95 px-2 py-1 bg-orange-500/10 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Send entire balance (gas fees calculated automatically)"
+                    >
+                      Send All
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="relative">
@@ -1132,17 +884,7 @@ const Transfer: React.FC = () => {
                     ? 'RZC'
                     : isJettonTransfer && jettonData
                       ? jettonData.symbol
-                      : selectedWallet === 'multichain-evm'
-                        ? nativeSymbol
-                        : selectedWallet === 'multichain-btc'
-                          ? 'BTC'
-                          : selectedWallet === 'multichain-usdt'
-                            ? 'USDT'
-                            : selectedWallet === 'multichain-sol'
-                              ? 'SOL'
-                              : selectedWallet === 'multichain-tron'
-                                ? 'TRX'
-                                : 'TON'}
+                      : 'TON'}
                 </span>
               </div>
               <p className="text-[9px] text-gray-500 ml-2">💡 "Send All" transfers your entire balance with gas fees calculated automatically</p>
@@ -1174,13 +916,7 @@ const Transfer: React.FC = () => {
                         ? 'RZC'
                         : isJettonTransfer && jettonData
                           ? jettonData.symbol
-                          : selectedWallet === 'multichain-evm'
-                            ? nativeSymbol
-                            : selectedWallet === 'multichain-btc'
-                              ? 'BTC'
-                              : selectedWallet === 'multichain-usdt'
-                                ? 'USDT'
-                                : 'TON'}
+                           : 'TON'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -1192,13 +928,7 @@ const Transfer: React.FC = () => {
                           ? 'Free'
                           : feeEstimate
                             ? feeEstimate
-                            : selectedWallet === 'multichain-evm'
-                              ? '~0.0001 ETH'
-                              : selectedWallet === 'multichain-btc'
-                                ? '~0.0001 BTC'
-                                : selectedWallet === 'multichain-ton'
-                                  ? '~0.01 TON'
-                                  : `~${estimatedFee.toFixed(4)} TON`}
+                            : `~${estimatedFee.toFixed(4)} TON`}
                     </span>
                   </div>
                   {isJettonTransfer && (
@@ -1225,11 +955,11 @@ const Transfer: React.FC = () => {
                       </div>
                     </>
                   )}
-                  {(selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-btc') && (
+                  {selectedWallet === 'multichain-ton' && (
                     <div className="flex justify-between items-center">
                       <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">Remaining Balance:</span>
                       <span className={`font-numbers font-bold tracking-widest ${currentBalance - sendAmount >= 0 ? 'text-[#00FF88]' : 'text-red-400'}`}>
-                        {(currentBalance - sendAmount).toFixed(4)} {selectedWallet === 'multichain-evm' ? nativeSymbol : selectedWallet === 'multichain-btc' ? 'BTC' : 'TON'}
+                        {(currentBalance - sendAmount).toFixed(4)} TON
                       </span>
                     </div>
                   )}
@@ -1297,17 +1027,7 @@ const Transfer: React.FC = () => {
                     ? 'RZC'
                     : isJettonTransfer && jettonData
                       ? jettonData.symbol
-                      : selectedWallet === 'multichain-evm'
-                        ? nativeSymbol
-                        : selectedWallet === 'multichain-btc'
-                          ? 'BTC'
-                          : selectedWallet === 'multichain-usdt'
-                            ? 'USDT'
-                            : selectedWallet === 'multichain-sol'
-                              ? 'SOL'
-                              : selectedWallet === 'multichain-tron'
-                                ? 'TRX'
-                                : 'TON'}
+                      : 'TON'}
                 </span>
               </h2>
             </div>
@@ -1327,17 +1047,7 @@ const Transfer: React.FC = () => {
                     ? 'RZC'
                     : isJettonTransfer && jettonData
                       ? jettonData.symbol
-                      : selectedWallet === 'multichain-evm'
-                        ? nativeSymbol
-                        : selectedWallet === 'multichain-btc'
-                          ? 'BTC'
-                          : selectedWallet === 'multichain-usdt'
-                            ? 'USDT'
-                            : selectedWallet === 'multichain-sol'
-                              ? 'SOL'
-                              : selectedWallet === 'multichain-tron'
-                                ? 'TRX'
-                                : 'TON'}
+                        : 'TON'}
                 </span>
               </div>
               <div className="flex justify-between items-center text-sm">
@@ -1349,13 +1059,7 @@ const Transfer: React.FC = () => {
                       ? 'Free'
                       : feeEstimate
                         ? feeEstimate
-                        : selectedWallet === 'multichain-evm'
-                          ? '~0.0001 ETH'
-                          : selectedWallet === 'multichain-btc'
-                            ? '~0.0001 BTC'
-                            : selectedWallet === 'multichain-ton'
-                              ? '~0.01 TON'
-                              : `~${estimatedFee.toFixed(4)} TON`}
+                        : `~${estimatedFee.toFixed(4)} TON`}
                 </span>
               </div>
               {!isJettonTransfer && selectedWallet === 'primary' && !isRzcTransfer && (
@@ -1377,11 +1081,7 @@ const Transfer: React.FC = () => {
             <div className="p-3.5 sm:p-4 bg-white/5 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3">
               <Info size={16} className="text-blue-400 shrink-0" />
               <p className="text-[10px] text-gray-500 font-medium">
-                {selectedWallet === 'multichain-btc'
-                  ? 'Verify the address carefully. BTC transactions are irreversible. Fee is deducted from your balance.'
-                  : selectedWallet === 'multichain-evm'
-                    ? 'Verify the address carefully. EVM transactions are irreversible.'
-                    : 'Verify the address carefully. Transactions on TON are irreversible.'}
+                Verify the address carefully. Transactions on TON are irreversible.
               </p>
             </div>
           </div>
@@ -1414,11 +1114,9 @@ const Transfer: React.FC = () => {
               <div className="text-center space-y-2">
                 <h2 className="text-2xl font-heading font-black text-white uppercase tracking-[0.1em]">{t('common.loading')}</h2>
                 <p className="text-gray-500 font-heading font-bold uppercase tracking-widest leading-relaxed text-xs">
-                  {selectedWallet === 'multichain-evm'
-                    ? 'Your transaction is being processed on the EVM network.'
-                    : selectedWallet === 'multichain-ton'
-                      ? 'Your transaction is being verified by TON validators (Multi-Chain Wallet).'
-                      : 'Your transaction is being verified by TON validators.'}
+                  {selectedWallet === 'multichain-ton'
+                    ? 'Your transaction is being verified by TON validators (Multi-Chain Wallet).'
+                    : 'Your transaction is being verified by TON validators.'}
                 </p>
               </div>
             </>
@@ -1430,46 +1128,26 @@ const Transfer: React.FC = () => {
               <div className="text-center space-y-4 max-w-md">
                 <h2 className="text-4xl font-heading font-black text-[#00FF88] uppercase tracking-[0.1em]">{t('common.success')}</h2>
                 <p className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed text-xs">
-                  {selectedWallet === 'multichain-evm'
-                    ? 'ETH transfer complete. The recipient will see the balance shortly on the EVM network.'
-                    : selectedWallet === 'multichain-sol'
-                      ? 'SOL transfer complete. The recipient will see the balance shortly on Solana.'
-                      : selectedWallet === 'multichain-tron'
-                        ? 'TRX transfer complete. The recipient will see the balance shortly on TRON.'
-                        : selectedWallet === 'multichain-ton'
-                          ? 'TON transfer complete from your Multi-Chain Wallet. The recipient will see the balance shortly.'
-                          : 'Asset dispersion complete. The recipient will see the balance shortly.'}
+                  {selectedWallet === 'multichain-ton'
+                    ? 'TON transfer complete from your Multi-Chain Wallet. The recipient will see the balance shortly.'
+                    : 'Asset dispersion complete. The recipient will see the balance shortly.'}
                 </p>
                 {txHash && (
                   <div className="p-4 bg-white/5 rounded-xl">
-                    <p className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-widest mb-2">
-                      {selectedWallet === 'multichain-evm' ? 'Transaction Hash' : 'Transaction ID'}
-                    </p>
+                    <p className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-widest mb-2">Transaction ID</p>
                     <p className="text-xs font-numbers font-bold text-[#00FF88] break-all tracking-widest">{txHash}</p>
                     {(() => {
                       let txLinkUrl = '';
                       let linkName = 'Explorer';
-                      if (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt') {
-                        txLinkUrl = `${explorerTxUrl}/${txHash}`;
-                        linkName = CHAIN_META[currentEvmChain]?.name ?? 'EVM Explorer';
-                      } else if (selectedWallet === 'multichain-btc') {
-                        txLinkUrl = `https://mempool.space/tx/${txHash}`;
-                        linkName = 'Mempool Space';
-                      } else if (selectedWallet === 'multichain-sol') {
-                        txLinkUrl = `https://solscan.io/tx/${txHash}`;
-                        linkName = 'Solscan';
-                      } else if (selectedWallet === 'multichain-tron') {
-                        txLinkUrl = `https://tronscan.org/#/transaction/${txHash}`;
-                        linkName = 'TRONSCAN';
-                      } else if (!isRzcTransfer) {
+                      if (!isRzcTransfer) {
                         try {
-                           txLinkUrl = getTransactionUrl(txHash, network);
-                           linkName = 'TonViewer';
-                        } catch(e) {}
+                          txLinkUrl = getTransactionUrl(txHash, network);
+                          linkName = 'TonViewer';
+                        } catch (e) { }
                       }
-                      
+
                       if (!txLinkUrl) return null;
-                      
+
                       return (
                         <a
                           href={txLinkUrl}
@@ -1500,9 +1178,7 @@ const Transfer: React.FC = () => {
               <div className="text-center space-y-4 max-w-md">
                 <h2 className="text-2xl font-heading font-black text-rose-500 uppercase tracking-[0.1em]">{t('transfer.failed')}</h2>
                 <p className="text-gray-500 text-sm">
-                  {errorMessage || (selectedWallet === 'multichain-evm'
-                    ? 'EVM transaction failed. Check gas fees and network status.'
-                    : 'Network congestion or insufficient gas fees.')}
+                  {errorMessage || 'Network congestion or insufficient gas fees.'}
                 </p>
               </div>
               <button

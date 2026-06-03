@@ -122,9 +122,9 @@ class NotificationService {
   async getUnreadCount(walletAddress: string): Promise<{ success: boolean; count?: number; error?: string }> {
     try {
       const supabase = getSupabaseClient();
-      const { data, error } = await supabase
+      const { count, error } = await supabase
         .from('wallet_notifications')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .eq('wallet_address', walletAddress)
         .eq('is_read', false)
         .eq('is_archived', false);
@@ -134,7 +134,8 @@ class NotificationService {
         return { success: false, error: error.message };
       }
 
-      return { success: true, count: data || 0 };
+      console.log('📊 Unread count query result:', { count, walletAddress });
+      return { success: true, count: count || 0 };
     } catch (error) {
       console.error('❌ Error in getUnreadCount:', error);
       return {
@@ -436,8 +437,16 @@ class NotificationService {
     callback: (notification: Notification) => void
   ) {
     const supabase = getSupabaseClient();
+    
+    // Create channel with unique name
+    const channelName = `realtime:notifications:${walletAddress}`;
+    
+    // Remove existing channel if it exists
+    supabase.removeChannel(supabase.channel(channelName));
+    
+    // Create new subscription
     const subscription = supabase
-      .channel(`notifications:${walletAddress}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -451,7 +460,9 @@ class NotificationService {
           callback(payload.new as Notification);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('🔔 Notification subscription status:', status);
+      });
 
     return subscription;
   }

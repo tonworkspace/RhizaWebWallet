@@ -17,6 +17,70 @@ interface Transaction {
   counterpartyUsername?: string;
 }
 
+/**
+ * Deduplicate transactions based on unique identifiers.
+ * 
+ * Priority for deduplication:
+ * 1. Transaction hash (if available)
+ * 2. Combination of: id + timestamp + amount + asset
+ * 
+ * When duplicates are found, keeps the one with more data (e.g., has comment, username).
+ */
+function deduplicateTransactions(transactions: Transaction[]): Transaction[] {
+  const seen = new Map<string, Transaction>();
+  
+  for (const tx of transactions) {
+    // Create unique key based on available data
+    let key: string;
+    
+    if (tx.hash) {
+      // Hash is the most reliable unique identifier
+      key = `hash:${tx.hash}`;
+    } else {
+      // Fallback to composite key
+      // Normalize timestamp to nearest second to catch near-duplicates
+      const normalizedTimestamp = Math.floor(tx.timestamp / 1000) * 1000;
+      key = `composite:${tx.id}-${normalizedTimestamp}-${tx.amount}-${tx.asset}`;
+    }
+    
+    const existing = seen.get(key);
+    
+    if (!existing) {
+      // First occurrence - add it
+      seen.set(key, tx);
+    } else {
+      // Duplicate found - keep the one with more data
+      const existingScore = getTransactionDataScore(existing);
+      const currentScore = getTransactionDataScore(tx);
+      
+      if (currentScore > existingScore) {
+        // Current transaction has more data - replace existing
+        seen.set(key, tx);
+      }
+      // Otherwise keep existing
+    }
+  }
+  
+  return Array.from(seen.values());
+}
+
+/**
+ * Calculate a "data score" for a transaction based on how much information it contains.
+ * Higher score = more complete data.
+ */
+function getTransactionDataScore(tx: Transaction): number {
+  let score = 0;
+  
+  if (tx.hash) score += 10;
+  if (tx.comment) score += 5;
+  if (tx.counterpartyUsername) score += 5;
+  if (tx.address) score += 3;
+  if (tx.fee) score += 2;
+  if (tx.status === 'completed') score += 1;
+  
+  return score;
+}
+
 export const useTransactions = () => {
   const { address, network, userProfile } = useWallet();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -42,51 +106,34 @@ export const useTransactions = () => {
 
       const userId = userProfile?.id ?? null;
 
-      console.log(`📜 Fetching transactions for ${address} on ${network}...`);
+      console.log(`📜 Fetching transactions for ${address} on ${network}... userId: ${userId}`);
 
-      // Setup baseline tracking targets
-      const fetchPromises: Promise<any>[] = [
-        fetch(`${tonApiEndpoint}/blockchain/accounts/${address}/transactions?limit=50`, {
+      // ── Fetch TON + RZC in parallel ───────────────────────────────────────────
+      const tonPromise = fetch(`${tonApiEndpoint}/blockchain/accounts/${address}/transactions?limit=50`, {
           headers: { 'Authorization': `Bearer ${config.TONAPI_KEY}` }
-        }),
-        userId
-          ? (async () => {
-              const client = supabaseService.getClient();
-              if (!client) return { data: [], error: null };
-              return await client.from('rzc_transactions')
-                .select('*')
-                .eq('user_id', userId)
-                .order('created_at', { ascending: false })
-                .limit(50);
-            })()
-          : Promise.resolve({ data: [], error: null })
-      ];
+      }).then(res => res.ok ? res.json() : Promise.reject(new Error(`TonAPI error: ${res.status}`)));
 
-      // Integrate WDK Indexer REST API for Multi-Chain workflows dynamically
-      const { WalletManager } = await import('../utils/walletManager');
-      const allWallets = WalletManager.getWallets();
-      // Secondary wallet exists independently — find it regardless of which wallet is active
-      const multiWallet = allWallets.find(w => w.type === 'secondary');
+      const rzcPromise = (async () => {
+          if (!userId) return { data: [], error: null };
+          const client = supabaseService.getClient();
+          if (!client) return { data: [], error: null };
+          try {
+            return await client
+              .from('rzc_transactions')
+              .select('*')
+              .eq('user_id', userId)
+              .order('created_at', { ascending: false })
+              .limit(50);
+          } catch (e) {
+            console.warn('[useTransactions] RZC fetch error:', e);
+            return { data: [], error: e };
+          }
+      })();
 
-      if (multiWallet && multiWallet.addresses) {
-        // Use public block explorers instead of WDK indexer (more reliable, no API key needed)
-        if (multiWallet.addresses.evm) {
-          fetchPromises.push(
-            fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${multiWallet.addresses.evm}&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken`)
-              .then(res => res.ok ? res.json() : { result: [] })
-              .catch(() => ({ result: [] }))
-          );
-        }
-        if (multiWallet.addresses.btc) {
-          fetchPromises.push(
-            fetch(`https://mempool.space/api/address/${multiWallet.addresses.btc}/txs`)
-              .then(res => res.ok ? res.json() : [])
-              .catch(() => [])
-          );
-        }
-      }
-
-      const results = await Promise.allSettled(fetchPromises);
+      const results = await Promise.allSettled([
+        tonPromise,
+        rzcPromise
+      ]);
       const tonResponse = results[0];
       const rzcResult = results[1];
 
@@ -95,49 +142,44 @@ export const useTransactions = () => {
       let tonFetchError: string | null = null;
 
       if (tonResponse.status === 'fulfilled') {
-        if (tonResponse.value.ok) {
-          const data = await tonResponse.value.json();
-          for (const tx of data.transactions ?? []) {
-            const isOutgoing = tx.out_msgs && tx.out_msgs.length > 0;
-            const isIncoming = tx.in_msg && tx.in_msg.value > 0;
+        const data = tonResponse.value;
+        for (const tx of data.transactions ?? []) {
+          const isOutgoing = tx.out_msgs && tx.out_msgs.length > 0;
+          const isIncoming = tx.in_msg && tx.in_msg.value > 0;
 
-            let type: Transaction['type'] = 'receive';
-            if (isOutgoing) type = 'send';
-            else if (isIncoming) type = 'receive';
+          let type: Transaction['type'] = 'receive';
+          if (isOutgoing) type = 'send';
+          else if (isIncoming) type = 'receive';
 
-            let amount = '0';
-            let targetAddress = '';
+          let amount = '0';
+          let targetAddress = '';
 
-            if (isOutgoing && tx.out_msgs[0]) {
-              amount = (Number(tx.out_msgs[0].value) / 1e9).toFixed(4);
-              targetAddress = tx.out_msgs[0].destination?.address || '';
-            } else if (isIncoming && tx.in_msg) {
-              amount = (Number(tx.in_msg.value) / 1e9).toFixed(4);
-              targetAddress = tx.in_msg.source?.address || '';
-            }
-
-            const fee = tx.total_fees ? (Number(tx.total_fees) / 1e9).toFixed(4) : '0';
-
-            let comment = '';
-            if (tx.in_msg?.decoded_body?.text) comment = tx.in_msg.decoded_body.text;
-            else if (tx.out_msgs?.[0]?.decoded_body?.text) comment = tx.out_msgs[0].decoded_body.text;
-
-            tonTransactions.push({
-              id: tx.hash || tx.lt,
-              type,
-              amount,
-              asset: 'TON',
-              timestamp: tx.utime * 1000,
-              status: tx.success ? 'completed' : 'failed',
-              address: targetAddress,
-              hash: tx.hash,
-              fee,
-              comment
-            });
+          if (isOutgoing && tx.out_msgs[0]) {
+            amount = (Number(tx.out_msgs[0].value) / 1e9).toFixed(4);
+            targetAddress = tx.out_msgs[0].destination?.address || '';
+          } else if (isIncoming && tx.in_msg) {
+            amount = (Number(tx.in_msg.value) / 1e9).toFixed(4);
+            targetAddress = tx.in_msg.source?.address || '';
           }
-        } else {
-          tonFetchError = `TonAPI error: ${tonResponse.value.status}`;
-          console.error('❌ TON transaction fetch failed:', tonFetchError);
+
+          const fee = tx.total_fees ? (Number(tx.total_fees) / 1e9).toFixed(4) : '0';
+
+          let comment = '';
+          if (tx.in_msg?.decoded_body?.text) comment = tx.in_msg.decoded_body.text;
+          else if (tx.out_msgs?.[0]?.decoded_body?.text) comment = tx.out_msgs[0].decoded_body.text;
+
+          tonTransactions.push({
+            id: tx.hash || tx.lt,
+            type,
+            amount,
+            asset: 'TON',
+            timestamp: tx.utime * 1000,
+            status: tx.success ? 'completed' : 'failed',
+            address: targetAddress,
+            hash: tx.hash,
+            fee,
+            comment
+          });
         }
       } else {
         tonFetchError = tonResponse.reason?.message || 'Network error';
@@ -209,68 +251,15 @@ export const useTransactions = () => {
         console.error('❌ RZC fetch promise rejected:', rzcResult.reason);
       }
 
-      // --- Multi-Chain transactions from public explorers ---
-      const multiChainTransactions: Transaction[] = [];
+      // Merge, deduplicate, and sort by timestamp descending
+      const merged = [...tonTransactions, ...rzcTransactions];
+      const deduplicated = deduplicateTransactions(merged);
+      const sorted = deduplicated.sort((a, b) => b.timestamp - a.timestamp);
 
-      // EVM (Etherscan-compatible)
-      if (results.length > 2 && results[2].status === 'fulfilled') {
-        const evmData = results[2].value?.result;
-        if (Array.isArray(evmData)) {
-          const evmAddr = multiWallet?.addresses?.evm?.toLowerCase();
-          for (const tx of evmData.slice(0, 20)) {
-            const isSend = tx.from?.toLowerCase() === evmAddr;
-            multiChainTransactions.push({
-              id: tx.hash,
-              type: isSend ? 'send' : 'receive',
-              amount: (Number(tx.value) / 1e18).toFixed(6),
-              asset: 'ETH',
-              timestamp: Number(tx.timeStamp) * 1000,
-              status: tx.isError === '0' ? 'completed' : 'failed',
-              address: isSend ? tx.to : tx.from,
-              hash: tx.hash,
-              fee: (Number(tx.gasUsed) * Number(tx.gasPrice) / 1e18).toFixed(6)
-            });
-          }
-        }
-      }
+      console.log(`✅ Fetched ${tonTransactions.length} TON + ${rzcTransactions.length} RZC transactions (${merged.length - deduplicated.length} duplicates removed)`);
+      setTransactions(sorted);
 
-      // BTC (mempool.space)
-      if (results.length > 3 && results[3].status === 'fulfilled') {
-        const btcData = results[3].value;
-        if (Array.isArray(btcData)) {
-          const btcAddr = multiWallet?.addresses?.btc;
-          for (const tx of btcData.slice(0, 20)) {
-            const sentSats = tx.vin?.filter((v: any) => v.prevout?.scriptpubkey_address === btcAddr)
-              .reduce((sum: number, v: any) => sum + (v.prevout?.value || 0), 0) || 0;
-            const receivedSats = tx.vout?.filter((v: any) => v.scriptpubkey_address === btcAddr)
-              .reduce((sum: number, v: any) => sum + (v.value || 0), 0) || 0;
-            const isSend = sentSats > receivedSats;
-            const netSats = Math.abs(receivedSats - sentSats);
-            multiChainTransactions.push({
-              id: tx.txid,
-              type: isSend ? 'send' : 'receive',
-              amount: (netSats / 1e8).toFixed(8),
-              asset: 'BTC',
-              timestamp: tx.status?.block_time ? tx.status.block_time * 1000 : Date.now(),
-              status: tx.status?.confirmed ? 'completed' : 'pending',
-              address: isSend
-                ? tx.vout?.find((v: any) => v.scriptpubkey_address !== btcAddr)?.scriptpubkey_address
-                : tx.vin?.[0]?.prevout?.scriptpubkey_address,
-              hash: tx.txid
-            });
-          }
-        }
-      }
-
-      // Merge and sort by timestamp descending
-      const merged = [...tonTransactions, ...rzcTransactions, ...multiChainTransactions].sort(
-        (a, b) => b.timestamp - a.timestamp
-      );
-
-      console.log(`✅ Fetched ${tonTransactions.length} TON + ${rzcTransactions.length} RZC transactions`);
-      setTransactions(merged);
-
-      if (merged.length === 0 && tonFetchError) {
+      if (sorted.length === 0 && tonFetchError) {
         setError('Failed to load transactions');
       }
     } catch (err) {
@@ -284,17 +273,17 @@ export const useTransactions = () => {
 
   useEffect(() => {
     fetchTransactions();
-    // Auto-refresh every 60s for new incoming transactions
-    const interval = setInterval(() => fetchTransactions(), 60_000);
+    // Auto-refresh every 30s for new incoming transactions
+    const interval = setInterval(() => fetchTransactions(), 30_000);
     return () => clearInterval(interval);
   }, [fetchTransactions, refreshTick]);
 
-  // Re-fetch once userProfile becomes available (loads after address)
+  // Re-fetch when userProfile becomes available — RZC transactions need userId
   useEffect(() => {
     if (userProfile?.id && address) {
       fetchTransactions();
     }
-  }, [userProfile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userProfile?.id, address]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshTransactions = useCallback((delayMs?: number) => {
     if (delayMs) {

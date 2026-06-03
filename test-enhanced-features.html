@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced WDK Features Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .feature-card {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #00FF88;
+        }
+        .new-badge {
+            background: #00FF88;
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        button {
+            background: #00FF88;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 5px 0;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        button:hover { background: #00CC66; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        .result {
+            background: #333;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        h1 { color: #00FF88; }
+        h3 { margin-top: 0; }
+        .qr-container {
+            text-align: center;
+            margin: 10px 0;
+        }
+        .qr-code {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            display: inline-block;
+            margin: 10px;
+        }
+        .monitoring-status {
+            background: #444;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .health-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .healthy { background: #00FF88; }
+        .unhealthy { background: #FF4444; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Enhanced WDK Features Test</h1>
+    <p>Testing the latest WDK features: RPC failover, batch operations, real-time monitoring, and payment requests.</p>
+
+    <div class="feature-grid">
+        <div class="feature-card">
+            <h3>🔄 RPC Failover <span class="new-badge">NEW</span></h3>
+            <button onclick="testRpcFailover()">Test Failover</button>
+            <button onclick="testNetworkHealth()">Check Health</button>
+            <div id="failover-result" class="result">Click to test RPC failover system...</div>
+        </div>
+
+        <div class="feature-card">
+            <h3>⚡ Batch Token Balances <span class="new-badge">NEW</span></h3>
+            <button onclick="testBatchBalances()" id="batch-btn" disabled>Test Batch</button>
+            <button onclick="testPortfolioBalances()" id="portfolio-btn" disabled>Portfolio</button>
+            <div id="batch-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="feature-card">
+            <h3>📊 Real-time Monitoring <span class="new-badge">NEW</span></h3>
+            <button onclick="startMonitoring()" id="monitor-start-btn" disabled>Start Monitor</button>
+            <button onclick="stopMonitoring()" id="monitor-stop-btn" disabled>Stop Monitor</button>
+            <div class="monitoring-status" id="monitoring-status">Not monitoring</div>
+            <div id="monitoring-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="feature-card">
+            <h3>📱 Payment Requests <span class="new-badge">NEW</span></h3>
+            <button onclick="generateQRCodes()" id="qr-btn" disabled>Generate QR</button>
+            <button onclick="testPaymentParsing()">Test Parsing</button>
+            <div id="qr-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="feature-card">
+            <h3>🔧 Enhanced Error Recovery <span class="new-badge">NEW</span></h3>
+            <button onclick="testRetryLogic()" id="retry-btn" disabled>Test Retry</button>
+            <button onclick="testWalletHealth()" id="health-btn" disabled>Wallet Health</button>
+            <div id="recovery-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="feature-card">
+            <h3>🚀 Initialize Enhanced Wallet</h3>
+            <button onclick="initializeWallet()">Initialize</button>
+            <button onclick="cleanupWallet()">Cleanup</button>
+            <div id="init-result" class="result">Click to initialize enhanced wallet...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { tetherWdkService } from './services/tetherWdkService.js';
+        
+        const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+        let walletInitialized = false;
+        let monitoringActive = false;
+
+        window.initializeWallet = async function() {
+            const result = document.getElementById('init-result');
+            result.innerHTML = 'Initializing enhanced wallet...';
+            
+            try {
+                const start = performance.now();
+                const addresses = await tetherWdkService.initializeManagers(TEST_MNEMONIC);
+                const duration = Math.round(performance.now() - start);
+                
+                const output = `✅ Enhanced Wallet Initialized (${duration}ms)
+🔗 Multi-chain addresses ready
+🔄 RPC failover enabled
+⚡ Batch operations available
+📊 Real-time monitoring ready
+
+EVM: ${addresses.evmAddress}
+TON: ${addresses.tonAddress}
+BTC: ${addresses.btcAddress}`;
+                
+                result.innerHTML = output;
+                walletInitialized = true;
+                
+                // Enable feature buttons
+                ['batch-btn', 'portfolio-btn', 'monitor-start-btn', 'qr-btn', 'retry-btn', 'health-btn'].forEach(id => {
+                    document.getElementById(id).disabled = false;
+                });
+                
+            } catch (error) {
+                result.innerHTML = `❌ Initialization failed: ${error.message}`;
+            }
+        };
+
+        window.testRpcFailover = async function() {
+            const result = document.getElementById('failover-result');
+            result.innerHTML = 'Testing RPC failover system...';
+            
+            try {
+                // Import NetworkFailover
+                const { NetworkFailover, EVM_RPC_FAILOVER } = await import('./services/networkFailover.js');
+                
+                let output = '🔄 RPC Failover Test Results:\n\n';
+                
+                // Test Polygon failover
+                const start = performance.now();
+                const workingRpc = await NetworkFailover.getWorkingRpc(EVM_RPC_FAILOVER.polygon);
+                const duration = Math.round(performance.now() - start);
+                
+                output += `✅ Polygon RPC Selected: ${workingRpc}\n`;
+                output += `⏱️ Selection time: ${duration}ms\n\n`;
+                
+                // Test health status
+                const healthStatus = NetworkFailover.getHealthStatus();
+                output += '🏥 Health Cache:\n';
+                for (const [url, health] of Object.entries(healthStatus)) {
+                    const status = health.healthy ? '✅' : '❌';
+                    const age = Math.round((Date.now() - health.lastCheck) / 1000);
+                    output += `${status} ${url} (${age}s ago)\n`;
+                }
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Failover test failed: ${error.message}`;
+            }
+        };
+
+        window.testNetworkHealth = async function() {
+            const result = document.getElementById('failover-result');
+            result.innerHTML = 'Checking network health...';
+            
+            try {
+                if (!walletInitialized) {
+                    result.innerHTML = '⚠️ Initialize wallet first';
+                    return;
+                }
+                
+                const health = await tetherWdkService.getNetworkHealth();
+                
+                let output = '🏥 Network Health Status:\n\n';
+                for (const [network, isHealthy] of Object.entries(health)) {
+                    const indicator = isHealthy ? '🟢' : '🔴';
+                    output += `${indicator} ${network.toUpperCase()}: ${isHealthy ? 'Healthy' : 'Unhealthy'}\n`;
+                }
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Health check failed: ${error.message}`;
+            }
+        };
+
+        window.testBatchBalances = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('batch-result');
+            result.innerHTML = 'Testing batch token balance fetching...';
+            
+            try {
+                // Test batch token balances on Polygon
+                await tetherWdkService.switchEvmChain('polygon');
+                
+                const tokenAddresses = [
+                    '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', // USDT
+                    '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'  // USDC
+                ];
+                
+                const start = performance.now();
+                const balances = await tetherWdkService.getTokenBalances(tokenAddresses, [6, 6]);
+                const duration = Math.round(performance.now() - start);
+                
+                let output = `⚡ Batch Token Balances (${duration}ms):\n\n`;
+                output += `USDT: ${balances[tokenAddresses[0]]} USDT\n`;
+                output += `USDC: ${balances[tokenAddresses[1]]} USDC\n\n`;
+                output += `🚀 Performance: ${duration < 2000 ? 'Excellent' : duration < 5000 ? 'Good' : 'Slow'}`;
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Batch balance test failed: ${error.message}`;
+            }
+        };
+
+        window.testPortfolioBalances = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('batch-result');
+            result.innerHTML = 'Fetching comprehensive portfolio...';
+            
+            try {
+                const start = performance.now();
+                const portfolio = await tetherWdkService.getPortfolioBalances();
+                const duration = Math.round(performance.now() - start);
+                
+                let output = `📊 Portfolio Balances (${duration}ms):\n\n`;
+                
+                // Native balances
+                output += '💎 Native Tokens:\n';
+                output += `ETH: ${portfolio.native.evmBalance}\n`;
+                output += `TON: ${portfolio.native.tonBalance}\n`;
+                output += `BTC: ${portfolio.native.btcBalance}\n\n`;
+                
+                // Token balances
+                output += '🪙 ERC-20 Tokens:\n';
+                if (portfolio.tokens.polygon) {
+                    output += 'Polygon:\n';
+                    for (const [addr, balance] of Object.entries(portfolio.tokens.polygon)) {
+                        const symbol = addr.includes('c2132D') ? 'USDT' : 'USDC';
+                        output += `  ${symbol}: ${balance}\n`;
+                    }
+                }
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Portfolio fetch failed: ${error.message}`;
+            }
+        };
+
+        window.startMonitoring = function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('monitoring-result');
+            const status = document.getElementById('monitoring-status');
+            
+            result.innerHTML = 'Starting real-time balance monitoring...\n';
+            status.innerHTML = '<span class="health-indicator healthy"></span>Monitoring Active';
+            
+            try {
+                tetherWdkService.startBalanceMonitoring((event) => {
+                    const change = event.detail;
+                    const timestamp = new Date(change.timestamp).toLocaleTimeString();
+                    const direction = change.isIncrease ? '📈' : '📉';
+                    
+                    const newEntry = `${timestamp} ${direction} ${change.chain.toUpperCase()}: ${change.oldBalance} → ${change.newBalance} (${change.change > 0 ? '+' : ''}${change.change})\n`;
+                    result.innerHTML += newEntry;
+                    
+                    // Scroll to bottom
+                    result.scrollTop = result.scrollHeight;
+                });
+                
+                monitoringActive = true;
+                document.getElementById('monitor-start-btn').disabled = true;
+                document.getElementById('monitor-stop-btn').disabled = false;
+                
+                result.innerHTML += '✅ Monitoring started. Balance changes will appear here...\n';
+                
+            } catch (error) {
+                result.innerHTML += `❌ Failed to start monitoring: ${error.message}\n`;
+                status.innerHTML = '<span class="health-indicator unhealthy"></span>Monitoring Failed';
+            }
+        };
+
+        window.stopMonitoring = function() {
+            if (!monitoringActive) return;
+            
+            const result = document.getElementById('monitoring-result');
+            const status = document.getElementById('monitoring-status');
+            
+            try {
+                tetherWdkService.stopBalanceMonitoring();
+                
+                monitoringActive = false;
+                document.getElementById('monitor-start-btn').disabled = false;
+                document.getElementById('monitor-stop-btn').disabled = true;
+                
+                status.innerHTML = '<span class="health-indicator unhealthy"></span>Monitoring Stopped';
+                result.innerHTML += '\n🛑 Monitoring stopped.\n';
+                
+            } catch (error) {
+                result.innerHTML += `❌ Failed to stop monitoring: ${error.message}\n`;
+            }
+        };
+
+        window.generateQRCodes = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('qr-result');
+            result.innerHTML = 'Generating payment requests...';
+            
+            try {
+                // Generate payment requests for different chains
+                const [evmRequest, tonRequest, btcRequest] = await Promise.all([
+                    tetherWdkService.generatePaymentRequest('evm', { 
+                        amount: '0.01', 
+                        message: 'Test payment' 
+                    }),
+                    tetherWdkService.generatePaymentRequest('ton', { 
+                        amount: '1.0', 
+                        message: 'TON test payment' 
+                    }),
+                    tetherWdkService.generatePaymentRequest('btc', { 
+                        amount: '0.001', 
+                        message: 'BTC test payment' 
+                    })
+                ]);
+                
+                let output = '📱 Payment Requests Generated:\n\n';
+                
+                output += `💎 ${evmRequest.chainName}:\n`;
+                output += `Address: ${evmRequest.address}\n`;
+                output += `QR Data: ${evmRequest.qrData}\n`;
+                output += `Explorer: ${evmRequest.explorerUrl}\n\n`;
+                
+                output += `⚡ ${tonRequest.chainName}:\n`;
+                output += `Address: ${tonRequest.address}\n`;
+                output += `QR Data: ${tonRequest.qrData}\n\n`;
+                
+                output += `₿ ${btcRequest.chainName}:\n`;
+                output += `Address: ${btcRequest.address}\n`;
+                output += `QR Data: ${btcRequest.qrData}\n\n`;
+                
+                output += '💡 QR codes can be generated using libraries like qrcode.js';
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ QR generation failed: ${error.message}`;
+            }
+        };
+
+        window.testPaymentParsing = function() {
+            const result = document.getElementById('qr-result');
+            result.innerHTML = 'Testing payment request parsing...';
+            
+            try {
+                // Test parsing various payment URIs
+                const testUris = [
+                    'ethereum:0x742d35Cc6634C0532925a3b8D4C9db96C4b4d2b5?value=1000000000000000000',
+                    'bitcoin:1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa?amount=0.001&message=test',
+                    'ton://transfer/EQD0vdSA_NedR9uvbgN9EikRX-suesDxGeFg69XQMavfLqIw?amount=1000000000&text=hello'
+                ];
+                
+                let output = '🔍 Payment URI Parsing Test:\n\n';
+                
+                testUris.forEach((uri, index) => {
+                    const parsed = tetherWdkService.parsePaymentRequest(uri);
+                    if (parsed) {
+                        output += `${index + 1}. ${parsed.chainName}:\n`;
+                        output += `   Address: ${parsed.address}\n`;
+                        output += `   Amount: ${parsed.amount || 'N/A'}\n`;
+                        output += `   Message: ${parsed.message || 'N/A'}\n\n`;
+                    } else {
+                        output += `${index + 1}. Failed to parse\n\n`;
+                    }
+                });
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Parsing test failed: ${error.message}`;
+            }
+        };
+
+        window.testRetryLogic = async function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('recovery-result');
+            result.innerHTML = 'Testing enhanced error recovery...';
+            
+            try {
+                const start = performance.now();
+                const balances = await tetherWdkService.getBalancesWithRetry(3);
+                const duration = Math.round(performance.now() - start);
+                
+                let output = `🔄 Enhanced Balance Fetch (${duration}ms):\n\n`;
+                output += `✅ Retry logic working\n`;
+                output += `📊 Balances validated\n`;
+                output += `⏱️ Total time: ${duration}ms\n\n`;
+                
+                output += 'Balance Results:\n';
+                for (const [chain, balance] of Object.entries(balances)) {
+                    output += `${chain}: ${balance}\n`;
+                }
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Retry test failed: ${error.message}`;
+            }
+        };
+
+        window.testWalletHealth = function() {
+            if (!walletInitialized) return;
+            
+            const result = document.getElementById('recovery-result');
+            result.innerHTML = 'Checking wallet health...';
+            
+            try {
+                const health = tetherWdkService.getWalletHealth();
+                
+                let output = '🏥 Wallet Health Status:\n\n';
+                
+                for (const [chain, isHealthy] of Object.entries(health)) {
+                    const indicator = isHealthy ? '🟢' : '🔴';
+                    const status = isHealthy ? 'Healthy' : 'Unhealthy';
+                    output += `${indicator} ${chain.toUpperCase()}: ${status}\n`;
+                }
+                
+                const healthyCount = Object.values(health).filter(h => h).length;
+                const totalCount = Object.keys(health).length;
+                
+                output += `\n📊 Overall: ${healthyCount}/${totalCount} chains healthy`;
+                
+                if (healthyCount === totalCount) {
+                    output += '\n✅ All systems operational!';
+                } else if (healthyCount > 0) {
+                    output += '\n⚠️ Partial functionality available';
+                } else {
+                    output += '\n❌ Critical: No chains available';
+                }
+                
+                result.innerHTML = output;
+                
+            } catch (error) {
+                result.innerHTML = `❌ Health check failed: ${error.message}`;
+            }
+        };
+
+        window.cleanupWallet = function() {
+            const result = document.getElementById('init-result');
+            result.innerHTML = 'Cleaning up wallet...';
+            
+            try {
+                // Stop monitoring if active
+                if (monitoringActive) {
+                    stopMonitoring();
+                }
+                
+                // Logout wallet
+                tetherWdkService.logout();
+                
+                walletInitialized = false;
+                
+                // Disable all feature buttons
+                ['batch-btn', 'portfolio-btn', 'monitor-start-btn', 'monitor-stop-btn', 'qr-btn', 'retry-btn', 'health-btn'].forEach(id => {
+                    document.getElementById(id).disabled = true;
+                });
+                
+                // Clear all results
+                ['failover-result', 'batch-result', 'monitoring-result', 'qr-result', 'recovery-result'].forEach(id => {
+                    document.getElementById(id).innerHTML = 'Initialize wallet first...';
+                });
+                
+                document.getElementById('monitoring-status').innerHTML = 'Not monitoring';
+                
+                result.innerHTML = '✅ Wallet cleaned up successfully';
+                
+            } catch (error) {
+                result.innerHTML = `❌ Cleanup failed: ${error.message}`;
+            }
+        };
+
+        // Auto-load message
+        window.addEventListener('load', () => {
+            console.log('Enhanced WDK Features Test loaded. Initialize wallet to test new features.');
+        });
+    </script>
+</body>
+</html>

@@ -549,6 +549,21 @@ const Landing: React.FC = () => {
                 Read Whitepaper
               </Link>
             </div>
+            
+            {/* Security Badge */}
+            <div className="flex items-center justify-center lg:justify-start gap-3 pt-4">
+              <Link 
+                to="/security"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/30 transition-all group"
+              >
+                <ShieldCheck size={16} className="text-green-600 dark:text-green-400" />
+                <div className="text-left">
+                  <div className="text-[9px] font-black text-green-700 dark:text-green-400 uppercase tracking-wider">Security Audited</div>
+                  <div className="text-[8px] text-green-600 dark:text-green-500 font-medium">7.1/10 Score • Production Ready</div>
+                </div>
+                <ChevronRight size={14} className="text-green-600 dark:text-green-400 group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </div>
           </div>
           <div className="hidden lg:block relative">
              <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent blur-3xl rounded-full animate-pulse" />
@@ -888,6 +903,138 @@ const Landing: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Security Audit Badge Section */}
+      <section className="px-6 lg:px-24 py-16 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-green-950/20 dark:via-emerald-950/20 dark:to-teal-950/20 border-y border-green-200 dark:border-green-800/30">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left: Security Badge */}
+            <div className="text-center lg:text-left space-y-6">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 text-[10px] font-black uppercase tracking-widest">
+                <ShieldCheck size={14} className="animate-pulse" /> Independently Audited
+              </div>
+              
+              <h2 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white tracking-tight">
+                Security You Can <span className="text-green-600 dark:text-green-400">Trust</span>
+              </h2>
+              
+              <p className="text-lg text-slate-600 dark:text-gray-300 font-medium leading-relaxed max-w-xl">
+                Our wallet has undergone a comprehensive security audit. All critical and high-priority vulnerabilities have been resolved, making RhizaCore production-ready and safe for your funds.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4 max-w-md">
+                <div className="p-4 bg-white dark:bg-black/20 border border-green-200 dark:border-green-800/30 rounded-2xl text-center">
+                  <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-1">7.1/10</div>
+                  <div className="text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-wider">Security Score</div>
+                </div>
+                <div className="p-4 bg-white dark:bg-black/20 border border-green-200 dark:border-green-800/30 rounded-2xl text-center">
+                  <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-1">50%</div>
+                  <div className="text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-wider">Issues Fixed</div>
+                </div>
+              </div>
+
+              <Link 
+                to="/security"
+                className="inline-flex items-center gap-3 px-8 py-4 bg-green-600 hover:bg-green-700 text-white font-black text-sm uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-lg shadow-green-600/20 group"
+              >
+                <ShieldCheck size={20} />
+                View Full Audit Report
+                <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </div>
+
+            {/* Right: Security Highlights */}
+            <div className="space-y-4">
+              <div className="p-6 bg-white dark:bg-black/20 border border-green-200 dark:border-green-800/30 rounded-2xl flex items-start gap-4 group hover:border-green-400 dark:hover:border-green-600 transition-all">
+                <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 flex items-center justify-center flex-shrink-0">
+                  <Check className="text-green-600 dark:text-green-400" size={24} />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                    All Critical Issues Resolved
+                    <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[9px] font-black rounded-full">0 REMAINING</span>
+                  </h4>
+                  <p className="text-sm text-slate-600 dark:text-gray-300 font-medium">
+                    3 critical vulnerabilities identified and fixed, including secure memory management and server-side rate limiting.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 bg-white dark:bg-black/20 border border-green-200 dark:border-green-800/30 rounded-2xl flex items-start gap-4 group hover:border-green-400 dark:hover:border-green-600 transition-all">
+                <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 flex items-center justify-center flex-shrink-0">
+                  <Check className="text-green-600 dark:text-green-400" size={24} />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                    All High-Priority Issues Fixed
+                    <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[9px] font-black rounded-full">0 REMAINING</span>
+                  </h4>
+                  <p className="text-sm text-slate-600 dark:text-gray-300 font-medium">
+                    4 high-risk issues resolved, including BIP39 validation, XSS prevention, and transaction replay protection.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 bg-white dark:bg-black/20 border border-green-200 dark:border-green-800/30 rounded-2xl flex items-start gap-4 group hover:border-green-400 dark:hover:border-green-600 transition-all">
+                <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 flex items-center justify-center flex-shrink-0">
+                  <ShieldCheck className="text-green-600 dark:text-green-400" size={24} />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                    Production Ready
+                    <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[9px] font-black rounded-full">APPROVED</span>
+                  </h4>
+                  <p className="text-sm text-slate-600 dark:text-gray-300 font-medium">
+                    Comprehensive audit completed April 2026. Wallet approved for production use with real user funds.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-300 dark:border-green-700 rounded-2xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Lock className="text-green-600 dark:text-green-400" size={20} />
+                    <div>
+                      <div className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">Security Categories</div>
+                      <div className="text-[10px] text-slate-600 dark:text-gray-400 font-medium">8 areas audited</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-black text-green-600 dark:text-green-400">10/20</div>
+                    <div className="text-[9px] text-slate-600 dark:text-gray-400 font-bold uppercase">Fixed</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Trust Indicators */}
+          <div className="mt-12 pt-12 border-t border-green-200 dark:border-green-800/30">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+              <div>
+                <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-2">600k</div>
+                <div className="text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-wider">PBKDF2 Iterations</div>
+                <div className="text-[9px] text-slate-500 dark:text-gray-500 mt-1">OWASP 2023 Standard</div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-2">AES-256</div>
+                <div className="text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-wider">Encryption</div>
+                <div className="text-[9px] text-slate-500 dark:text-gray-500 mt-1">Military Grade</div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-2">100%</div>
+                <div className="text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-wider">Non-Custodial</div>
+                <div className="text-[9px] text-slate-500 dark:text-gray-500 mt-1">You Own Your Keys</div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-2">24/7</div>
+                <div className="text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-wider">Monitoring</div>
+                <div className="text-[9px] text-slate-500 dark:text-gray-500 mt-1">Real-time Security</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Simplified "How it Works" */}
       <section id="about" className="px-6 lg:px-24 py-24 bg-black/[0.02] dark:bg-white/[0.02] border-y border-slate-200 dark:border-white/5 transition-colors">
@@ -1311,15 +1458,33 @@ const Landing: React.FC = () => {
               </ul>
             </div>
 
-            {/* Column 5: Legal */}
+            {/* Column 5: Legal & Security */}
             <div className="space-y-6">
               <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-900 dark:text-white">Governance</h4>
               <ul className="space-y-4">
                 <li><Link to="/privacy" className="text-sm text-slate-500 dark:text-gray-400 hover:text-primary transition-colors font-medium">Privacy Policy</Link></li>
                 <li><Link to="/terms" className="text-sm text-slate-500 dark:text-gray-400 hover:text-primary transition-colors font-medium">Terms of Service</Link></li>
-                <li><Link to="/security" className="text-sm text-slate-500 dark:text-gray-400 hover:text-primary transition-colors font-medium">Security Audit</Link></li>
                 <li><Link to="/compliance" className="text-sm text-slate-500 dark:text-gray-400 hover:text-primary transition-colors font-medium">Compliance</Link></li>
               </ul>
+              
+              {/* Prominent Security Audit Link */}
+              <div className="pt-4">
+                <Link 
+                  to="/security"
+                  className="block p-4 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-xl hover:border-green-400 dark:hover:border-green-600 transition-all group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck size={16} className="text-green-600 dark:text-green-400" />
+                    <span className="text-sm font-black text-slate-900 dark:text-white">Security Audit</span>
+                  </div>
+                  <div className="text-[10px] text-green-700 dark:text-green-400 font-bold mb-1">
+                    7.1/10 Score • Production Ready
+                  </div>
+                  <div className="text-[9px] text-slate-600 dark:text-gray-400 font-medium">
+                    All critical issues resolved ✓
+                  </div>
+                </Link>
+              </div>
             </div>
           </div>
 

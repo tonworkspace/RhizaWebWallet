@@ -10,6 +10,9 @@ export interface NetworkConfig {
   secondaryWalletAddress?: string;
   memo?: string;
   activationFeeUSD: number;
+  storeActivationFeeUSD: number; // Easter egg: lower threshold for store purchases
+  nodeActivationMilestoneUSD: number; // Full node benefits milestone
+  nodeActivationMilestoneRZC: number; // Progressive holding achievement based on RZC balance
   testNodeFeeTON?: number;
 }
 
@@ -26,15 +29,21 @@ export interface PaymentConfig {
 export const PAYMENT_CONFIG: PaymentConfig = {
   mainnet: {
     walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
-    secondaryWalletAddress: 'UQB2b3Ukq5akEQ-Vhu5xLZC_t1p-BiF0pCbpQcfPcecP_Uj8',
+    secondaryWalletAddress: 'UQB2b3Ukq5akEQ-Vhu5xLZC_t1p-BiF0pCbpQcecP_Uj8',
     memo: 'RhizaCore Payment',
-    activationFeeUSD: 18
+    activationFeeUSD: 18, // Direct activation package price
+    storeActivationFeeUSD: 5, // Easter egg: store purchases activate at $5 (cheaper minimum)
+    nodeActivationMilestoneUSD: 18, // Full node benefits at $18 total
+    nodeActivationMilestoneRZC: 5000 // Requires holding 5000 RZC to maintain node activation
   },
   testnet: {
     walletAddress: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
     secondaryWalletAddress: 'UQB2b3Ukq5akEQ-Vhu5xLZC_t1p-BiF0pCbpQcfPcecP_Uj8',
     memo: 'RhizaCore Test Payment',
     activationFeeUSD: 15,
+    storeActivationFeeUSD: 4, // Testnet: lower thresholds ($4 minimum)
+    nodeActivationMilestoneUSD: 15,
+    nodeActivationMilestoneRZC: 1000, // Lower RZC requirement for testnet
     testNodeFeeTON: 0.5
   }
 };
@@ -63,10 +72,31 @@ export const getPaymentMemo = (network: 'mainnet' | 'testnet'): string | undefin
 };
 
 /**
- * Get activation fee in USD for current network
+ * Get activation fee in USD for current network (direct activation package)
  */
 export const getActivationFeeUSD = (network: 'mainnet' | 'testnet'): number => {
   return PAYMENT_CONFIG[network].activationFeeUSD;
+};
+
+/**
+ * Get store activation fee in USD (Easter egg: lower threshold for store purchases)
+ */
+export const getStoreActivationFeeUSD = (network: 'mainnet' | 'testnet'): number => {
+  return PAYMENT_CONFIG[network].storeActivationFeeUSD;
+};
+
+/**
+ * Get node activation milestone in USD (full node benefits)
+ */
+export const getNodeActivationMilestoneUSD = (network: 'mainnet' | 'testnet'): number => {
+  return PAYMENT_CONFIG[network].nodeActivationMilestoneUSD;
+};
+
+/**
+ * Get progressive node activation milestone in RZC holding balance
+ */
+export const getNodeActivationMilestoneRZC = (network: 'mainnet' | 'testnet'): number => {
+  return PAYMENT_CONFIG[network].nodeActivationMilestoneRZC;
 };
 
 /**

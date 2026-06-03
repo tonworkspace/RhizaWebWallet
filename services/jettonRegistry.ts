@@ -189,6 +189,27 @@ export function getJettonPrice(address: string): number | null {
   return getJettonRegistryData(address)?.rateUsd ?? null;
 }
 
+/**
+ * Get 24h price change percentage for a jetton
+ * Returns 0 if not found or no change data available
+ * 
+ * Note: Currently returns 0 for all jettons as we don't have real-time
+ * price change data in the registry. Future enhancement: integrate with
+ * CoinGecko or other price APIs for real-time 24h changes.
+ */
+export function getJettonPriceChange(address: string): number {
+  const data = getJettonRegistryData(address);
+  if (!data) return 0;
+  
+  // For stablecoins, return 0 (they don't change much)
+  const stablecoins = ['USDT', 'USDC', 'jUSDT', 'jUSDC'];
+  if (stablecoins.includes(data.symbol)) return 0;
+  
+  // For other tokens, return 0 for now
+  // TODO: Fetch real-time 24h change from CoinGecko or price API
+  return 0;
+}
+
 export function isJettonVerified(address: string): boolean {
   return getJettonRegistryData(address)?.verified ?? false;
 }

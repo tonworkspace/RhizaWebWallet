@@ -12,7 +12,7 @@ const RzcStore: React.FC = () => {
   const toast = useToast();
 
   return (
-    <div className="flex flex-col h-full min-h-screen bg-slate-50 dark:bg-black page-enter">
+    <div className="flex flex-col h-full min-h-screen bg-slate-50 dark:bg-black page-enter -mx-2 sm:-mx-4 lg:-mx-8">
       <StoreUI
         tonPrice={tonPrice || 0.1}
         rzcPrice={rzcPrice}

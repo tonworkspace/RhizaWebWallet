@@ -6,7 +6,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      base: process.env.NODE_ENV === 'production' ? '/RhizaWebWallet/' : '/',
+      base: process.env.NODE_ENV === 'production' ? '/' : '/',
       server: {
         port: 3000,
         host: '0.0.0.0',

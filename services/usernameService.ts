@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { supabaseService } from './supabaseService';
+import { tonWalletService } from './tonWalletService';
 
 export interface UsernameResolution {
   success: boolean;
@@ -95,7 +96,7 @@ class UsernameService {
 
       return {
         success: true,
-        walletAddress: data.wallet_address,
+        walletAddress: tonWalletService.formatAddress(data.wallet_address) || data.wallet_address,
         username: cleanUsername,
         name: data.name,
         avatar: data.avatar
@@ -137,7 +138,7 @@ class UsernameService {
 
       return {
         success: true,
-        walletAddress,
+        walletAddress: tonWalletService.formatAddress(walletAddress) || walletAddress,
         username: data.name,
         name: data.name,
         avatar: data.avatar
@@ -186,7 +187,7 @@ class UsernameService {
       return data.map(user => ({
         username: user.name,
         name: user.name,
-        walletAddress: user.wallet_address,
+        walletAddress: tonWalletService.formatAddress(user.wallet_address) || user.wallet_address,
         avatar: user.avatar
       }));
     } catch (error) {

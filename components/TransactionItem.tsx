@@ -139,7 +139,11 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, onClick 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-sm text-slate-900 dark:text-white capitalize">
-                {transaction.type}
+                {transaction.type === 'purchase' && isRzc
+                  ? (transaction.comment || 'Earned')
+                  : transaction.type === 'purchase'
+                  ? 'Purchased'
+                  : transaction.type}
               </span>
               {(isRzc || isEvm || isBtc) && (
                 <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md ${getAssetBadgeColor()}`}>
@@ -160,10 +164,10 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, onClick 
               )}
             </div>
             <div className="text-xs text-slate-500 dark:text-gray-400 font-medium truncate">
-              {transaction.comment ? (
-                <span className="italic text-[8px]">"{transaction.comment}"</span>
-              ) : transaction.counterpartyUsername ? (
+              {transaction.counterpartyUsername ? (
                 <span>{transaction.type === 'send' ? 'To' : 'From'}: @{transaction.counterpartyUsername}</span>
+              ) : transaction.comment && !isRzc ? (
+                <span className="italic text-[10px]">"{transaction.comment}"</span>
               ) : transaction.address ? (
                 formatAddress(transaction.address)
               ) : (

@@ -8,12 +8,14 @@ import { Wallet as WalletIcon, AlertCircle, Check, Percent, Users, X, ShieldChec
 import { QRCodeSVG } from 'qrcode.react';
 import { notificationService } from '../services/notificationService';
 import { supabaseService } from '../services/supabaseService';
+import { invoiceService, PaymentInvoice } from '../services/invoiceService';
 import { getNetworkConfig } from '../constants';
 import { getPaymentAddress, getSecondaryPaymentAddress } from '../config/paymentConfig';
+import PaymentInvoiceModal from './PaymentInvoiceModal';
 
 const GlobalPurchaseModal: React.FC = () => {
   const { isPurchaseModalOpen, closePurchaseModal, selectedPackage: pkg, onSuccessCallback } = usePurchaseModal();
-  const { address, network } = useWallet();
+  const { address, network, refreshData } = useWallet();
   const { tonBalance, tonPrice } = useBalance();
   const { success } = useToast();
   
@@ -22,6 +24,11 @@ const GlobalPurchaseModal: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [sponsorWallet, setSponsorWallet] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // Invoice state
+  const [currentInvoice, setCurrentInvoice] = useState<PaymentInvoice | null>(null);
+  const [showInvoice, setShowInvoice] = useState(false);
+  const currentInvoiceRef = useRef<PaymentInvoice | null>(null);
 
   // Manual payment mode state
   const [checkoutMode, setCheckoutMode] = useState<'auto' | 'manual'>('auto');
@@ -33,6 +40,9 @@ const GlobalPurchaseModal: React.FC = () => {
 
   // Pick one address randomly when modal opens — stays fixed for the session
   const assignedPaymentAddr = useRef<string>('');
+  // State flag so invoice creation waits until address is assigned
+  const [paymentAddrReady, setPaymentAddrReady] = useState(false);
+
   useEffect(() => {
     if (isPurchaseModalOpen && !assignedPaymentAddr.current) {
       const net = network as 'mainnet' | 'testnet';
@@ -40,9 +50,11 @@ const GlobalPurchaseModal: React.FC = () => {
       const secondary = getSecondaryPaymentAddress(net);
       const pool = secondary ? [primary, secondary] : [primary];
       assignedPaymentAddr.current = pool[Math.floor(Math.random() * pool.length)];
+      setPaymentAddrReady(true); // trigger invoice creation
     }
     if (!isPurchaseModalOpen) {
       assignedPaymentAddr.current = '';
+      setPaymentAddrReady(false);
     }
   }, [isPurchaseModalOpen, network]);
 
@@ -67,14 +79,86 @@ const GlobalPurchaseModal: React.FC = () => {
     fetchSponsor();
   }, [address, isPurchaseModalOpen]);
 
-  // Stop polling when modal closes
+  // Create invoice when modal opens — persistent payment record
+  useEffect(() => {
+    const createInvoice = async () => {
+      if (!isPurchaseModalOpen || !pkg || !address || !assignedPaymentAddr.current) return;
+      if (currentInvoiceRef.current) return; // already created
+
+      const totalCost = pkg.pricePoint + pkg.activationFee;
+      let totalCostTON: number;
+      const isValidTonPrice = tonPrice !== undefined && tonPrice > 0 && isFinite(tonPrice) && !isNaN(tonPrice);
+
+      if (pkg.id === 'test-001') {
+        totalCostTON = pkg.activationFee > 0 ? pkg.activationFee : 0.2;
+      } else if (pkg.id === 'activation-only') {
+        totalCostTON = isValidTonPrice ? pkg.activationFee / tonPrice : pkg.activationFee / 2.45;
+      } else {
+        totalCostTON = isValidTonPrice ? totalCost / tonPrice : totalCost / 2.45;
+      }
+
+      if (isNaN(totalCostTON) || !isFinite(totalCostTON) || totalCostTON <= 0) {
+        totalCostTON = pkg.id === 'test-001' ? 0.2 : pkg.id === 'activation-only' ? pkg.activationFee / 2.45 : totalCost / 2.45;
+      }
+
+      const validTonPrice = isValidTonPrice ? tonPrice : 2.45;
+      const commissionTon = sponsorWallet ? parseFloat((totalCostTON * 0.10).toFixed(6)) : 0;
+      const platformTon = sponsorWallet ? parseFloat((totalCostTON - commissionTon).toFixed(6)) : totalCostTON;
+
+      try {
+        const profileResult = await supabaseService.getProfile(address);
+        const userId = profileResult.success && profileResult.data ? profileResult.data.id : null;
+
+        const invoice = await invoiceService.createInvoice({
+          walletAddress: address,
+          userId,
+          packageId: pkg.id,
+          packageName: pkg.tierName,
+          priceUsd: pkg.pricePoint,
+          activationFeeUsd: pkg.activationFee,
+          totalUsd: totalCost,
+          totalTon: totalCostTON,
+          tonPriceUsd: validTonPrice,
+          rzcReward: pkg.rzcReward,
+          paymentAddress: assignedPaymentAddr.current,
+          referrerWallet: sponsorWallet,
+          commissionTon,
+          platformTon,
+          network: network as string,
+          paymentMethod: checkoutMode,
+        });
+
+        if (invoice) {
+          setCurrentInvoice(invoice);
+          currentInvoiceRef.current = invoice;
+          console.log('[Purchase] Invoice created:', invoice.invoice_number);
+        }
+      } catch (err) {
+        console.error('[Purchase] Invoice creation failed:', err);
+      }
+    };
+
+    createInvoice();
+  // paymentAddrReady ensures assignedPaymentAddr.current is set before this runs
+  }, [paymentAddrReady, pkg, address, sponsorWallet, tonPrice, network, checkoutMode]);
+
+  // Stop polling when modal closes — show invoice if payment in progress
   useEffect(() => {
     if (!isPurchaseModalOpen) {
+      // If user closes during payment, show invoice modal
+      if (currentInvoiceRef.current && (processing || pollStatus === 'polling')) {
+        setShowInvoice(true);
+      }
       stopPolling();
       setCheckoutMode('auto');
       setPollStatus('idle');
+      // Clear invoice ref for next session
+      setTimeout(() => {
+        currentInvoiceRef.current = null;
+        setCurrentInvoice(null);
+      }, 500);
     }
-  }, [isPurchaseModalOpen]);
+  }, [isPurchaseModalOpen, processing, pollStatus]);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
@@ -104,6 +188,11 @@ const GlobalPurchaseModal: React.FC = () => {
     if (!address) return;
     stopPolling();
     setPollStatus('polling');
+
+    // Update invoice to processing (manual payment)
+    if (currentInvoiceRef.current) {
+      await invoiceService.updateStatus(currentInvoiceRef.current.id, 'processing', { paymentMethod: 'manual' });
+    }
 
     const POLL_INTERVAL_MS = 5000;
     const POLL_TIMEOUT_MS  = 10 * 60 * 1000;
@@ -206,18 +295,40 @@ const GlobalPurchaseModal: React.FC = () => {
     let validTonPrice = tonPrice;
     if (!isValidTonPrice) validTonPrice = 2.45;
 
-    await notificationService.logActivity(
-      address, 'transaction_sent',
-      `Purchased ${pkg.tierName} - ${totalCostTON.toFixed(4)} TON`,
-      { package_id: pkg.id, package_name: pkg.tierName, amount_ton: totalCostTON,
-        amount_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
-        rzc_reward: pkg.rzcReward, transaction_hash: txHash, network }
+    // Update invoice to completed
+    if (currentInvoiceRef.current) {
+      await invoiceService.updateStatus(currentInvoiceRef.current.id, 'completed', { txHash });
+    }
+
+    // ── AUDIT FIX #1: Non-blocking notification calls ────────────────────────
+    // Wrap notifications in try-catch to prevent blocking activation flow
+    const logNotification = async (fn: () => Promise<any>, context: string) => {
+      try {
+        await fn();
+      } catch (notifErr) {
+        console.warn(`[Notification] ${context} failed (non-blocking):`, notifErr);
+      }
+    };
+
+    // Fire notifications in background (don't await)
+    logNotification(
+      () => notificationService.logActivity(
+        address, 'transaction_sent',
+        `Purchased ${pkg.tierName} - ${totalCostTON.toFixed(4)} TON`,
+        { package_id: pkg.id, package_name: pkg.tierName, amount_ton: totalCostTON,
+          amount_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
+          rzc_reward: pkg.rzcReward, transaction_hash: txHash, network }
+      ),
+      'transaction_sent activity'
     );
 
-    await notificationService.createNotification(
-      address, 'transaction_confirmed', 'Payment Successful',
-      `Your payment of ${totalCostTON.toFixed(4)} TON for ${pkg.tierName} was successful.`,
-      { priority: 'high', data: { txHash, package: pkg.tierName } }
+    logNotification(
+      () => notificationService.createNotification(
+        address, 'transaction_confirmed', 'Payment Successful',
+        `Your payment of ${totalCostTON.toFixed(4)} TON for ${pkg.tierName} was successful.`,
+        { priority: 'high', data: { txHash, package: pkg.tierName } }
+      ),
+      'transaction_confirmed notification'
     );
 
     let activationAddress = address;
@@ -226,23 +337,32 @@ const GlobalPurchaseModal: React.FC = () => {
       activationAddress = Address.parse(address).toString({ bounceable: false, testOnly: network === 'testnet' });
     } catch { /* use as-is */ }
 
-    const activated = await supabaseService.activateWallet(activationAddress, {
-      activation_fee_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
-      activation_fee_ton: totalCostTON,
-      ton_price: validTonPrice,
-      transaction_hash: txHash
-    });
-
-    if (!activated) throw new Error('Failed to activate wallet');
-
-    await notificationService.logActivity(
-      address, 'wallet_created', 'Wallet activated successfully',
-      { activation_fee_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
-        activation_fee_ton: totalCostTON, package_purchased: pkg.tierName, transaction_hash: txHash }
-    );
-
+    // ── AUDIT FIX #2: Parallelize critical operations ────────────────────────
+    // Execute wallet activation and RZC reward in parallel for faster completion
     try {
-      const profileResult = await supabaseService.getProfile(address);
+      const [activated, profileResult] = await Promise.all([
+        supabaseService.activateWallet(activationAddress, {
+          activation_fee_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
+          activation_fee_ton: totalCostTON,
+          ton_price: validTonPrice,
+          transaction_hash: txHash
+        }),
+        supabaseService.getProfile(address)
+      ]);
+
+      if (!activated) throw new Error('Failed to activate wallet');
+
+      // Background notification (non-blocking)
+      logNotification(
+        () => notificationService.logActivity(
+          address, 'wallet_created', 'Wallet activated successfully',
+          { activation_fee_usd: pkg.pricePoint > 0 ? totalCost : pkg.activationFee * validTonPrice,
+            activation_fee_ton: totalCostTON, package_purchased: pkg.tierName, transaction_hash: txHash }
+        ),
+        'wallet_created activity'
+      );
+
+      // Award RZC tokens if profile exists
       if (profileResult.success && profileResult.data) {
         const userId = profileResult.data.id;
         const rewardResult = await supabaseService.awardRZCTokens(
@@ -254,66 +374,85 @@ const GlobalPurchaseModal: React.FC = () => {
         );
 
         if (rewardResult.success) {
-          await notificationService.logActivity(
-            address, 'reward_claimed',
-            `Received ${pkg.rzcReward.toLocaleString()} RZC from ${pkg.tierName}`,
-            { amount: pkg.rzcReward, type: pkg.id === 'activation-only' ? 'activation_bonus' : 'package_purchase',
-              package_name: pkg.tierName, new_balance: rewardResult.newBalance }
-          );
-          await notificationService.createNotification(
-            address, 'reward_claimed', 'RZC Tokens Awarded',
-            `You received ${pkg.rzcReward.toLocaleString()} RZC tokens for purchasing ${pkg.tierName}!`,
-            { priority: 'normal', data: { amount: pkg.rzcReward, package: pkg.tierName } }
+          // Background notifications (non-blocking)
+          logNotification(
+            () => notificationService.logActivity(
+              address, 'reward_claimed',
+              `Received ${pkg.rzcReward.toLocaleString()} RZC from ${pkg.tierName}`,
+              { amount: pkg.rzcReward, type: pkg.id === 'activation-only' ? 'activation_bonus' : 'package_purchase',
+                package_name: pkg.tierName, new_balance: rewardResult.newBalance }
+            ),
+            'reward_claimed activity'
           );
 
+          logNotification(
+            () => notificationService.createNotification(
+              address, 'reward_claimed', 'RZC Tokens Awarded',
+              `You received ${pkg.rzcReward.toLocaleString()} RZC tokens for purchasing ${pkg.tierName}!`,
+              { priority: 'normal', data: { amount: pkg.rzcReward, package: pkg.tierName } }
+            ),
+            'reward_claimed notification'
+          );
+
+          // ── AUDIT FIX #3: Non-blocking commission processing ──────────────
+          // Process commissions in background without blocking user success
           const commissionPrice = pkg.pricePoint > 0 ? pkg.pricePoint : pkg.activationFee;
           if (commissionPrice > 0) {
-            try {
-              const client = supabaseService.getClient();
-              if (client) {
-                const commissionResult = await client.rpc('award_package_purchase_commission', {
+            const client = supabaseService.getClient();
+            if (client) {
+              // Fire and forget commission processing
+              Promise.all([
+                client.rpc('award_package_purchase_commission', {
                   p_buyer_user_id: userId, p_package_price_usd: commissionPrice,
                   p_package_name: pkg.tierName, p_transaction_hash: txHash
-                });
-                if (commissionResult.data?.length > 0 && commissionResult.data[0].success) {
-                  const commission = commissionResult.data[0];
-                  try {
+                }).then(async (commissionResult) => {
+                  if (commissionResult.data?.length > 0 && commissionResult.data[0].success) {
+                    const commission = commissionResult.data[0];
                     const referrerProfile = await supabaseService.getProfileById(commission.referrer_id);
                     if (referrerProfile.success && referrerProfile.data) {
-                      await notificationService.createNotification(
-                        referrerProfile.data.wallet_address, 'referral_earned',
-                        '💰 Referral Commission Earned!',
-                        `Your referral purchased ${pkg.tierName} ($${commissionPrice}). You earned ${Math.round(commission.commission_amount).toLocaleString()} RZC ($${(commissionPrice * 0.10).toFixed(2)}) — 10% commission.`,
-                        { priority: 'high', data: { commission_rzc: Math.round(commission.commission_amount), type: 'referral_commission' } }
-                      );
-                    }
-                  } catch (e) {}
-                }
-
-                const tonCommissionResult = await client.rpc('record_ton_commission', {
-                  p_buyer_user_id: userId, p_ton_amount: totalCostTON,
-                  p_package_name: pkg.tierName, p_transaction_hash: txHash
-                });
-                if (!tonCommissionResult.error && tonCommissionResult.data?.length > 0) {
-                  const tc = tonCommissionResult.data[0];
-                  if (tc.success) {
-                    const referrerProfile = await supabaseService.getProfileById(tc.referrer_id);
-                    if (referrerProfile.success && referrerProfile.data) {
-                      await notificationService.createNotification(
-                        referrerProfile.data.wallet_address, 'referral_earned',
-                        '💎 TON Commission Pending!',
-                        `Your referral activated ${pkg.tierName}. You earned ${tc.commission_ton} TON (10%).`,
-                        { priority: 'high' }
+                      await logNotification(
+                        () => notificationService.createNotification(
+                          referrerProfile.data!.wallet_address, 'referral_earned',
+                          '💰 Referral Commission Earned!',
+                          `Your referral purchased ${pkg.tierName} ($${commissionPrice}). You earned ${Math.round(commission.commission_amount).toLocaleString()} RZC ($${(commissionPrice * 0.10).toFixed(2)}) — 10% commission.`,
+                          { priority: 'high', data: { commission_rzc: Math.round(commission.commission_amount), type: 'referral_commission' } }
+                        ),
+                        'referral RZC commission notification'
                       );
                     }
                   }
-                }
-              }
-            } catch (e) {}
+                }),
+                client.rpc('record_ton_commission', {
+                  p_buyer_user_id: userId, p_ton_amount: totalCostTON,
+                  p_package_name: pkg.tierName, p_transaction_hash: txHash
+                }).then(async (tonCommissionResult) => {
+                  if (!tonCommissionResult.error && tonCommissionResult.data?.length > 0) {
+                    const tc = tonCommissionResult.data[0];
+                    if (tc.success) {
+                      const referrerProfile = await supabaseService.getProfileById(tc.referrer_id);
+                      if (referrerProfile.success && referrerProfile.data) {
+                        await logNotification(
+                          () => notificationService.createNotification(
+                            referrerProfile.data!.wallet_address, 'referral_earned',
+                            '💎 TON Commission Pending!',
+                            `Your referral activated ${pkg.tierName}. You earned ${tc.commission_ton} TON (10%).`,
+                            { priority: 'high' }
+                          ),
+                          'referral TON commission notification'
+                        );
+                      }
+                    }
+                  }
+                })
+              ]).catch(commErr => console.warn('[Commission] Background processing failed (non-blocking):', commErr));
+            }
           }
         }
       }
-    } catch (e) {}
+    } catch (e: any) {
+      console.error('[Activation] Critical error:', e);
+      throw e; // Re-throw critical errors
+    }
 
     const successMessage = pkg.pricePoint > 0
       ? `🎉 Success! You've purchased ${pkg.tierName} and received ${pkg.rzcReward.toLocaleString()} RZC tokens!`
@@ -321,7 +460,8 @@ const GlobalPurchaseModal: React.FC = () => {
     success(successMessage);
     if (onSuccessCallback) onSuccessCallback(pkg.id);
     closePurchaseModal();
-    window.location.reload();
+    // Refresh context data instead of hard reload — preserves state and is faster
+    await refreshData();
   };
 
   const handlePurchase = async () => {
@@ -331,8 +471,17 @@ const GlobalPurchaseModal: React.FC = () => {
       return;
     }
 
+    // ── AUDIT FIX #4: Performance monitoring ──────────────────────────────────
+    const perfStart = performance.now();
+    console.log('[Perf] Purchase flow started');
+
     setProcessing(true);
     setError(null);
+
+    // Update invoice to processing
+    if (currentInvoiceRef.current) {
+      await invoiceService.updateStatus(currentInvoiceRef.current.id, 'processing', { paymentMethod: 'auto' });
+    }
 
     try {
       if (isNaN(totalCostTON) || !isFinite(totalCostTON) || totalCostTON <= 0)
@@ -401,9 +550,23 @@ const GlobalPurchaseModal: React.FC = () => {
       if (!paymentResult.success || !paymentResult.txHash)
         throw new Error(paymentResult.error || 'Payment failed');
 
+      const perfPayment = performance.now();
+      console.log(`[Perf] Payment completed in ${(perfPayment - perfStart).toFixed(0)}ms`);
+
       await handlePostPayment(paymentResult.txHash);
+
+      const perfTotal = performance.now();
+      console.log(`[Perf] Total activation completed in ${(perfTotal - perfStart).toFixed(0)}ms`);
     } catch (err: any) {
       setError(err.message || 'Purchase failed. Please try again.');
+      
+      // Update invoice to failed
+      if (currentInvoiceRef.current) {
+        await invoiceService.updateStatus(currentInvoiceRef.current.id, 'failed', { 
+          errorMessage: err.message || 'Payment failed' 
+        });
+      }
+      
       try {
         await notificationService.logActivity(address, 'transaction_sent', `Failed to purchase ${pkg.tierName}`,
           { amount_ton: totalCostTON, error: err.message, network });
@@ -690,6 +853,30 @@ const GlobalPurchaseModal: React.FC = () => {
           
         </div>
       </div>
+
+      {/* Invoice Modal — shown when user closes during payment */}
+      {showInvoice && currentInvoice && (
+        <PaymentInvoiceModal
+          invoice={currentInvoice}
+          onClose={() => setShowInvoice(false)}
+          onRetry={() => {
+            setShowInvoice(false);
+            // Re-open purchase modal with same package
+            if (pkg) {
+              setTimeout(() => {
+                window.location.reload(); // Simple approach: reload to reset state
+              }, 100);
+            }
+          }}
+          onResume={() => {
+            setShowInvoice(false);
+            // Resume polling for manual payment
+            if (currentInvoice.payment_method === 'manual') {
+              startPolling(currentInvoice.total_ton);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

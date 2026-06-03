@@ -92,6 +92,19 @@ export interface SupportTicket {
   message: string;
   status: 'open' | 'pending' | 'resolved' | 'closed';
   admin_notes?: string | null;
+  reply_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupportTicketReply {
+  id: string;
+  ticket_id: string;
+  user_id?: string | null;
+  wallet_address: string;
+  message: string;
+  is_admin: boolean;
+  is_internal: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1076,6 +1089,165 @@ class SupabaseService {
     }
   }
 
+  // ============================================================================
+  // SUPPORT TICKET REPLIES
+  // ============================================================================
+
+  /**
+   * Add a reply to a support ticket
+   */
+  async addTicketReply(reply: {
+    ticket_id: string;
+    wallet_address: string;
+    message: string;
+    user_id?: string | null;
+    is_admin?: boolean;
+    is_internal?: boolean;
+  }): Promise<{
+    success: boolean;
+    data?: SupportTicketReply;
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      console.log('💬 Adding ticket reply for ticket:', reply.ticket_id);
+
+      const { data, error } = await this.client
+        .from('support_ticket_replies')
+        .insert({
+          ...reply,
+          is_admin: reply.is_admin || false,
+          is_internal: reply.is_internal || false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return { success: true, data };
+    } catch (error: any) {
+      console.error('❌ Ticket reply error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get all replies for a ticket
+   */
+  async getTicketReplies(ticketId: string): Promise<{
+    success: boolean;
+    data?: SupportTicketReply[];
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('support_ticket_replies')
+        .select('*')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      return { success: true, data: data || [] };
+    } catch (error: any) {
+      console.error('❌ Ticket replies fetch error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get ticket with replies (full conversation)
+   */
+  async getTicketWithReplies(ticketId: string): Promise<{
+    success: boolean;
+    ticket?: SupportTicket;
+    replies?: SupportTicketReply[];
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      // Get ticket
+      const { data: ticket, error: ticketError } = await this.client
+        .from('wallet_support_tickets')
+        .select('*')
+        .eq('id', ticketId)
+        .single();
+
+      if (ticketError) throw ticketError;
+
+      // Get replies
+      const { data: replies, error: repliesError } = await this.client
+        .from('support_ticket_replies')
+        .select('*')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true});
+
+      if (repliesError) throw repliesError;
+
+      return { success: true, ticket, replies: replies || [] };
+    } catch (error: any) {
+      console.error('❌ Ticket with replies fetch error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Subscribe to ticket replies (real-time)
+   */
+  subscribeToTicketReplies(
+    ticketId: string,
+    callback: (reply: SupportTicketReply) => void
+  ) {
+    if (!this.client) {
+      console.error('Supabase not configured');
+      return null;
+    }
+
+    // Create channel with unique name
+    const channelName = `realtime:ticket_replies:${ticketId}`;
+    
+    // Remove existing channel if it exists
+    this.client.removeChannel(this.client.channel(channelName));
+    
+    // Create new subscription
+    const subscription = this.client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'support_ticket_replies',
+          filter: `ticket_id=eq.${ticketId}`
+        },
+        (payload) => {
+          console.log('💬 New ticket reply:', payload.new);
+          callback(payload.new as SupportTicketReply);
+        }
+      )
+      .subscribe((status) => {
+        console.log('💬 Ticket reply subscription status:', status);
+      });
+
+    return subscription;
+  }
+
+  // ============================================================================
+  // CONFIGURATION
+  // ============================================================================
+
   /**
    * Set configuration value
    */
@@ -1098,7 +1270,18 @@ class SupabaseService {
           updated_by: updatedBy
         }, { onConflict: 'key' });
 
-      if (error) throw error;
+      if (error) {
+        // Check for RLS policy error
+        if (error.code === '42501') {
+          console.error('❌ RLS Policy Error: rzc_config table has Row-Level Security enabled');
+          console.error('💡 Solution: Run fix_admin_rzc_config_access.sql to disable RLS');
+          return { 
+            success: false, 
+            error: 'Database permission error. Please run fix_admin_rzc_config_access.sql to fix RLS policies.' 
+          };
+        }
+        throw error;
+      }
 
       return { success: true };
     } catch (error: any) {
@@ -2137,6 +2320,143 @@ class SupabaseService {
   }
 
   // ============================================================================
+  // RZC LEADERBOARD
+  // ============================================================================
+
+  /**
+   * Get top RZC holders leaderboard
+   */
+  async getTopRZCHolders(limit: number = 100): Promise<{
+    success: boolean;
+    data?: Array<{
+      rank: number;
+      name: string;
+      masked_address: string;
+      rzc_balance: number;
+      is_activated: boolean;
+      total_referrals: number;
+      referral_earnings: number;
+      days_active: number;
+      created_at: string;
+    }>;
+    stats?: {
+      total_holders: number;
+      total_rzc_in_circulation: number;
+      average_balance: number;
+      highest_balance: number;
+      median_balance: number;
+      holders_over_1k: number;
+      holders_over_10k: number;
+      holders_over_100k: number;
+    };
+    error?: string;
+  }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      console.log('🏆 Fetching top RZC holders leaderboard from view...');
+
+      // Get leaderboard data from the optimized view
+      const { data: leaderboardData, error: leaderboardError } = await this.client
+        .from('top_rzc_holders')
+        .select(`
+          id,
+          wallet_address,
+          name,
+          rzc_balance,
+          total_referrals,
+          rank,
+          created_at
+        `)
+        .limit(limit);
+
+      if (leaderboardError) throw leaderboardError;
+
+      // Get user IDs to fetch additional data
+      const userIds = (leaderboardData || []).map((u: any) => u.id);
+
+      // Fetch activation status and referral earnings for these users
+      const { data: usersData, error: usersError } = await this.client
+        .from('wallet_users')
+        .select('id, is_activated')
+        .in('id', userIds);
+
+      const { data: referralsData, error: referralsError } = await this.client
+        .from('wallet_referrals')
+        .select('user_id, total_earned')
+        .in('user_id', userIds);
+
+      // Create lookup maps
+      const activationMap = new Map((usersData || []).map((u: any) => [u.id, u.is_activated]));
+      const earningsMap = new Map((referralsData || []).map((r: any) => [r.user_id, r.total_earned]));
+
+      // Transform and enrich data
+      const transformedData = (leaderboardData || []).map((user: any) => {
+        const walletAddress = user.wallet_address || '';
+        const maskedAddress = walletAddress.length > 10
+          ? `${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`
+          : walletAddress;
+
+        const daysActive = user.created_at
+          ? Math.floor((Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+
+        return {
+          rank: user.rank || 0,
+          name: user.name || 'Anonymous',
+          masked_address: maskedAddress,
+          rzc_balance: user.rzc_balance || 0,
+          is_activated: activationMap.get(user.id) || false,
+          total_referrals: user.total_referrals || 0,
+          referral_earnings: earningsMap.get(user.id) || 0,
+          days_active: daysActive,
+          created_at: user.created_at
+        };
+      });
+
+      // Get summary statistics
+      const { data: statsData, error: statsError } = await this.client
+        .from('wallet_users')
+        .select('rzc_balance')
+        .neq('role', 'admin')
+        .eq('is_active', true)
+        .gt('rzc_balance', 0);
+
+      if (statsError) throw statsError;
+
+      const balances = (statsData || []).map((u: any) => u.rzc_balance).sort((a: number, b: number) => a - b);
+      const totalHolders = balances.length;
+      const totalRzc = balances.reduce((sum: number, bal: number) => sum + bal, 0);
+      const avgBalance = totalHolders > 0 ? totalRzc / totalHolders : 0;
+      const medianBalance = totalHolders > 0 ? balances[Math.floor(totalHolders / 2)] : 0;
+
+      const stats = {
+        total_holders: totalHolders,
+        total_rzc_in_circulation: totalRzc,
+        average_balance: avgBalance,
+        highest_balance: balances[balances.length - 1] || 0,
+        median_balance: medianBalance,
+        holders_over_1k: balances.filter((b: number) => b >= 1000).length,
+        holders_over_10k: balances.filter((b: number) => b >= 10000).length,
+        holders_over_100k: balances.filter((b: number) => b >= 100000).length
+      };
+
+      console.log(`✅ Leaderboard fetched from view: ${transformedData.length} holders`);
+
+      return {
+        success: true,
+        data: transformedData,
+        stats
+      };
+    } catch (error: any) {
+      console.error('❌ Get top RZC holders error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================================
   // WALLET ACTIVATION
   // ============================================================================
 
@@ -2323,6 +2643,94 @@ class SupabaseService {
     } catch (error: any) {
       console.error('❌ Fallback activation check failed:', error);
       return null;
+    }
+  }
+
+  // ============================================================================
+  // VANGUARD AMBASSADOR PROGRAM
+  // ============================================================================
+
+  /**
+   * Submits a new Vanguard application
+   */
+  async submitVanguardApplication(applicationData: any): Promise<{ success: boolean; data?: any; error?: string }> {
+    if (!this.client) return { success: false, error: 'Database not connected' };
+
+    try {
+      const { data, error } = await this.client
+        .from('rzc_vanguard_applications')
+        .insert([{
+          user_id: applicationData.user_id,
+          full_name: applicationData.full_name,
+          email: applicationData.email,
+          country: applicationData.country,
+          twitter_handle: applicationData.twitter_handle,
+          bio: applicationData.bio,
+          referral_source: applicationData.referral_source,
+          reason: applicationData.reason,
+          primary_platform: applicationData.primary_platform,
+          audience_size: applicationData.audience_size,
+          monthly_sales: applicationData.monthly_sales,
+          expected_engagement: applicationData.expected_engagement,
+          primary_link: applicationData.primary_link,
+          video_link: applicationData.video_link,
+          status: 'pending'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { success: true, data };
+    } catch (error: any) {
+      console.error('Failed to submit Vanguard application:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Retrieves the user's Vanguard application status
+   */
+  async getVanguardApplication(userId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    if (!this.client) return { success: false, error: 'Database not connected' };
+
+    try {
+      const { data, error } = await this.client
+        .from('rzc_vanguard_applications')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      return { success: true, data: data || null };
+    } catch (error: any) {
+      console.error('Failed to get Vanguard application:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Submits a completed Vanguard task proof
+   */
+  async submitVanguardTask(userId: string, taskId: string, submissionLink: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    if (!this.client) return { success: false, error: 'Database not connected' };
+
+    try {
+      const { data, error } = await this.client
+        .from('rzc_vanguard_tasks')
+        .insert([{
+          user_id: userId,
+          task_id: taskId,
+          submission_link: submissionLink,
+          status: 'pending'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { success: true, data };
+    } catch (error: any) {
+      console.error('Failed to submit Vanguard task:', error);
+      return { success: false, error: error.message };
     }
   }
 }

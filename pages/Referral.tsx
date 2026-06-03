@@ -44,6 +44,7 @@ import squadMiningService, { SquadMiningStats } from '../services/squadMiningSer
 import { rzcToUsd } from '../config/rzcConfig';
 import { RANKS, buildQuests } from '../config/referralQuests';
 import AffiliateQuests from '../components/AffiliateQuests';
+import { useRewardConfig } from '../hooks/useRewardConfig';
 
 const getTimeAgo = (date: Date): string => {
   const now = new Date();
@@ -59,6 +60,20 @@ const getTimeAgo = (date: Date): string => {
   return date.toLocaleDateString();
 };
 
+// Format large numbers with K, M, B suffixes for compact display
+const formatCompactNumber = (num: number): string => {
+  if (num >= 1_000_000_000) {
+    return `${(num / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (num >= 1_000_000) {
+    return `${(num / 1_000_000).toFixed(2)}M`;
+  }
+  if (num >= 10_000) {
+    return `${(num / 1_000).toFixed(1)}K`;
+  }
+  return num.toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
 // ─── Earnings Tab ─────────────────────────────────────────────────────────────
 type EarningsTab = 'overview' | 'rzc' | 'ton';
 
@@ -67,6 +82,7 @@ const Referral: React.FC = () => {
   const { userProfile, referralData, address, network } = useWallet();
   const { tonPrice } = useBalance();
   const { showToast } = useToast();
+  const { rewards, referralBonus, packageCommission } = useRewardConfig();
 
   const [copied, setCopied] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -488,7 +504,7 @@ const Referral: React.FC = () => {
             </div>
             <div>
               <h3 className="text-sm font-heading font-black text-gray-900 dark:text-white">Your Referral Link</h3>
-              <p className="text-[10px] font-body text-gray-500 dark:text-gray-500 mt-0.5">Earn 50 RZC for every signup</p>
+              <p className="text-[10px] font-body text-gray-500 dark:text-gray-500 mt-0.5">Earn {referralBonus} RZC for every signup</p>
             </div>
           </div>
 
@@ -574,16 +590,16 @@ const Referral: React.FC = () => {
               {[
                 {
                   label: 'Signup Bonuses',
-                  sublabel: '50 RZC per referral signup',
-                  value: `${(downlineCount * 50).toLocaleString()} RZC`,
-                  subvalue: `≈ $${rzcToUsd(downlineCount * 50).toFixed(2)}`,
+                  sublabel: `${referralBonus} RZC per referral signup`,
+                  value: `${(downlineCount * referralBonus).toLocaleString()} RZC`,
+                  subvalue: `≈ $${rzcToUsd(downlineCount * referralBonus).toFixed(2)}`,
                   color: '#00FF88',
                   bgLight: 'bg-emerald-50',
                   icon: Gift,
                 },
                 {
                   label: 'Package Commissions',
-                  sublabel: '10% of each package purchase',
+                  sublabel: `${packageCommission}% of each package purchase`,
                   value: `${totalRzcCommissions.toLocaleString()} RZC`,
                   subvalue: `${rzcCommissions?.count || 0} purchase${rzcCommissions?.count !== 1 ? 's' : ''}`,
                   color: '#fbbf24',
@@ -632,12 +648,16 @@ const Referral: React.FC = () => {
           {earningsTab === 'rzc' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 dark:bg-[#00FF88]/5 border border-emerald-100 dark:border-[#00FF88]/20">
-                <div>
+                <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-emerald-700 dark:text-gray-400 font-heading font-black uppercase tracking-widest">Total RZC Balance</p>
-                  <p className="text-2xl font-numbers font-black text-emerald-600 dark:text-[#00FF88]">{rzcBalance.toLocaleString()}</p>
-                  <p className="text-xs font-numbers font-bold text-emerald-700/80 dark:text-gray-500 uppercase tracking-widest">≈ ${rzcToUsd(rzcBalance).toFixed(2)} USD</p>
+                  <p className="text-2xl sm:text-3xl font-numbers font-black text-emerald-600 dark:text-[#00FF88] truncate" title={rzcBalance.toLocaleString()}>
+                    {formatCompactNumber(rzcBalance)}
+                  </p>
+                  <p className="text-xs font-numbers font-bold text-emerald-700/80 dark:text-gray-500 uppercase tracking-widest">
+                    ≈ ${rzcToUsd(rzcBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                  </p>
                 </div>
-                <Gift size={32} className="text-emerald-500/20" />
+                <Gift size={32} className="text-emerald-500/20 flex-shrink-0" />
               </div>
               {(rzcCommissions?.items?.length ?? 0) > 0 ? (
                 <div className="space-y-2">

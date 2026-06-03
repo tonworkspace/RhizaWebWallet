@@ -223,6 +223,16 @@ export class SecureSecretManager {
   }
 
   /**
+   * Retrieve cached mnemonic from secure memory store if active (non-blocking)
+   */
+  getCachedMnemonic(walletId: string): string[] | null {
+    const memoryKey = `mnemonic_${walletId}`;
+    const mnemonicString = this.memoryStore.get(memoryKey);
+    if (!mnemonicString) return null;
+    return mnemonicString.split(' ');
+  }
+
+  /**
    * Check if mnemonic exists for wallet
    */
   hasMnemonic(walletId: string): boolean {

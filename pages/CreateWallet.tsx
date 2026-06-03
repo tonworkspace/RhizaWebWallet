@@ -49,8 +49,7 @@ const CreateWallet: React.FC = () => {
   const [verificationPositions, setVerificationPositions] = useState<number[]>([]);
   const [verificationInputs, setVerificationInputs] = useState<string[]>(['', '', '']);
   const [verificationError, setVerificationError] = useState('');
-  const [suggestions, setSuggestions] = useState<string[][]>([[], [], []]);
-  const [activeSuggestion, setActiveSuggestion] = useState<number | null>(null);
+  const [wordChoices, setWordChoices] = useState<string[][]>([[], [], []]); // Multiple choice options for each position
 
   // Final confirmation checkboxes
   const [confirmations, setConfirmations] = useState({
@@ -130,6 +129,7 @@ const CreateWallet: React.FC = () => {
     if (!validation.valid) { setPasswordError(validation.message); return; }
     if (password !== confirmPassword) { setPasswordError('Passwords do not match'); return; }
     setPasswordError('');
+    
     // Generate verification positions based on mnemonic length
     const totalWords = walletType === 'multi-12' ? 12 : 24;
     const positions: number[] = [];
@@ -139,38 +139,35 @@ const CreateWallet: React.FC = () => {
     }
     setVerificationPositions(positions.sort((a, b) => a - b));
     setVerificationInputs(['', '', '']);
-    setSuggestions([[], [], []]);
+    
+    // Generate multiple choice options for each position
+    const choices: string[][] = [];
+    const wordPool = bip39Words.length > 0 ? bip39Words : mnemonic;
+    
+    positions.forEach(pos => {
+      const correctWord = mnemonic[pos];
+      const options = [correctWord];
+      
+      // Add 5 random wrong words
+      while (options.length < 6) {
+        const randomWord = wordPool[Math.floor(Math.random() * wordPool.length)];
+        if (!options.includes(randomWord) && randomWord !== correctWord) {
+          options.push(randomWord);
+        }
+      }
+      
+      // Shuffle options so correct answer isn't always first
+      choices.push(options.sort(() => Math.random() - 0.5));
+    });
+    
+    setWordChoices(choices);
     setStep(3);
   };
 
-  const handleVerificationInput = (idx: number, value: string) => {
-    // Update input
+  const handleWordSelection = (idx: number, word: string) => {
     const newInputs = [...verificationInputs];
-    newInputs[idx] = value;
+    newInputs[idx] = word;
     setVerificationInputs(newInputs);
-    setVerificationError('');
-
-    // Build autocomplete from BIP-39 list (or fallback to mnemonic words)
-    const wordPool = bip39Words.length > 0 ? bip39Words : mnemonic;
-    const query = value.toLowerCase().trim();
-    const newSuggestions = [...suggestions];
-    if (query.length >= 2) {
-      newSuggestions[idx] = wordPool.filter(w => w.startsWith(query)).slice(0, 5);
-    } else {
-      newSuggestions[idx] = [];
-    }
-    setSuggestions(newSuggestions);
-    setActiveSuggestion(newSuggestions[idx].length > 0 ? idx : null);
-  };
-
-  const applySuggestion = (inputIdx: number, word: string) => {
-    const newInputs = [...verificationInputs];
-    newInputs[inputIdx] = word;
-    setVerificationInputs(newInputs);
-    const newSuggestions = [...suggestions];
-    newSuggestions[inputIdx] = [];
-    setSuggestions(newSuggestions);
-    setActiveSuggestion(null);
     setVerificationError('');
   };
 
@@ -458,37 +455,40 @@ const CreateWallet: React.FC = () => {
             </div>
 
             {/* Phrase grid with blur-to-reveal */}
-            <div className="relative rounded-3xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5">
-              <div className={`grid grid-cols-3 gap-0 transition-all duration-300 ${!isRevealed ? 'blur-lg select-none pointer-events-none' : ''}`}>
-                {mnemonic.map((word, idx) => (
-                  <div key={idx} className={`flex items-center gap-2 px-3 py-2.5 ${idx % 3 !== 2 ? 'border-r border-gray-200 dark:border-white/5' : ''} ${idx < mnemonic.length - 3 ? 'border-b border-gray-200 dark:border-white/5' : ''}`}>
-                    <span className="text-[10px] text-gray-500 dark:text-gray-600 w-5 shrink-0 font-mono">{idx + 1}</span>
-                    <span className="text-sm text-gray-900 dark:text-white font-semibold tracking-wide">{word}</span>
+            <div className="space-y-3">
+              <div className="relative rounded-3xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5">
+                <div className={`grid grid-cols-3 gap-0 transition-all duration-300 ${!isRevealed ? 'blur-lg select-none pointer-events-none' : ''}`}>
+                  {mnemonic.map((word, idx) => (
+                    <div key={idx} className={`flex items-center gap-2 px-3 py-2.5 ${idx % 3 !== 2 ? 'border-r border-gray-200 dark:border-white/5' : ''} ${idx < mnemonic.length - 3 ? 'border-b border-gray-200 dark:border-white/5' : ''}`}>
+                      <span className="text-[10px] text-gray-500 dark:text-gray-600 w-5 shrink-0 font-mono">{idx + 1}</span>
+                      <span className="text-sm text-gray-900 dark:text-white font-semibold tracking-wide">{word}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {!isRevealed && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30 dark:bg-black/30 backdrop-blur-sm">
+                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
+                      <Eye size={22} className="text-white" />
+                    </div>
+                    <button
+                      onClick={() => setIsRevealed(true)}
+                      className="px-5 py-2.5 bg-white text-black rounded-xl font-bold text-sm hover:bg-[#00FF88] transition-colors"
+                    >
+                      Tap to Reveal
+                    </button>
+                    <p className="text-xs text-gray-300 px-8 text-center">Make sure no one can see your screen</p>
                   </div>
-                ))}
+                )}
               </div>
 
-              {!isRevealed && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30 dark:bg-black/30 backdrop-blur-sm">
-                  <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
-                    <Eye size={22} className="text-white" />
-                  </div>
-                  <button
-                    onClick={() => setIsRevealed(true)}
-                    className="px-5 py-2.5 bg-white text-black rounded-xl font-bold text-sm hover:bg-[#00FF88] transition-colors"
-                  >
-                    Tap to Reveal
-                  </button>
-                  <p className="text-xs text-gray-300 px-8 text-center">Make sure no one can see your screen</p>
-                </div>
-              )}
-
+              {/* Hide button - moved below the grid for better UX */}
               {isRevealed && (
                 <button
                   onClick={() => setIsRevealed(false)}
-                  className="absolute top-3 right-3 px-2.5 py-1.5 bg-black/40 backdrop-blur-sm rounded-lg flex items-center gap-1.5 text-xs text-gray-300 font-medium hover:text-white transition-colors"
+                  className="w-full py-2.5 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/10 transition-all"
                 >
-                  <EyeOff size={12} /> Hide
+                  <EyeOff size={16} /> Hide Phrase
                 </button>
               )}
             </div>
@@ -628,64 +628,58 @@ const CreateWallet: React.FC = () => {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Verify Your Backup</h1>
               <p className="text-gray-600 dark:text-gray-400 text-sm mt-1.5 leading-relaxed">
-                Enter the words at the positions below. Start typing for suggestions.
+                Select the correct word for each position from the options below.
               </p>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-6">
               {verificationPositions.map((pos, idx) => (
-                <div key={pos} className="space-y-2 relative">
-                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                <div key={pos} className="space-y-3">
+                  <label className="text-sm font-bold text-gray-900 dark:text-white">
                     Word #{pos + 1}
                   </label>
-                  <input
-                    type="text"
-                    value={verificationInputs[idx]}
-                    onChange={e => handleVerificationInput(idx, e.target.value)}
-                    onFocus={() => suggestions[idx].length > 0 && setActiveSuggestion(idx)}
-                    onBlur={() => setTimeout(() => setActiveSuggestion(null), 150)}
-                    className={`w-full pl-4 pr-10 py-3.5 bg-gray-50 dark:bg-white/5 border rounded-2xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-600 outline-none focus:ring-1 transition-all font-medium text-sm ${
-                      !verificationInputs[idx]
-                        ? 'border-gray-200 dark:border-white/10 focus:border-gray-300 dark:focus:border-white/30 focus:ring-gray-200 dark:focus:ring-white/10'
-                        : mnemonic[pos]?.toLowerCase() === verificationInputs[idx].toLowerCase().trim()
-                        ? 'border-[#00FF88]/50 focus:border-[#00FF88]/70 focus:ring-[#00FF88]/20 bg-[#00FF88]/5'
-                        : 'border-red-500/50 focus:border-red-500/70 focus:ring-red-500/20 bg-red-500/5'
-                    }`}
-                    placeholder={`Word #${pos + 1}`}
-                    autoComplete="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                  />
-
-                  {/* Per-word status icon */}
-                  {verificationInputs[idx] && (
-                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
-                      {mnemonic[pos]?.toLowerCase() === verificationInputs[idx].toLowerCase().trim()
-                        ? <Check size={16} className="text-[#00FF88]" strokeWidth={2.5} />
-                        : <AlertCircle size={16} className="text-red-400" />}
-                    </div>
-                  )}
-
-                  {/* Inline mismatch hint */}
-                  {verificationInputs[idx] && mnemonic[pos]?.toLowerCase() !== verificationInputs[idx].toLowerCase().trim() && (
-                    <p className="text-[11px] text-red-400 font-medium pl-1 pt-1">
-                      That's not word #{pos + 1} — check your backup
-                    </p>
-                  )}
-
-                  {/* Autocomplete dropdown */}
-                  {suggestions[idx].length > 0 && activeSuggestion === idx && (
-                    <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden z-20 shadow-xl">
-                      {suggestions[idx].map(word => (
+                  
+                  {/* Multiple choice grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {wordChoices[idx]?.map((word) => {
+                      const isSelected = verificationInputs[idx] === word;
+                      const isCorrect = mnemonic[pos]?.toLowerCase() === word.toLowerCase();
+                      const showResult = isSelected && verificationInputs[idx];
+                      
+                      return (
                         <button
                           key={word}
-                          onMouseDown={() => applySuggestion(idx, word)}
-                          className="w-full px-4 py-2.5 text-left text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-white/5 flex items-center justify-between group transition-colors"
+                          onClick={() => handleWordSelection(idx, word)}
+                          className={`px-4 py-3.5 rounded-xl text-sm font-semibold transition-all ${
+                            isSelected
+                              ? showResult && isCorrect
+                                ? 'bg-[#00FF88]/20 border-2 border-[#00FF88] text-gray-900 dark:text-white'
+                                : showResult && !isCorrect
+                                ? 'bg-red-500/20 border-2 border-red-500 text-gray-900 dark:text-white'
+                                : 'bg-gray-200 dark:bg-white/10 border-2 border-gray-300 dark:border-white/20 text-gray-900 dark:text-white'
+                              : 'bg-gray-50 dark:bg-white/5 border-2 border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 hover:border-gray-300 dark:hover:border-white/20'
+                          }`}
                         >
-                          <span className="font-medium">{word}</span>
-                          <ArrowRight size={12} className="text-gray-400 dark:text-gray-600 group-hover:text-[#00FF88] transition-colors" />
+                          {word}
                         </button>
-                      ))}
+                      );
+                    })}
+                  </div>
+
+                  {/* Status indicator */}
+                  {verificationInputs[idx] && (
+                    <div className="flex items-center gap-2">
+                      {mnemonic[pos]?.toLowerCase() === verificationInputs[idx].toLowerCase() ? (
+                        <>
+                          <Check size={14} className="text-[#00FF88]" strokeWidth={2.5} />
+                          <span className="text-xs text-[#00FF88] font-semibold">Correct!</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle size={14} className="text-red-400" />
+                          <span className="text-xs text-red-400 font-semibold">Try again</span>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

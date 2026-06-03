@@ -26,8 +26,11 @@ import {
   X,
   Plus,
   Upload,
-  MessageCircle
+  MessageCircle,
+  Rocket,
+  Trophy
 } from 'lucide-react';
+import EngagementRequestsPanel from '../components/EngagementRequestsPanel';
 import { supabaseService } from '../services/supabaseService';
 import { balanceVerificationService, BalanceVerificationRequest } from '../services/balanceVerificationService';
 import { migrationService, MigrationRequest, StkMigrationRequest } from '../services/migrationService';
@@ -46,6 +49,29 @@ interface Stats {
   activeUsers: number;
   newUsersToday: number;
   totalVolume: string;
+}
+
+interface RZCHolder {
+  rank: number;
+  name: string;
+  masked_address: string;
+  rzc_balance: number;
+  is_activated: boolean;
+  total_referrals: number;
+  referral_earnings: number;
+  days_active: number;
+  created_at: string;
+}
+
+interface RZCHolderStats {
+  total_holders: number;
+  total_rzc_in_circulation: number;
+  average_balance: number;
+  highest_balance: number;
+  median_balance: number;
+  holders_over_1k: number;
+  holders_over_10k: number;
+  holders_over_100k: number;
 }
 
 interface User {
@@ -111,7 +137,8 @@ const AdminDashboard: React.FC = () => {
     totalRzcMigrated: 0
   });
 
-  const [activeTab, setActiveTab] = useState<'users' | 'migrations' | 'stk-migrations' | 'airdrop-tasks' | 'balance-verification' | 'support'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'migrations' | 'stk-migrations' | 'airdrop-tasks' | 'balance-verification' | 'support' | 'engagement' | 'rzc-holders'>('users');
+  const [engagementPendingCount, setEngagementPendingCount] = useState(0);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
   const [supportStats, setSupportStats] = useState({
     total: 0,
@@ -129,6 +156,18 @@ const AdminDashboard: React.FC = () => {
   const [showStkMigrationModal, setShowStkMigrationModal] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
 
+  // User edit state
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [showUserEditModal, setShowUserEditModal] = useState(false);
+  const [userEditForm, setUserEditForm] = useState({
+    name: '',
+    avatar: '',
+    role: '',
+    is_active: true,
+    referrer_code: ''
+  });
+  const [userEditReason, setUserEditReason] = useState('');
+
   // Balance verification state
   const [verificationRequests, setVerificationRequests] = useState<BalanceVerificationRequest[]>([]);
   const [verificationStats, setVerificationStats] = useState({
@@ -141,6 +180,12 @@ const AdminDashboard: React.FC = () => {
   });
   const [selectedVerificationRequest, setSelectedVerificationRequest] = useState<BalanceVerificationRequest | null>(null);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
+
+  // RZC Holders state
+  const [rzcHolders, setRzcHolders] = useState<RZCHolder[]>([]);
+  const [rzcHolderStats, setRzcHolderStats] = useState<RZCHolderStats | null>(null);
+  const [holdersSearchQuery, setHoldersSearchQuery] = useState('');
+  const [holdersIsLoading, setHoldersIsLoading] = useState(false);
 
   // Airdrop management state
   const [pendingSubmissions, setPendingSubmissions] = useState<ManualSubmission[]>([]);
@@ -313,6 +358,17 @@ const AdminDashboard: React.FC = () => {
 
       // Load support tickets
       console.log('🎫 Loading support tickets...');
+      // Load engagement pending count for badge
+      try {
+        const client = supabaseService.getClient();
+        if (client) {
+          const { count } = await client
+            .from('mainnet_engagement')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending');
+          setEngagementPendingCount(count || 0);
+        }
+      } catch { /* silent */ }
       try {
         const supportTicketsResult = await supabaseService.getAllTickets(100);
         console.log('📋 Support tickets result:', supportTicketsResult);
@@ -361,6 +417,21 @@ const AdminDashboard: React.FC = () => {
           resolved: 0,
           closed: 0
         });
+      }
+      // Load RZC Holders
+      try {
+        setHoldersIsLoading(true);
+        const holdersResult = await supabaseService.getTopRZCHolders(100);
+        if (holdersResult.success && holdersResult.data) {
+          setRzcHolders(holdersResult.data);
+        }
+        if (holdersResult.success && holdersResult.stats) {
+          setRzcHolderStats(holdersResult.stats);
+        }
+      } catch (holdersErr) {
+        console.warn('Could not load RZC holders:', holdersErr);
+      } finally {
+        setHoldersIsLoading(false);
       }
     } catch (error) {
       console.error('Failed to load admin data:', error);
@@ -428,6 +499,52 @@ const AdminDashboard: React.FC = () => {
     } catch (error) {
       console.error('Failed to toggle user status:', error);
       showToast('Failed to update user status', 'error');
+    }
+  };
+
+  const handleEditUser = (user: User) => {
+    setSelectedUser(user);
+    setUserEditForm({
+      name: user.name,
+      avatar: user.avatar,
+      role: user.role,
+      is_active: user.is_active,
+      referrer_code: user.referrer_code || ''
+    });
+    setUserEditReason('');
+    setShowUserEditModal(true);
+  };
+
+  const handleSaveUserEdit = async () => {
+    if (!selectedUser || !address) return;
+
+    if (!userEditReason.trim()) {
+      showToast('Please provide a reason for this update', 'error');
+      return;
+    }
+
+    try {
+      const { adminService } = await import('../services/adminService');
+      
+      const result = await adminService.updateUserAccount(
+        selectedUser.wallet_address,
+        userEditForm,
+        address,
+        userEditReason
+      );
+
+      if (result.success) {
+        showToast('User updated successfully', 'success');
+        setShowUserEditModal(false);
+        setSelectedUser(null);
+        setUserEditReason('');
+        loadData(); // Refresh data
+      } else {
+        showToast(result.error || 'Failed to update user', 'error');
+      }
+    } catch (error: any) {
+      console.error('Failed to update user:', error);
+      showToast(error.message || 'Failed to update user', 'error');
     }
   };
 
@@ -1032,7 +1149,9 @@ const AdminDashboard: React.FC = () => {
           { id: 'stk-migrations', label: 'STK Migr', icon: Activity },
           { id: 'airdrop-tasks', label: 'Airdrop', icon: Gift },
           { id: 'balance-verification', label: 'Verification', icon: Shield },
-          { id: 'support', label: 'Support', icon: MessageCircle }
+          { id: 'support', label: 'Support', icon: MessageCircle },
+          { id: 'engagement', label: 'Mainnet', icon: Rocket },
+          { id: 'rzc-holders', label: 'RZC Holders', icon: Trophy },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1063,6 +1182,11 @@ const AdminDashboard: React.FC = () => {
             {tab.id === 'support' && supportStats.open > 0 && (
               <span className="ml-1 px-1.5 py-0.5 bg-blue-500 text-white font-numbers text-[10px] rounded-full">
                 {supportStats.open}
+              </span>
+            )}
+            {tab.id === 'engagement' && engagementPendingCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-emerald-500 text-white font-numbers text-[10px] rounded-full">
+                {engagementPendingCount}
               </span>
             )}
           </button>
@@ -1286,6 +1410,13 @@ const AdminDashboard: React.FC = () => {
                             title="View Details"
                           >
                             <Eye size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleEditUser(user)}
+                            className="p-2 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-colors"
+                            title="Edit User"
+                          >
+                            <Edit size={16} />
                           </button>
                           <button
                             onClick={() => toggleUserStatus(user.id, user.is_active)}
@@ -2988,6 +3119,330 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* User Edit Modal */}
+        {showUserEditModal && selectedUser && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+              onClick={() => setShowUserEditModal(false)}
+            />
+
+            {/* Modal */}
+            <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-2xl bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="p-4 sm:p-5 border-b-2 border-gray-200 dark:border-white/10 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-gray-950 dark:text-white">
+                    Edit User
+                  </h2>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    {selectedUser.wallet_address.slice(0, 12)}...{selectedUser.wallet_address.slice(-8)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowUserEditModal(false)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Name */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                      <Users size={16} />
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      value={userEditForm.name}
+                      onChange={(e) => setUserEditForm({ ...userEditForm, name: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+                      placeholder="User name"
+                    />
+                  </div>
+
+                  {/* Avatar */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                      Avatar (Emoji)
+                    </label>
+                    <input
+                      type="text"
+                      value={userEditForm.avatar}
+                      onChange={(e) => setUserEditForm({ ...userEditForm, avatar: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+                      placeholder="🌱"
+                    />
+                  </div>
+
+                  {/* Role */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                      <Shield size={16} />
+                      Role
+                    </label>
+                    <select
+                      value={userEditForm.role}
+                      onChange={(e) => setUserEditForm({ ...userEditForm, role: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+                    >
+                      <option value="user">User</option>
+                      <option value="premium">Premium</option>
+                      <option value="vip">VIP</option>
+                      <option value="admin">Admin</option>
+                      <option value="super_admin">Super Admin</option>
+                    </select>
+                  </div>
+
+                  {/* Referrer Code */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                      Referrer Code
+                    </label>
+                    <input
+                      type="text"
+                      value={userEditForm.referrer_code}
+                      onChange={(e) => setUserEditForm({ ...userEditForm, referrer_code: e.target.value })}
+                      className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+                      placeholder="Referrer code (if any)"
+                    />
+                  </div>
+                </div>
+
+                {/* Active Status */}
+                <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-white/5 rounded-xl">
+                  <input
+                    type="checkbox"
+                    id="user_is_active"
+                    checked={userEditForm.is_active}
+                    onChange={(e) => setUserEditForm({ ...userEditForm, is_active: e.target.checked })}
+                    className="w-5 h-5 rounded border-2 border-gray-300 dark:border-white/10"
+                  />
+                  <label htmlFor="user_is_active" className="text-sm font-bold text-gray-700 dark:text-gray-300 cursor-pointer">
+                    Account Active
+                  </label>
+                </div>
+
+                {/* Reason */}
+                <div className="pt-4 border-t-2 border-gray-200 dark:border-white/10">
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 block">
+                    Reason for Update <span className="text-red-600">*</span>
+                  </label>
+                  <textarea
+                    value={userEditReason}
+                    onChange={(e) => setUserEditReason(e.target.value)}
+                    className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary resize-none"
+                    placeholder="Enter reason for this update..."
+                    rows={3}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 sm:p-5 border-t-2 border-gray-200 dark:border-white/10 flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => setShowUserEditModal(false)}
+                  className="flex-1 py-3 bg-gray-200 dark:bg-white/10 text-gray-950 dark:text-white rounded-xl text-sm font-bold hover:bg-gray-300 dark:hover:bg-white/20 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveUserEdit}
+                  disabled={!userEditReason.trim()}
+                  className="flex-1 py-3 bg-emerald-600 dark:bg-primary text-white dark:text-black rounded-xl text-sm font-bold hover:bg-emerald-700 dark:hover:bg-[#00dd77] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <Save size={16} />
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+        {/* Mainnet Engagement Panel */}
+        {activeTab === 'engagement' && (
+          <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                <Rocket size={20} className="text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-black text-gray-900 dark:text-white">Mainnet Engagement Requests</h2>
+                <p className="text-xs font-heading font-semibold text-gray-500 dark:text-gray-500">
+                  Review Phase 2 → Mainnet registration submissions and verify RZC balances
+                </p>
+              </div>
+            </div>
+            <EngagementRequestsPanel />
+          </div>
+        )}
+
+        {/* RZC Holders Tab */}
+        {activeTab === 'rzc-holders' && (
+          <div className="bg-white dark:bg-white/5 border-2 border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 space-y-6">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-yellow-400/20">
+                  <Trophy size={20} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-heading font-black text-gray-900 dark:text-white">Top RZC Holders</h2>
+                  <p className="text-xs font-heading font-semibold text-gray-500 dark:text-gray-500">
+                    Live from <code className="font-mono text-[10px] bg-gray-100 dark:bg-white/10 px-1 rounded">top_rzc_holders</code> database view
+                  </p>
+                </div>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search holders..."
+                  value={holdersSearchQuery}
+                  onChange={(e) => setHoldersSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm font-heading font-medium outline-none focus:border-yellow-400/50 transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Stat Cards */}
+            {rzcHolderStats && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Total Holders', value: rzcHolderStats.total_holders.toLocaleString(), color: 'from-blue-500/10 to-indigo-500/10 border-blue-200 dark:border-blue-500/20', text: 'text-blue-600 dark:text-blue-400' },
+                  { label: 'In Circulation', value: rzcHolderStats.total_rzc_in_circulation.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' RZC', color: 'from-yellow-400/10 to-orange-500/10 border-yellow-200 dark:border-yellow-500/20', text: 'text-yellow-600 dark:text-yellow-400' },
+                  { label: 'Avg Balance', value: rzcHolderStats.average_balance.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' RZC', color: 'from-emerald-500/10 to-teal-500/10 border-emerald-200 dark:border-emerald-500/20', text: 'text-emerald-600 dark:text-emerald-400' },
+                  { label: 'Holders > 10k', value: rzcHolderStats.holders_over_10k.toLocaleString(), color: 'from-purple-500/10 to-pink-500/10 border-purple-200 dark:border-purple-500/20', text: 'text-purple-600 dark:text-purple-400' },
+                ].map((card) => (
+                  <div key={card.label} className={`p-4 bg-gradient-to-br ${card.color} border rounded-xl`}>
+                    <p className="text-[10px] font-heading font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1">{card.label}</p>
+                    <p className={`text-lg font-numbers font-black tabular-nums ${card.text}`}>{card.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Table */}
+            {holdersIsLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="w-10 h-10 border-4 border-yellow-200 dark:border-yellow-400/20 border-t-yellow-400 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10">
+                <table className="w-full min-w-[700px]">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-white/5 border-b border-gray-200 dark:border-white/10">
+                      <th className="py-3 px-4 text-left text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">Rank</th>
+                      <th className="py-3 px-4 text-left text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">User</th>
+                      <th className="py-3 px-4 text-left text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">Address</th>
+                      <th className="py-3 px-4 text-right text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">RZC Balance</th>
+                      <th className="py-3 px-4 text-right text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">Referrals</th>
+                      <th className="py-3 px-4 text-right text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">Ref. Earnings</th>
+                      <th className="py-3 px-4 text-right text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">Days Active</th>
+                      <th className="py-3 px-4 text-center text-[10px] font-heading font-black uppercase tracking-widest text-gray-500">Activated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-white/5">
+                    {rzcHolders
+                      .filter(h =>
+                        !holdersSearchQuery ||
+                        h.name.toLowerCase().includes(holdersSearchQuery.toLowerCase()) ||
+                        h.masked_address.toLowerCase().includes(holdersSearchQuery.toLowerCase())
+                      )
+                      .map((holder) => (
+                        <tr key={holder.rank} className="hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors group">
+                          {/* Rank */}
+                          <td className="py-3 px-4">
+                            <div className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-numbers font-black text-sm ${
+                              holder.rank === 1 ? 'bg-yellow-400/20 text-yellow-600 dark:text-yellow-400' :
+                              holder.rank === 2 ? 'bg-gray-300/40 text-gray-600 dark:text-gray-300' :
+                              holder.rank === 3 ? 'bg-orange-400/20 text-orange-600 dark:text-orange-400' :
+                              'bg-gray-100 dark:bg-white/5 text-gray-500'
+                            }`}>
+                              {holder.rank <= 3 ? ['🥇','🥈','🥉'][holder.rank - 1] : `#${holder.rank}`}
+                            </div>
+                          </td>
+                          {/* Name */}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-white text-xs font-black flex-shrink-0">
+                                {holder.name.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="text-sm font-heading font-semibold text-gray-900 dark:text-white truncate max-w-[120px]">{holder.name}</span>
+                            </div>
+                          </td>
+                          {/* Address */}
+                          <td className="py-3 px-4">
+                            <span className="font-mono text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded">{holder.masked_address}</span>
+                          </td>
+                          {/* Balance */}
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-numbers font-black text-sm text-gray-900 dark:text-white tabular-nums">
+                              {holder.rzc_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-gray-400 ml-1">RZC</span>
+                          </td>
+                          {/* Referrals */}
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-numbers font-semibold text-sm text-gray-700 dark:text-gray-300 tabular-nums">{holder.total_referrals}</span>
+                          </td>
+                          {/* Referral Earnings */}
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-numbers font-semibold text-sm text-emerald-600 dark:text-emerald-400 tabular-nums">
+                              {holder.referral_earnings.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </span>
+                            <span className="text-[10px] text-gray-400 ml-1">RZC</span>
+                          </td>
+                          {/* Days Active */}
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-numbers text-sm text-gray-600 dark:text-gray-400 tabular-nums">{holder.days_active}d</span>
+                          </td>
+                          {/* Activated */}
+                          <td className="py-3 px-4 text-center">
+                            {holder.is_activated ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-[10px] font-heading font-bold rounded-full">
+                                <CheckCircle size={10} /> Yes
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-white/5 text-gray-500 text-[10px] font-heading font-bold rounded-full">
+                                <XCircle size={10} /> No
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    }
+                  </tbody>
+                </table>
+                {rzcHolders.filter(h =>
+                  !holdersSearchQuery ||
+                  h.name.toLowerCase().includes(holdersSearchQuery.toLowerCase()) ||
+                  h.masked_address.toLowerCase().includes(holdersSearchQuery.toLowerCase())
+                ).length === 0 && (
+                  <div className="py-16 text-center text-gray-400 text-sm font-heading">
+                    {holdersSearchQuery ? 'No holders matched your search.' : 'No holders data available.'}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Footer count */}
+            <p className="text-xs text-gray-400 font-heading text-right">
+              Showing {rzcHolders.filter(h =>
+                !holdersSearchQuery ||
+                h.name.toLowerCase().includes(holdersSearchQuery.toLowerCase()) ||
+                h.masked_address.toLowerCase().includes(holdersSearchQuery.toLowerCase())
+              ).length} of {rzcHolders.length} holders
+            </p>
+          </div>
+        )}
+
       </div>
     </div>
   );

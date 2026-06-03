@@ -158,7 +158,7 @@ class AdminAirdropService {
     try {
       if (!supabaseService.isConfigured()) {
         // Return data from centralized configuration
-        const stats = getAirdropStats();
+        const stats = await getAirdropStats();
         return {
           success: true,
           data: {
@@ -167,7 +167,7 @@ class AdminAirdropService {
             pendingReviews: 0, // Will be updated with real pending count
             totalRewards: stats.totalRewards,
             totalCompletions: stats.totalCompletions,
-            totalDistributed: stats.totalRewardsDistributed
+            totalDistributed: stats.totalDistributed
           }
         };
       }
@@ -188,7 +188,7 @@ class AdminAirdropService {
       }
 
       // Get stats from centralized configuration
-      const stats = getAirdropStats();
+      const stats = await getAirdropStats();
       
       return {
         success: true,
@@ -198,7 +198,7 @@ class AdminAirdropService {
           pendingReviews: pendingCount || 0,
           totalRewards: stats.totalRewards,
           totalCompletions: stats.totalCompletions,
-          totalDistributed: stats.totalRewardsDistributed
+          totalDistributed: stats.totalDistributed
         }
       };
     } catch (error: any) {

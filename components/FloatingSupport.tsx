@@ -106,7 +106,7 @@ const FloatingSupport: React.FC = () => {
   if (!address) return null;
 
   return (
-    <div className={`fixed bottom-28 md:bottom-8 right-6 z-[9999] flex flex-col items-end gap-4 font-sans transition-all duration-500 ${
+    <div className={`fixed bottom-28 md:bottom-8 left-6 z-[9999] flex flex-col items-start gap-4 font-sans transition-all duration-500 ${
       isVisible || isOpen ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'
     }`}>
       {/* Expanded Chat Window */}
@@ -126,7 +126,7 @@ const FloatingSupport: React.FC = () => {
                   <h3 className="text-white font-heading font-black text-lg leading-tight uppercase tracking-widest">Rhiza Support</h3>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                    <span className="text-white/80 text-[9px] font-heading font-black uppercase tracking-[0.2em] shadow-sm">Agents Online</span>
+                    <span className="text-white/80 text-[9px] font-heading font-black uppercase tracking-[0.2em] shadow-sm">Ticket System</span>
                   </div>
                 </div>
               </div>

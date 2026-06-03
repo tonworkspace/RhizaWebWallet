@@ -2,21 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { Gift, ArrowRight, Star } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useAirdrop } from '../context/AirdropContext';
-import { getActiveAirdropTasksSync, getTotalAirdropRewards } from '../config/airdropTasks';
+import { getActiveAirdropTasks, getTotalAirdropRewards } from '../config/airdropTasks';
 import { airdropService } from '../services/airdropService';
 
 const AirdropWidget: React.FC = () => {
   const { address } = useWallet();
   const { openAirdropModal } = useAirdrop();
   const [stats, setStats] = useState({ completed: 0, total: 0, earned: 0, available: 0 });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!address) return;
+    if (!address) {
+      setLoading(false);
+      return;
+    }
 
     const load = async () => {
-      const allTasks = getActiveAirdropTasksSync();
+      setLoading(true);
+      
+      // Use async database-first approach
+      const allTasks = await getActiveAirdropTasks();
       const total = allTasks.length;
-      const available = getTotalAirdropRewards();
+      const available = allTasks.reduce((sum, t) => sum + t.reward, 0);
 
       // Collect completed IDs from localStorage
       let completedIds: number[] = [];
@@ -24,15 +31,17 @@ const AirdropWidget: React.FC = () => {
         completedIds = JSON.parse(localStorage.getItem(`airdrop_completed_${address}`) || '[]');
       } catch { /* ignore */ }
 
-      // Merge with DB completions
+      // Merge with DB completions (DB is authoritative)
       try {
         const progress = await airdropService.getAirdropProgress(address);
         if (progress.success && progress.data?.completedTasks) {
-          progress.data.completedTasks.forEach((c: any) => {
-            if (c.task_id != null && !completedIds.includes(Number(c.task_id))) {
-              completedIds.push(Number(c.task_id));
-            }
-          });
+          const dbCompletedIds = progress.data.completedTasks
+            .map((c: any) => c.task_id != null ? Number(c.task_id) : null)
+            .filter((id: number | null): id is number => id !== null);
+          
+          // Merge: DB takes precedence
+          const mergedSet = new Set([...dbCompletedIds, ...completedIds]);
+          completedIds = Array.from(mergedSet);
         }
       } catch { /* non-fatal */ }
 
@@ -41,12 +50,23 @@ const AirdropWidget: React.FC = () => {
       const earned = completedTasks.reduce((sum, t) => sum + t.reward, 0);
 
       setStats({ completed: completedTasks.length, total, earned, available });
+      setLoading(false);
     };
 
     load();
   }, [address]);
 
   const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
+
+  if (loading) {
+    return (
+      <div className="p-4 bg-gradient-to-r from-primary/10 via-secondary/5 to-primary/10 border border-primary/20 rounded-xl">
+        <div className="flex items-center justify-center py-2">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

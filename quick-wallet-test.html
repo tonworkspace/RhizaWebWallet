@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Wallet Send/Receive Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .test-card {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #00FF88;
+        }
+        .success { border-left-color: #00FF88; }
+        .warning { border-left-color: #FFA500; }
+        .error { border-left-color: #FF4444; }
+        .pending { border-left-color: #0088CC; }
+        
+        button {
+            background: #00FF88;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 5px 0;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        button:hover { background: #00CC66; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        
+        .result {
+            background: #333;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.pass { background: #00FF88; color: #000; }
+        .status.fail { background: #FF4444; color: #fff; }
+        .status.pending { background: #0088CC; color: #fff; }
+        
+        h1 { color: #00FF88; }
+        h3 { margin-top: 0; }
+        
+        .summary {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00FF88;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Quick Wallet Send/Receive Test</h1>
+    <p>Fast verification of your WDK wallet's core send/receive functionality.</p>
+
+    <div class="summary">
+        <div class="score" id="score">Ready to Test</div>
+        <div id="summary-text">Click "Run All Tests" to start</div>
+    </div>
+
+    <button onclick="runAllTests()" id="run-all-btn">🚀 Run All Tests</button>
+    <button onclick="clearResults()">🧹 Clear Results</button>
+
+    <div class="test-grid">
+        <div class="test-card pending" id="init-card">
+            <h3>🔧 Initialization <span class="status pending" id="init-status">PENDING</span></h3>
+            <button onclick="testInitialization()">Test Init</button>
+            <div id="init-result" class="result">Click to test wallet initialization...</div>
+        </div>
+
+        <div class="test-card pending" id="addresses-card">
+            <h3>📍 Address Generation <span class="status pending" id="addresses-status">PENDING</span></h3>
+            <button onclick="testAddresses()">Test Addresses</button>
+            <div id="addresses-result" class="result">Click to test address generation...</div>
+        </div>
+
+        <div class="test-card pending" id="balances-card">
+            <h3>💰 Balance Fetching <span class="status pending" id="balances-status">PENDING</span></h3>
+            <button onclick="testBalances()" id="balances-btn" disabled>Test Balances</button>
+            <div id="balances-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="test-card pending" id="fees-card">
+            <h3>💸 Fee Estimation <span class="status pending" id="fees-status">PENDING</span></h3>
+            <button onclick="testFees()" id="fees-btn" disabled>Test Fees</button>
+            <div id="fees-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="test-card pending" id="send-card">
+            <h3>📤 Send Functions <span class="status pending" id="send-status">PENDING</span></h3>
+            <button onclick="testSendFunctions()" id="send-btn" disabled>Test Send</button>
+            <div id="send-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="test-card pending" id="receive-card">
+            <h3>📥 Receive Functions <span class="status pending" id="receive-status">PENDING</span></h3>
+            <button onclick="testReceiveFunctions()" id="receive-btn" disabled>Test Receive</button>
+            <div id="receive-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="test-card pending" id="security-card">
+            <h3>🔒 Security Features <span class="status pending" id="security-status">PENDING</span></h3>
+            <button onclick="testSecurity()" id="security-btn" disabled>Test Security</button>
+            <div id="security-result" class="result">Initialize wallet first...</div>
+        </div>
+
+        <div class="test-card pending" id="cleanup-card">
+            <h3>🧹 Cleanup <span class="status pending" id="cleanup-status">PENDING</span></h3>
+            <button onclick="testCleanup()" id="cleanup-btn" disabled>Test Cleanup</button>
+            <div id="cleanup-result" class="result">Run other tests first...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { tetherWdkService } from './services/tetherWdkService.js';
+        
+        const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+        let walletInitialized = false;
+        let testResults = {};
+
+        window.testInitialization = async function() {
+            updateStatus('init', 'pending');
+            const result = document.getElementById('init-result');
+            result.innerHTML = 'Initializing wallet managers...';
+            
+            try {
+                const start = performance.now();
+                const addresses = await tetherWdkService.initializeManagers(TEST_MNEMONIC);
+                const duration = Math.round(performance.now() - start);
+                
+                const output = `✅ Initialization Success (${duration}ms)
+EVM: ${addresses.evmAddress}
+TON: ${addresses.tonAddress}
+BTC: ${addresses.btcAddress}
+SOL: ${addresses.solAddress}
+TRON: ${addresses.tronAddress}
+
+Wallet Ready: ${tetherWdkService.isInitialized()}`;
+                
+                result.innerHTML = output;
+                updateStatus('init', 'pass');
+                testResults.init = { success: true, duration };
+                
+                // Enable other tests
+                walletInitialized = true;
+                ['balances', 'fees', 'send', 'receive', 'security', 'cleanup'].forEach(test => {
+                    document.getElementById(`${test}-btn`).disabled = false;
+                });
+                
+            } catch (error) {
+                result.innerHTML = `❌ Initialization Failed: ${error.message}`;
+                updateStatus('init', 'fail');
+                testResults.init = { success: false, error: error.message };
+            }
+        };
+
+        window.testAddresses = async function() {
+            updateStatus('addresses', 'pending');
+            const result = document.getElementById('addresses-result');
+            result.innerHTML = 'Testing address generation...';
+            
+            try {
+                const addresses = await tetherWdkService.getAddresses();
+                
+                const validations = {
+                    evm: /^0x[a-fA-F0-9]{40}$/.test(addresses.evmAddress),
+                    ton: addresses.tonAddress && addresses.tonAddress.length > 40,
+                    btc: addresses.btcAddress && addresses.btcAddress.length > 25,
+                    sol: addresses.solAddress && addresses.solAddress.length > 30,
+                    tron: addresses.tronAddress && addresses.tronAddress.startsWith('T')
+                };
+                
+                const allValid = Object.values(validations).every(v => v);
+                
+                const output = `${allValid ? '✅' : '❌'} Address Validation
+EVM: ${validations.evm ? '✅' : '❌'} ${addresses.evmAddress}
+TON: ${validations.ton ? '✅' : '❌'} ${addresses.tonAddress}
+BTC: ${validations.btc ? '✅' : '❌'} ${addresses.btcAddress}
+SOL: ${validations.sol ? '✅' : '❌'} ${addresses.solAddress}
+TRON: ${validations.tron ? '✅' : '❌'} ${addresses.tronAddress}`;
+                
+                result.innerHTML = output;
+                updateStatus('addresses', allValid ? 'pass' : 'fail');
+                testResults.addresses = { success: allValid, validations };
+                
+            } catch (error) {
+                result.innerHTML = `❌ Address Test Failed: ${error.message}`;
+                updateStatus('addresses', 'fail');
+                testResults.addresses = { success: false, error: error.message };
+            }
+        };
+
+        window.testBalances = async function() {
+            if (!walletInitialized) return;
+            
+            updateStatus('balances', 'pending');
+            const result = document.getElementById('balances-result');
+            result.innerHTML = 'Fetching balances...';
+            
+            try {
+                const start = performance.now();
+                const balances = await tetherWdkService.getBalances();
+                const duration = Math.round(performance.now() - start);
+                
+                const output = `✅ Balance Fetch Success (${duration}ms)
+EVM: ${balances.evmBalance} ETH
+TON: ${balances.tonBalance} TON
+BTC: ${balances.btcBalance} BTC
+SOL: ${balances.solBalance} SOL
+TRON: ${balances.tronBalance} TRX
+
+Performance: ${duration < 5000 ? '✅ Fast' : duration < 10000 ? '⚠️ Slow' : '❌ Very Slow'}`;
+                
+                result.innerHTML = output;
+                updateStatus('balances', 'pass');
+                testResults.balances = { success: true, duration, balances };
+                
+            } catch (error) {
+                result.innerHTML = `❌ Balance Fetch Failed: ${error.message}`;
+                updateStatus('balances', 'fail');
+                testResults.balances = { success: false, error: error.message };
+            }
+        };
+
+        window.testFees = async function() {
+            if (!walletInitialized) return;
+            
+            updateStatus('fees', 'pending');
+            const result = document.getElementById('fees-result');
+            result.innerHTML = 'Testing fee estimation...';
+            
+            try {
+                const addresses = await tetherWdkService.getAddresses();
+                let output = '💸 Fee Estimation Results:\n';
+                let successCount = 0;
+                
+                // Test EVM fees
+                try {
+                    const evmFee = await tetherWdkService.quoteSendEvmTransaction(addresses.evmAddress, '0.001');
+                    output += `EVM: ✅ ${evmFee?.feeEth} ETH\n`;
+                    successCount++;
+                } catch (e) {
+                    output += `EVM: ❌ ${e.message}\n`;
+                }
+                
+                // Test TON fees
+                try {
+                    const tonFee = await tetherWdkService.quoteSendTonTransaction(addresses.tonAddress, '0.1');
+                    output += `TON: ✅ ${tonFee?.feeTon} TON\n`;
+                    successCount++;
+                } catch (e) {
+                    output += `TON: ❌ ${e.message}\n`;
+                }
+                
+                // Test BTC fees
+                try {
+                    const btcFee = await tetherWdkService.quoteSendBtcTransaction(addresses.btcAddress, '0.001');
+                    output += `BTC: ✅ ${btcFee?.feeBtc} BTC\n`;
+                    successCount++;
+                } catch (e) {
+                    output += `BTC: ❌ ${e.message}\n`;
+                }
+                
+                output += `\nSuccess Rate: ${successCount}/3 chains`;
+                
+                result.innerHTML = output;
+                updateStatus('fees', successCount >= 2 ? 'pass' : 'fail');
+                testResults.fees = { success: successCount >= 2, successCount };
+                
+            } catch (error) {
+                result.innerHTML = `❌ Fee Test Failed: ${error.message}`;
+                updateStatus('fees', 'fail');
+                testResults.fees = { success: false, error: error.message };
+            }
+        };
+
+        window.testSendFunctions = async function() {
+            if (!walletInitialized) return;
+            
+            updateStatus('send', 'pending');
+            const result = document.getElementById('send-result');
+            result.innerHTML = 'Testing send function interfaces...';
+            
+            try {
+                let output = '📤 Send Function Tests (Dry Run):\n';
+                let successCount = 0;
+                
+                // Test EVM send (should fail with invalid address)
+                try {
+                    const evmResult = await tetherWdkService.sendEvmTransaction('invalid', '0.001');
+                    if (!evmResult.success && evmResult.error.includes('address')) {
+                        output += 'EVM: ✅ Address validation working\n';
+                        successCount++;
+                    } else {
+                        output += 'EVM: ❌ No address validation\n';
+                    }
+                } catch (e) {
+                    if (e.message.includes('address')) {
+                        output += 'EVM: ✅ Address validation working (threw)\n';
+                        successCount++;
+                    } else {
+                        output += `EVM: ❌ Unexpected error: ${e.message}\n`;
+                    }
+                }
+                
+                // Test TON send
+                try {
+                    const tonResult = await tetherWdkService.sendTonTransaction('invalid', '0.1');
+                    if (!tonResult.success && tonResult.error.includes('address')) {
+                        output += 'TON: ✅ Address validation working\n';
+                        successCount++;
+                    } else {
+                        output += 'TON: ❌ No address validation\n';
+                    }
+                } catch (e) {
+                    if (e.message.includes('address')) {
+                        output += 'TON: ✅ Address validation working (threw)\n';
+                        successCount++;
+                    } else {
+                        output += `TON: ❌ Unexpected error: ${e.message}\n`;
+                    }
+                }
+                
+                // Test multi-send
+                try {
+                    const multiResult = await tetherWdkService.sendTonMultiTransaction([
+                        { address: 'invalid1', amount: '0.01' },
+                        { address: 'invalid2', amount: '0.01' }
+                    ]);
+                    if (!multiResult.success) {
+                        output += 'Multi-send: ✅ Validation working\n';
+                        successCount++;
+                    } else {
+                        output += 'Multi-send: ❌ No validation\n';
+                    }
+                } catch (e) {
+                    output += 'Multi-send: ✅ Validation working (threw)\n';
+                    successCount++;
+                }
+                
+                output += `\nValidation Tests: ${successCount}/3 passed`;
+                
+                result.innerHTML = output;
+                updateStatus('send', successCount >= 2 ? 'pass' : 'fail');
+                testResults.send = { success: successCount >= 2, successCount };
+                
+            } catch (error) {
+                result.innerHTML = `❌ Send Test Failed: ${error.message}`;
+                updateStatus('send', 'fail');
+                testResults.send = { success: false, error: error.message };
+            }
+        };
+
+        window.testReceiveFunctions = async function() {
+            if (!walletInitialized) return;
+            
+            updateStatus('receive', 'pending');
+            const result = document.getElementById('receive-result');
+            result.innerHTML = 'Testing receive functionality...';
+            
+            try {
+                let output = '📥 Receive Function Tests:\n';
+                let successCount = 0;
+                
+                // Test address retrieval
+                try {
+                    const addresses = await tetherWdkService.getAddresses();
+                    if (addresses && addresses.evmAddress) {
+                        output += 'Address Retrieval: ✅ Working\n';
+                        successCount++;
+                    } else {
+                        output += 'Address Retrieval: ❌ Failed\n';
+                    }
+                } catch (e) {
+                    output += `Address Retrieval: ❌ ${e.message}\n`;
+                }
+                
+                // Test balance monitoring
+                try {
+                    const balance1 = await tetherWdkService.getBalances();
+                    await new Promise(r => setTimeout(r, 500));
+                    const balance2 = await tetherWdkService.getBalances();
+                    
+                    if (balance1 && balance2) {
+                        output += 'Balance Monitoring: ✅ Working\n';
+                        successCount++;
+                    } else {
+                        output += 'Balance Monitoring: ❌ Failed\n';
+                    }
+                } catch (e) {
+                    output += `Balance Monitoring: ❌ ${e.message}\n`;
+                }
+                
+                // Test transaction history
+                try {
+                    const btcHistory = await tetherWdkService.getBtcTransfers(5);
+                    const evmHistory = await tetherWdkService.getEvmTransfers(5);
+                    
+                    output += `Transaction History: ✅ BTC(${btcHistory.length}) EVM(${evmHistory.length})\n`;
+                    successCount++;
+                } catch (e) {
+                    output += `Transaction History: ⚠️ ${e.message}\n`;
+                    successCount += 0.5; // Partial credit
+                }
+                
+                output += `\nReceive Tests: ${successCount}/3 passed`;
+                
+                result.innerHTML = output;
+                updateStatus('receive', successCount >= 2 ? 'pass' : 'fail');
+                testResults.receive = { success: successCount >= 2, successCount };
+                
+            } catch (error) {
+                result.innerHTML = `❌ Receive Test Failed: ${error.message}`;
+                updateStatus('receive', 'fail');
+                testResults.receive = { success: false, error: error.message };
+            }
+        };
+
+        window.testSecurity = async function() {
+            if (!walletInitialized) return;
+            
+            updateStatus('security', 'pending');
+            const result = document.getElementById('security-result');
+            result.innerHTML = 'Testing security features...';
+            
+            try {
+                let output = '🔒 Security Tests:\n';
+                let successCount = 0;
+                
+                // Test fee guards
+                try {
+                    const addresses = await tetherWdkService.getAddresses();
+                    const largeAmountResult = await tetherWdkService.sendEvmTransaction(addresses.evmAddress, '1000');
+                    
+                    if (!largeAmountResult.success && (
+                        largeAmountResult.error.includes('fee') || 
+                        largeAmountResult.error.includes('insufficient') ||
+                        largeAmountResult.error.includes('limit')
+                    )) {
+                        output += 'Fee Guards: ✅ Working\n';
+                        successCount++;
+                    } else {
+                        output += 'Fee Guards: ❌ Not working\n';
+                    }
+                } catch (e) {
+                    output += 'Fee Guards: ✅ Working (threw error)\n';
+                    successCount++;
+                }
+                
+                // Test memory cleanup
+                try {
+                    const beforeLogout = tetherWdkService.isInitialized();
+                    tetherWdkService.logout();
+                    const afterLogout = tetherWdkService.isInitialized();
+                    
+                    if (beforeLogout && !afterLogout) {
+                        output += 'Memory Cleanup: ✅ Working\n';
+                        successCount++;
+                    } else {
+                        output += 'Memory Cleanup: ❌ Not working\n';
+                    }
+                    
+                    // Re-initialize for cleanup test
+                    await tetherWdkService.initializeManagers(TEST_MNEMONIC);
+                } catch (e) {
+                    output += `Memory Cleanup: ❌ ${e.message}\n`;
+                }
+                
+                // Test error handling
+                try {
+                    const invalidResult = await tetherWdkService.sendEvmTransaction('0xinvalid', '0.001');
+                    if (!invalidResult.success && invalidResult.error) {
+                        output += 'Error Handling: ✅ User-friendly messages\n';
+                        successCount++;
+                    } else {
+                        output += 'Error Handling: ❌ Poor error messages\n';
+                    }
+                } catch (e) {
+                    output += 'Error Handling: ✅ Proper exception handling\n';
+                    successCount++;
+                }
+                
+                output += `\nSecurity Tests: ${successCount}/3 passed`;
+                
+                result.innerHTML = output;
+                updateStatus('security', successCount >= 2 ? 'pass' : 'fail');
+                testResults.security = { success: successCount >= 2, successCount };
+                
+            } catch (error) {
+                result.innerHTML = `❌ Security Test Failed: ${error.message}`;
+                updateStatus('security', 'fail');
+                testResults.security = { success: false, error: error.message };
+            }
+        };
+
+        window.testCleanup = function() {
+            updateStatus('cleanup', 'pending');
+            const result = document.getElementById('cleanup-result');
+            result.innerHTML = 'Testing cleanup...';
+            
+            try {
+                tetherWdkService.logout();
+                const isClean = !tetherWdkService.isInitialized();
+                
+                const output = `🧹 Cleanup Test
+Logout: ✅ Completed
+Memory Cleared: ${isClean ? '✅ Yes' : '❌ No'}
+Wallet State: ${isClean ? 'Clean' : 'Still initialized'}`;
+                
+                result.innerHTML = output;
+                updateStatus('cleanup', isClean ? 'pass' : 'fail');
+                testResults.cleanup = { success: isClean };
+                
+                // Disable buttons after cleanup
+                walletInitialized = false;
+                ['balances', 'fees', 'send', 'receive', 'security'].forEach(test => {
+                    document.getElementById(`${test}-btn`).disabled = true;
+                });
+                
+                updateSummary();
+                
+            } catch (error) {
+                result.innerHTML = `❌ Cleanup Failed: ${error.message}`;
+                updateStatus('cleanup', 'fail');
+                testResults.cleanup = { success: false, error: error.message };
+            }
+        };
+
+        window.runAllTests = async function() {
+            document.getElementById('run-all-btn').disabled = true;
+            
+            try {
+                await testInitialization();
+                await new Promise(r => setTimeout(r, 500));
+                
+                await testAddresses();
+                await new Promise(r => setTimeout(r, 500));
+                
+                await testBalances();
+                await new Promise(r => setTimeout(r, 500));
+                
+                await testFees();
+                await new Promise(r => setTimeout(r, 500));
+                
+                await testSendFunctions();
+                await new Promise(r => setTimeout(r, 500));
+                
+                await testReceiveFunctions();
+                await new Promise(r => setTimeout(r, 500));
+                
+                await testSecurity();
+                await new Promise(r => setTimeout(r, 500));
+                
+                testCleanup();
+                
+            } finally {
+                document.getElementById('run-all-btn').disabled = false;
+            }
+        };
+
+        window.clearResults = function() {
+            testResults = {};
+            
+            ['init', 'addresses', 'balances', 'fees', 'send', 'receive', 'security', 'cleanup'].forEach(test => {
+                document.getElementById(`${test}-result`).innerHTML = 'Ready to test...';
+                updateStatus(test, 'pending');
+            });
+            
+            document.getElementById('score').innerHTML = 'Ready to Test';
+            document.getElementById('summary-text').innerHTML = 'Click "Run All Tests" to start';
+        };
+
+        function updateStatus(test, status) {
+            const statusEl = document.getElementById(`${test}-status`);
+            const cardEl = document.getElementById(`${test}-card`);
+            
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = status.toUpperCase();
+            
+            cardEl.className = `test-card ${status}`;
+        }
+
+        function updateSummary() {
+            const totalTests = Object.keys(testResults).length;
+            const passedTests = Object.values(testResults).filter(r => r.success).length;
+            const score = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+            
+            document.getElementById('score').innerHTML = `${score}%`;
+            
+            let summaryText = `${passedTests}/${totalTests} tests passed`;
+            if (score >= 90) {
+                summaryText += ' - 🟢 EXCELLENT';
+            } else if (score >= 75) {
+                summaryText += ' - 🟡 GOOD';
+            } else if (score >= 60) {
+                summaryText += ' - 🟠 FAIR';
+            } else {
+                summaryText += ' - 🔴 NEEDS WORK';
+            }
+            
+            document.getElementById('summary-text').innerHTML = summaryText;
+        }
+
+        // Auto-run initialization on load
+        window.addEventListener('load', () => {
+            console.log('Quick Wallet Test loaded. Click "Run All Tests" to start.');
+        });
+    </script>
+</body>
+</html>

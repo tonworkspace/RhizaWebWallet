@@ -231,6 +231,8 @@ class DatabaseAirdropService {
         return { success: false, message: 'Database connection failed' };
       }
 
+      console.log('🔄 Updating task:', { taskId, title: taskData.title });
+
       const { data, error } = await supabase.rpc('update_airdrop_task', {
         p_task_id: taskId,
         p_title: taskData.title,
@@ -248,18 +250,22 @@ class DatabaseAirdropService {
         p_updated_by: updatedBy || null
       });
 
+      console.log('📊 Update result:', { data, error });
+
       if (error) {
-        console.error('Failed to update task:', error);
+        console.error('❌ Failed to update task:', error);
         return { success: false, message: error.message };
       }
 
-      if (!data) {
-        return { success: false, message: 'Task not found' };
+      // data is a boolean - true if task was found and updated, false if not found
+      if (data === false) {
+        return { success: false, message: `Task #${taskId} not found in database` };
       }
 
+      console.log('✅ Task updated successfully');
       return { success: true, message: 'Task updated successfully' };
     } catch (error: any) {
-      console.error('Update task error:', error);
+      console.error('❌ Update task error:', error);
       return { success: false, message: error.message };
     }
   }
@@ -284,23 +290,29 @@ class DatabaseAirdropService {
         return { success: false, message: 'Database connection failed' };
       }
 
+      console.log('🗑️ Deleting task:', taskId);
+
       const { data, error } = await supabase.rpc('delete_airdrop_task', {
         p_task_id: taskId,
         p_deleted_by: deletedBy || null
       });
 
+      console.log('📊 Delete result:', { data, error });
+
       if (error) {
-        console.error('Failed to delete task:', error);
+        console.error('❌ Failed to delete task:', error);
         return { success: false, message: error.message };
       }
 
-      if (!data) {
-        return { success: false, message: 'Task not found' };
+      // data is a boolean - true if task was found and deleted, false if not found
+      if (data === false) {
+        return { success: false, message: `Task #${taskId} not found in database` };
       }
 
+      console.log('✅ Task deleted successfully');
       return { success: true, message: 'Task deactivated successfully' };
     } catch (error: any) {
-      console.error('Delete task error:', error);
+      console.error('❌ Delete task error:', error);
       return { success: false, message: error.message };
     }
   }

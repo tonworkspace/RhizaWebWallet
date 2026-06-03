@@ -2,9 +2,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './i18n/config';
-const Landing = React.lazy(() => import('./pages/Landing'));
+import Notifications from './pages/Notifications';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Assets = React.lazy(() => import('./pages/Assets'));
+const Market = React.lazy(() => import('./pages/Market'));
 const AssetDetail = React.lazy(() => import('./pages/AssetDetail'));
 const History = React.lazy(() => import('./pages/History'));
 const Settings = React.lazy(() => import('./pages/Settings'));
@@ -18,10 +19,13 @@ const ProfileEdit = React.lazy(() => import('./pages/ProfileEdit'));
 const Transfer = React.lazy(() => import('./pages/Transfer'));
 const Receive = React.lazy(() => import('./pages/Receive'));
 const AIAssistant = React.lazy(() => import('./pages/AIAssistant'));
-const Notifications = React.lazy(() => import('./pages/Notifications'));
+const Landing = React.lazy(() => import('./pages/Landing'));
 const Activity = React.lazy(() => import('./pages/Activity'));
+const TradeSimulator = React.lazy(() => import('./pages/TradeSimulator'));
 
 const MiningNodes = React.lazy(() => import('./pages/MiningNodes'));
+const CoinDetail = React.lazy(() => import('./pages/CoinDetail'));
+const Explorer = React.lazy(() => import('./pages/Explorer'));
 const AdminRegister = React.lazy(() => import('./pages/AdminRegister'));
 const AdminSetup = React.lazy(() => import('./pages/AdminSetup'));
 const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
@@ -52,6 +56,11 @@ const SecondaryWallet = React.lazy(() => import('./pages/SecondaryWallet'));
 const CloudBackup = React.lazy(() => import('./pages/CloudBackup'));
 const TwoFactorSetup = React.lazy(() => import('./pages/TwoFactorSetup'));
 const RzcStore = React.lazy(() => import('./pages/RzcStore'));
+const InvoiceLookup = React.lazy(() => import('./pages/InvoiceLookup'));
+const Engagement = React.lazy(() => import('./pages/Engagement'));
+const Vanguard = React.lazy(() => import('./pages/Vanguard'));
+const ProjectDetail = React.lazy(() => import('./pages/ProjectDetail'));
+const LaunchpadList = React.lazy(() => import('./pages/LaunchpadList'));
 import { SecondaryWalletProvider } from './context/SecondaryWalletContext';
 import BalanceVerification from './components/BalanceVerification';
 import { Layout } from './components/Layout';
@@ -72,8 +81,10 @@ import GlobalPurchaseModal from './components/GlobalPurchaseModal';
 import GlobalNetworkModal from './components/GlobalNetworkModal';
 import GlobalWalletManager from './components/GlobalWalletManager';
 import { WalletManagerProvider } from './context/WalletManagerContext';
-import FloatingSupport from './components/FloatingSupport';
+import { AdminEditModalProvider } from './context/AdminEditModalContext';
 import AddressChangelogModal from './components/AddressChangelogModal';
+import FloatingSupportEnhanced from './components/FloatingSupportEnhanced';
+import GlobalAdminEditModal from './components/GlobalAdminEditModal';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, isLoading } = useWallet();
@@ -172,9 +183,10 @@ const AppContent: React.FC = () => {
       '/join': 'Join (Create Wallet)',
       '/import-wallet': 'Import Wallet',
       '/wallet/dashboard': 'Dashboard',
-      '/wallet/assets': 'Assets',
+      '/wallet/market': 'Market',
       '/wallet/history': 'Transaction History',
       '/wallet/referral': 'Referral',
+      '/wallet/vanguard': 'Vanguard Ambassador',
       '/wallet/settings': 'Settings',
       '/wallet/more': 'More',
       '/wallet/transfer': 'Transfer',
@@ -185,6 +197,7 @@ const AppContent: React.FC = () => {
       '/wallet/sales-package': 'Sales Package',
       '/wallet/profile': 'Edit Profile',
       '/wallet/verification': 'Balance Verification',
+      '/wallet/invoices': 'Payment Invoices',
       '/admin': 'Admin Dashboard',
       // '/admin-register': 'Admin Registration',
       // '/admin-setup': 'Admin Setup'
@@ -216,8 +229,11 @@ const AppContent: React.FC = () => {
       {/* Global Wallet Account Manager */}
       <GlobalWalletManager />
 
-      {/* Global Floating Support Chat */}
-      <FloatingSupport />
+      {/* Global Admin Edit Modal */}
+      <GlobalAdminEditModal />
+
+      {/* Enhanced Support Ticket System with Conversations */}
+      <FloatingSupportEnhanced />
 
       {/* One-time address format changelog for existing users */}
       <AddressChangelogModal />
@@ -274,6 +290,9 @@ const AppContent: React.FC = () => {
             <Route path="/wallet/profile" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
             <Route path="/wallet/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/wallet/assets" element={<ProtectedRoute><Assets /></ProtectedRoute>} />
+            <Route path="/wallet/market" element={<ProtectedRoute><Market /></ProtectedRoute>} />
+            <Route path="/wallet/coin/:symbol" element={<ProtectedRoute><CoinDetail /></ProtectedRoute>} />
+            <Route path="/wallet/explorer" element={<ProtectedRoute><Explorer /></ProtectedRoute>} />
             <Route path="/wallet/asset-detail" element={<ProtectedRoute><AssetDetail /></ProtectedRoute>} />
             <Route path="/wallet/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/wallet/referral" element={<ProtectedRoute><Referral /></ProtectedRoute>} />
@@ -283,6 +302,7 @@ const AppContent: React.FC = () => {
             <Route path="/wallet/ai-assistant" element={<ProtectedRoute><AIAssistant /></ProtectedRoute>} />
             <Route path="/wallet/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             <Route path="/wallet/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
+            <Route path="/wallet/simulator" element={<ProtectedRoute><TradeSimulator /></ProtectedRoute>} />
             <Route path="/wallet/more" element={<ProtectedRoute><More /></ProtectedRoute>} />
             <Route path="/wallet/sales-package" element={<ProtectedRoute><MiningNodes /></ProtectedRoute>} />
             <Route path="/wallet/store" element={<ProtectedRoute><RzcStore /></ProtectedRoute>} />
@@ -291,7 +311,13 @@ const AppContent: React.FC = () => {
             <Route path="/wallet/multi-chain" element={<ProtectedRoute><SecondaryWallet /></ProtectedRoute>} />
             <Route path="/wallet/cloud-backup" element={<ProtectedRoute><CloudBackup /></ProtectedRoute>} />
             <Route path="/wallet/2fa" element={<ProtectedRoute><TwoFactorSetup /></ProtectedRoute>} />
-            <Route path="/wallet/verification" element={<ProtectedRoute><div className="max-w-xl mx-auto px-3 sm:px-4 md:px-0 py-6 space-y-4 page-enter"><div className="flex items-center gap-2 mb-2"><h1 className="text-xl font-black text-slate-900 dark:text-white">Balance Verification</h1></div><BalanceVerification /></div></ProtectedRoute>} />
+            <Route path="/wallet/invoices" element={<ProtectedRoute><InvoiceLookup /></ProtectedRoute>} />
+            <Route path="/wallet/engagement" element={<ProtectedRoute><Engagement /></ProtectedRoute>} />
+            <Route path="/wallet/vanguard" element={<ProtectedRoute><Vanguard /></ProtectedRoute>} />
+            <Route path="/wallet/launchpad-list" element={<ProtectedRoute><LaunchpadList /></ProtectedRoute>} />
+            <Route path="/wallet/launchpad/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
+            <Route path="/wallet/launchpad" element={<Navigate to="/wallet/launchpad-list" replace />} />
+            <Route path="/wallet/verification" element={<ProtectedRoute><div className="max-w-xl mx-auto px-1 sm:px-3 md:px-0 py-6 space-y-4 page-enter"><div className="flex items-center gap-2 mb-2"><h1 className="text-xl font-black text-slate-900 dark:text-white">Balance Verification</h1></div><BalanceVerification /></div></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -308,17 +334,19 @@ const App: React.FC = () => {
         <WalletProvider>
           <SecondaryWalletProvider>
             <WalletManagerProvider>
-              <AirdropProvider>
-                <SettingsModalProvider>
-                  <PurchaseModalProvider>
-                    <VerificationFormProvider>
-                      <ActivationModalProvider>
-                        <AppContent />
-                      </ActivationModalProvider>
-                    </VerificationFormProvider>
-                  </PurchaseModalProvider>
-                </SettingsModalProvider>
-              </AirdropProvider>
+              <AdminEditModalProvider>
+                <AirdropProvider>
+                  <SettingsModalProvider>
+                    <PurchaseModalProvider>
+                      <VerificationFormProvider>
+                        <ActivationModalProvider>
+                          <AppContent />
+                        </ActivationModalProvider>
+                      </VerificationFormProvider>
+                    </PurchaseModalProvider>
+                  </SettingsModalProvider>
+                </AirdropProvider>
+              </AdminEditModalProvider>
             </WalletManagerProvider>
           </SecondaryWalletProvider>
         </WalletProvider>

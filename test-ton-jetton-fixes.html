@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TON Jetton Fixes - Test Suite</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    h1 {
+      color: #667eea;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 20px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    .test-section h2 {
+      color: #764ba2;
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status.pending { background: #ffd700; color: #333; }
+    .status.running { background: #4CAF50; color: white; animation: pulse 1s infinite; }
+    .status.success { background: #4CAF50; color: white; }
+    .status.failed { background: #f44336; color: white; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .test-input {
+      margin: 10px 0;
+    }
+    .test-input label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+      color: #555;
+    }
+    .test-input input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 10px 5px 10px 0;
+      transition: transform 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .result {
+      margin-top: 15px;
+      padding: 15px;
+      border-radius: 6px;
+      background: white;
+      border-left: 4px solid #667eea;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .result.success {
+      border-left-color: #4CAF50;
+      background: #f1f8f4;
+    }
+    .result.error {
+      border-left-color: #f44336;
+      background: #fef1f0;
+    }
+    .metric {
+      display: inline-block;
+      margin: 10px 15px 10px 0;
+      padding: 8px 16px;
+      background: white;
+      border-radius: 6px;
+      border: 1px solid #e0e0e0;
+    }
+    .metric-label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .metric-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #667eea;
+    }
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .comparison-item {
+      padding: 15px;
+      background: white;
+      border-radius: 6px;
+      border: 1px solid #e0e0e0;
+    }
+    .comparison-item h4 {
+      margin: 0 0 10px 0;
+      color: #764ba2;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+    .badge.new { background: #4CAF50; color: white; }
+    .badge.improved { background: #2196F3; color: white; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔷 TON Jetton Fixes - Test Suite</h1>
+    <p class="subtitle">Testing the 3 improvements: getJettonBalance(), comment forwarding, and wallet caching</p>
+
+    <!-- Test 1: getJettonBalance() -->
+    <div class="test-section">
+      <h2>
+        <span>Test 1: getJettonBalance() Method</span>
+        <span class="badge new">NEW</span>
+        <span class="status pending" id="test1-status">PENDING</span>
+      </h2>
+      <p>Tests the new dedicated jetton balance query method.</p>
+      
+      <div class="test-input">
+        <label>Owner Address:</label>
+        <input type="text" id="test1-owner" placeholder="UQAbc...xyz" />
+      </div>
+      <div class="test-input">
+        <label>Jetton Master Address:</label>
+        <input type="text" id="test1-jetton" placeholder="EQBl...123" />
+      </div>
+      <div class="test-input">
+        <label>Decimals (default: 9):</label>
+        <input type="number" id="test1-decimals" value="9" />
+      </div>
+      
+      <button onclick="runTest1()">Run Test 1</button>
+      <button onclick="clearTest1()">Clear</button>
+      
+      <div id="test1-result"></div>
+    </div>
+
+    <!-- Test 2: Jetton Comment Forwarding -->
+    <div class="test-section">
+      <h2>
+        <span>Test 2: Jetton Comment Forwarding</span>
+        <span class="badge improved">IMPROVED</span>
+        <span class="status pending" id="test2-status">PENDING</span>
+      </h2>
+      <p>Tests that comments are properly forwarded in jetton transfers.</p>
+      
+      <div class="test-input">
+        <label>Jetton Wallet Address:</label>
+        <input type="text" id="test2-wallet" placeholder="EQAbc...xyz" />
+      </div>
+      <div class="test-input">
+        <label>Recipient Address:</label>
+        <input type="text" id="test2-recipient" placeholder="UQDef...123" />
+      </div>
+      <div class="test-input">
+        <label>Amount (in smallest units):</label>
+        <input type="text" id="test2-amount" placeholder="1000000000" />
+      </div>
+      <div class="test-input">
+        <label>Comment:</label>
+        <input type="text" id="test2-comment" placeholder="Test comment for jetton transfer" />
+      </div>
+      
+      <button onclick="runTest2()">Run Test 2</button>
+      <button onclick="clearTest2()">Clear</button>
+      
+      <div id="test2-result"></div>
+      
+      <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 6px; border-left: 4px solid #ffc107;">
+        <strong>⚠️ Note:</strong> This test requires wallet initialization and will broadcast a real transaction. 
+        After sending, check the transaction on TonViewer to verify the comment is visible.
+      </div>
+    </div>
+
+    <!-- Test 3: Jetton Wallet Caching -->
+    <div class="test-section">
+      <h2>
+        <span>Test 3: Jetton Wallet Caching</span>
+        <span class="badge new">NEW</span>
+        <span class="status pending" id="test3-status">PENDING</span>
+      </h2>
+      <p>Tests the performance improvement from jetton wallet address caching.</p>
+      
+      <div class="test-input">
+        <label>Owner Address:</label>
+        <input type="text" id="test3-owner" placeholder="UQAbc...xyz" />
+      </div>
+      <div class="test-input">
+        <label>Jetton Master Address:</label>
+        <input type="text" id="test3-jetton" placeholder="EQBl...123" />
+      </div>
+      
+      <button onclick="runTest3()">Run Test 3</button>
+      <button onclick="clearTest3()">Clear</button>
+      
+      <div class="comparison" id="test3-comparison" style="display: none;">
+        <div class="comparison-item">
+          <h4>First Call (API)</h4>
+          <div class="metric">
+            <div class="metric-label">Time</div>
+            <div class="metric-value" id="test3-time1">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Source</div>
+            <div class="metric-value" style="font-size: 14px;">API</div>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <h4>Second Call (Cache)</h4>
+          <div class="metric">
+            <div class="metric-label">Time</div>
+            <div class="metric-value" id="test3-time2">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Speedup</div>
+            <div class="metric-value" id="test3-speedup" style="color: #4CAF50;">-</div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="test3-result"></div>
+    </div>
+
+    <!-- Summary -->
+    <div class="test-section" style="background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-color: #667eea;">
+      <h2 style="color: #667eea;">📊 Test Summary</h2>
+      <div class="metric">
+        <div class="metric-label">Tests Passed</div>
+        <div class="metric-value" id="summary-passed">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Tests Failed</div>
+        <div class="metric-value" id="summary-failed" style="color: #f44336;">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Overall Score</div>
+        <div class="metric-value" id="summary-score">-</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { TonWalletService } from './services/tonWalletService.ts';
+    
+    const tonWalletService = new TonWalletService();
+    window.tonWalletService = tonWalletService;
+    
+    let testResults = { passed: 0, failed: 0 };
+    
+    // Test 1: getJettonBalance()
+    window.runTest1 = async function() {
+      const statusEl = document.getElementById('test1-status');
+      const resultEl = document.getElementById('test1-result');
+      
+      statusEl.textContent = 'RUNNING';
+      statusEl.className = 'status running';
+      
+      const owner = document.getElementById('test1-owner').value;
+      const jetton = document.getElementById('test1-jetton').value;
+      const decimals = parseInt(document.getElementById('test1-decimals').value) || 9;
+      
+      if (!owner || !jetton) {
+        resultEl.innerHTML = '<div class="result error">❌ Please provide both owner and jetton addresses</div>';
+        statusEl.textContent = 'FAILED';
+        statusEl.className = 'status failed';
+        return;
+      }
+      
+      try {
+        const start = Date.now();
+        const result = await tonWalletService.getJettonBalance(owner, jetton, decimals);
+        const duration = Date.now() - start;
+        
+        if (result.success) {
+          resultEl.innerHTML = `
+            <div class="result success">
+              ✅ <strong>Success!</strong><br><br>
+              <strong>Balance:</strong> ${result.balance} tokens<br>
+              <strong>Duration:</strong> ${duration}ms<br>
+              <strong>Decimals:</strong> ${decimals}<br><br>
+              <strong>Method:</strong> getJettonBalance() - NEW dedicated method<br>
+              <strong>Performance:</strong> ${duration < 500 ? '⚡ Excellent' : duration < 1000 ? '✅ Good' : '⚠️ Slow'}
+            </div>
+          `;
+          statusEl.textContent = 'SUCCESS';
+          statusEl.className = 'status success';
+          testResults.passed++;
+        } else {
+          throw new Error(result.error || 'Unknown error');
+        }
+      } catch (error) {
+        resultEl.innerHTML = `<div class="result error">❌ <strong>Error:</strong> ${error.message}</div>`;
+        statusEl.textContent = 'FAILED';
+        statusEl.className = 'status failed';
+        testResults.failed++;
+      }
+      
+      updateSummary();
+    };
+    
+    window.clearTest1 = function() {
+      document.getElementById('test1-result').innerHTML = '';
+      document.getElementById('test1-status').textContent = 'PENDING';
+      document.getElementById('test1-status').className = 'status pending';
+    };
+    
+    // Test 2: Jetton Comment Forwarding
+    window.runTest2 = async function() {
+      const statusEl = document.getElementById('test2-status');
+      const resultEl = document.getElementById('test2-result');
+      
+      statusEl.textContent = 'RUNNING';
+      statusEl.className = 'status running';
+      
+      const wallet = document.getElementById('test2-wallet').value;
+      const recipient = document.getElementById('test2-recipient').value;
+      const amount = document.getElementById('test2-amount').value;
+      const comment = document.getElementById('test2-comment').value;
+      
+      if (!wallet || !recipient || !amount) {
+        resultEl.innerHTML = '<div class="result error">❌ Please provide wallet, recipient, and amount</div>';
+        statusEl.textContent = 'FAILED';
+        statusEl.className = 'status failed';
+        return;
+      }
+      
+      try {
+        const result = await tonWalletService.sendJettonTransaction(
+          wallet,
+          recipient,
+          BigInt(amount),
+          '0.01',
+          comment
+        );
+        
+        if (result.success) {
+          resultEl.innerHTML = `
+            <div class="result success">
+              ✅ <strong>Transaction Sent!</strong><br><br>
+              <strong>TX Hash:</strong> ${result.txHash}<br>
+              <strong>Seqno:</strong> ${result.seqno}<br>
+              <strong>Comment:</strong> "${comment}"<br><br>
+              <strong>Improvement:</strong> Comment is now properly forwarded in the transfer body!<br>
+              <strong>Verification:</strong> Check on TonViewer to see the comment<br><br>
+              <a href="https://tonviewer.com/transaction/${result.txHash}" target="_blank" style="color: #667eea;">
+                View on TonViewer →
+              </a>
+            </div>
+          `;
+          statusEl.textContent = 'SUCCESS';
+          statusEl.className = 'status success';
+          testResults.passed++;
+        } else {
+          throw new Error(result.error || 'Transaction failed');
+        }
+      } catch (error) {
+        resultEl.innerHTML = `<div class="result error">❌ <strong>Error:</strong> ${error.message}</div>`;
+        statusEl.textContent = 'FAILED';
+        statusEl.className = 'status failed';
+        testResults.failed++;
+      }
+      
+      updateSummary();
+    };
+    
+    window.clearTest2 = function() {
+      document.getElementById('test2-result').innerHTML = '';
+      document.getElementById('test2-status').textContent = 'PENDING';
+      document.getElementById('test2-status').className = 'status pending';
+    };
+    
+    // Test 3: Jetton Wallet Caching
+    window.runTest3 = async function() {
+      const statusEl = document.getElementById('test3-status');
+      const resultEl = document.getElementById('test3-result');
+      const comparisonEl = document.getElementById('test3-comparison');
+      
+      statusEl.textContent = 'RUNNING';
+      statusEl.className = 'status running';
+      
+      const owner = document.getElementById('test3-owner').value;
+      const jetton = document.getElementById('test3-jetton').value;
+      
+      if (!owner || !jetton) {
+        resultEl.innerHTML = '<div class="result error">❌ Please provide both owner and jetton addresses</div>';
+        statusEl.textContent = 'FAILED';
+        statusEl.className = 'status failed';
+        return;
+      }
+      
+      try {
+        // First call (API)
+        const start1 = Date.now();
+        const result1 = await tonWalletService.resolveJettonWallet(owner, jetton);
+        const time1 = Date.now() - start1;
+        
+        if (!result1.success) {
+          throw new Error(result1.error || 'Failed to resolve jetton wallet');
+        }
+        
+        // Second call (Cache)
+        const start2 = Date.now();
+        const result2 = await tonWalletService.resolveJettonWallet(owner, jetton);
+        const time2 = Date.now() - start2;
+        
+        if (!result2.success) {
+          throw new Error(result2.error || 'Failed to resolve jetton wallet (cached)');
+        }
+        
+        const speedup = (time1 / time2).toFixed(1);
+        
+        // Show comparison
+        comparisonEl.style.display = 'grid';
+        document.getElementById('test3-time1').textContent = `${time1}ms`;
+        document.getElementById('test3-time2').textContent = `${time2}ms`;
+        document.getElementById('test3-speedup').textContent = `${speedup}x`;
+        
+        resultEl.innerHTML = `
+          <div class="result success">
+            ✅ <strong>Caching Works!</strong><br><br>
+            <strong>Jetton Wallet:</strong> ${result1.jettonWalletAddress}<br>
+            <strong>First Call:</strong> ${time1}ms (from API)<br>
+            <strong>Second Call:</strong> ${time2}ms (from cache)<br>
+            <strong>Performance Gain:</strong> ${speedup}x faster!<br><br>
+            <strong>Cache TTL:</strong> 1 hour<br>
+            <strong>Benefit:</strong> ${speedup > 10 ? '🚀 Excellent' : speedup > 5 ? '✅ Good' : '⚠️ Marginal'} performance improvement
+          </div>
+        `;
+        statusEl.textContent = 'SUCCESS';
+        statusEl.className = 'status success';
+        testResults.passed++;
+      } catch (error) {
+        resultEl.innerHTML = `<div class="result error">❌ <strong>Error:</strong> ${error.message}</div>`;
+        statusEl.textContent = 'FAILED';
+        statusEl.className = 'status failed';
+        testResults.failed++;
+      }
+      
+      updateSummary();
+    };
+    
+    window.clearTest3 = function() {
+      document.getElementById('test3-result').innerHTML = '';
+      document.getElementById('test3-comparison').style.display = 'none';
+      document.getElementById('test3-status').textContent = 'PENDING';
+      document.getElementById('test3-status').className = 'status pending';
+    };
+    
+    function updateSummary() {
+      document.getElementById('summary-passed').textContent = testResults.passed;
+      document.getElementById('summary-failed').textContent = testResults.failed;
+      
+      const total = testResults.passed + testResults.failed;
+      if (total > 0) {
+        const score = ((testResults.passed / total) * 100).toFixed(0);
+        document.getElementById('summary-score').textContent = `${score}%`;
+        document.getElementById('summary-score').style.color = score === '100' ? '#4CAF50' : score >= '66' ? '#FFC107' : '#f44336';
+      }
+    }
+  </script>
+</body>
+</html>

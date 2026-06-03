@@ -5,7 +5,7 @@ import {
   Shield, Bell, Globe, Moon, Sun, Key, Trash2, LogOut,
   ChevronRight, Copy, Check, AlertCircle, Wallet, Lock,
   Edit, Cloud, Layers, ChevronDown, Zap, HelpCircle,
-  FileText, Info, RefreshCw, Link2
+  FileText, Info, RefreshCw, LayoutGrid
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
@@ -35,7 +35,7 @@ const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 // ─── Card shell — matches app-wide card style ─────────────────────────────────
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <div className={`bg-white dark:bg-white/5 border-2 border-gray-200 dark:border-white/5 rounded-2xl shadow-sm overflow-hidden ${className}`}>
+  <div className={`bg-white/50 dark:bg-black/20 border border-gray-200 dark:border-white/5 rounded-xl shadow-sm overflow-hidden ${className}`}>
     {children}
   </div>
 );
@@ -59,35 +59,35 @@ const Row: React.FC<RowProps> = ({ icon: Icon, iconColor, label, sub, right, onC
     onClick={onClick}
     onKeyDown={e => onClick && e.key === 'Enter' && onClick()}
     className={[
-      'flex items-center gap-3 px-4 py-3.5 transition-colors',
+      'flex items-center gap-2.5 px-3 py-2.5 transition-colors',
       !noBorder && 'border-b border-gray-100 dark:border-white/5 last:border-0',
       onClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/8' : '',
       danger ? 'text-red-500 dark:text-red-400' : '',
     ].filter(Boolean).join(' ')}
   >
     {/* Icon bubble */}
-    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
       danger
         ? 'bg-red-100 dark:bg-red-500/10 text-red-500 dark:text-red-400'
         : iconColor ?? 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400'
     }`}>
-      <Icon size={16} />
+      <Icon size={14} />
     </div>
 
     {/* Text */}
     <div className="flex-1 min-w-0">
-      <p className={`text-sm font-heading font-black uppercase tracking-widest leading-tight ${danger ? '' : 'text-gray-900 dark:text-white'}`}>
+      <p className={`text-[11px] font-heading font-black uppercase tracking-widest leading-tight ${danger ? '' : 'text-gray-900 dark:text-white'}`}>
         {label}
       </p>
       {sub && (
-        <p className="text-[10px] font-body text-gray-500 dark:text-gray-500 mt-1 truncate">{sub}</p>
+        <p className="text-[9px] font-body text-gray-500 dark:text-gray-500 mt-0.5 truncate">{sub}</p>
       )}
     </div>
 
     {/* Right slot */}
     {right !== undefined
       ? <div className="flex-shrink-0">{right}</div>
-      : onClick && <ChevronRight size={15} className="text-gray-400 dark:text-gray-600 flex-shrink-0" />}
+      : onClick && <ChevronRight size={14} className="text-gray-400 dark:text-gray-600 flex-shrink-0" />}
   </div>
 );
 
@@ -106,8 +106,8 @@ const Badge: React.FC<{ on: boolean; onLabel?: string; offLabel?: string }> = ({
 
 // ─── Toggle switch ────────────────────────────────────────────────────────────
 const Toggle: React.FC<{ on: boolean }> = ({ on }) => (
-  <div className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${on ? 'bg-emerald-500 dark:bg-[#00FF88]' : 'bg-gray-300 dark:bg-white/15'}`}>
-    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+  <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${on ? 'bg-emerald-500 dark:bg-[#00FF88]' : 'bg-gray-300 dark:bg-white/15'}`}>
+    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform duration-200 ${on ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
   </div>
 );
 
@@ -119,6 +119,7 @@ const Settings: React.FC = () => {
     address, userProfile, theme, toggleTheme,
     network, switchNetwork, switchEvmChain, currentEvmChain,
     isActivated, activatedAt, activationFeePaid,
+    dashView, setDashView
   } = useWallet();
   const { showToast } = useToast();
   const { openExportModal, setShowLogoutConfirm, setShowDeleteConfirm } = useSettingsModal();
@@ -195,37 +196,37 @@ const Settings: React.FC = () => {
       </div>
 
       {/* ── Profile hero card ── */}
-      <div className="relative bg-gray-50 dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-200 dark:border-white/5 rounded-3xl overflow-hidden shadow-lg">
+      <div className="relative bg-white/50 dark:bg-black/20 backdrop-blur-xl border border-gray-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-sm">
         {/* Subtle top glow */}
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-emerald-500/8 dark:from-emerald-500/10 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-emerald-500/5 dark:from-emerald-500/5 to-transparent pointer-events-none" />
 
-        <div className="relative flex flex-col items-center pt-8 pb-6 px-4 gap-3">
+        <div className="relative flex flex-col items-center pt-6 pb-5 px-4 gap-2">
 
           {/* Avatar ring + camera button */}
           <div className="relative">
             {/* Glow ring */}
-            <div className="absolute -inset-1 rounded-full bg-gradient-to-br from-emerald-400 via-cyan-400 to-blue-500 dark:from-emerald-400 dark:via-cyan-400 dark:to-blue-500 opacity-70 blur-[3px]" />
+            <div className="absolute -inset-1 rounded-full bg-gradient-to-br from-emerald-400 via-cyan-400 to-blue-500 dark:from-emerald-400 dark:via-cyan-400 dark:to-blue-500 opacity-50 blur-[3px]" />
             {/* Ring border */}
-            <div className="relative w-24 h-24 rounded-full p-[3px] bg-gradient-to-br from-emerald-400 via-cyan-400 to-blue-500">
-              <div className="w-full h-full rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
+            <div className="relative w-20 h-20 rounded-full p-[2px] bg-gradient-to-br from-emerald-400 via-cyan-400 to-blue-500">
+              <div className="w-full h-full rounded-full bg-gray-200 dark:bg-[#111] flex items-center justify-center overflow-hidden">
                 {userProfile?.avatar
-                  ? <span className="text-5xl leading-none select-none">{userProfile.avatar}</span>
-                  : <span className="text-5xl leading-none select-none">👤</span>}
+                  ? <span className="text-4xl leading-none select-none">{userProfile.avatar}</span>
+                  : <span className="text-4xl leading-none select-none">👤</span>}
               </div>
             </div>
             {/* Camera button */}
             <button
               onClick={() => navigate('/wallet/profile')}
-              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-600 dark:bg-blue-500 dark:hover:bg-blue-400 border-2 border-gray-50 dark:border-[#0a0a0a] flex items-center justify-center shadow-lg transition-all active:scale-90"
+              className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-blue-500 hover:bg-blue-600 dark:bg-blue-500 dark:hover:bg-blue-400 border border-gray-50 dark:border-[#0a0a0a] flex items-center justify-center shadow-sm transition-all active:scale-90"
               aria-label="Edit profile"
             >
-              <Edit size={13} className="text-white" />
+              <Edit size={11} className="text-white" />
             </button>
           </div>
 
           {/* Name + edit */}
-          <div className="flex items-center gap-2 mt-1">
-            <h2 className="text-lg font-heading font-black tracking-widest text-gray-950 dark:text-white uppercase">
+          <div className="flex items-center gap-1.5 mt-1">
+            <h2 className="text-base font-heading font-black tracking-widest text-gray-950 dark:text-white uppercase">
               {userProfile?.name || t('settings.anonymous')}
             </h2>
             <button
@@ -240,14 +241,14 @@ const Settings: React.FC = () => {
           {/* Address pill */}
           <button
             onClick={copyAddress}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-200/80 dark:bg-white/10 border border-gray-300 dark:border-white/15 rounded-full hover:bg-gray-300/80 dark:hover:bg-white/15 active:scale-95 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200/80 dark:bg-white/10 border border-gray-300 dark:border-white/15 rounded-full hover:bg-gray-300/80 dark:hover:bg-white/15 active:scale-95 transition-all"
           >
-            <span className="text-[11px] font-numbers font-black text-gray-700 dark:text-gray-300 tracking-[0.1em]">
+            <span className="text-[10px] font-numbers font-black text-gray-700 dark:text-gray-300 tracking-[0.1em]">
               {address ? `${address.slice(0, 6)}….${address.slice(-4)}` : '—'}
             </span>
             {addressCopied
-              ? <Check size={12} className="text-emerald-500" />
-              : <Copy size={12} className="text-gray-500 dark:text-gray-400" />}
+              ? <Check size={10} className="text-emerald-500" />
+              : <Copy size={10} className="text-gray-500 dark:text-gray-400" />}
           </button>
 
           {/* Network + email row */}
@@ -269,23 +270,23 @@ const Settings: React.FC = () => {
       </div>
 
       {/* ── Wallet activation status ── */}
-      <div className={`border-2 rounded-2xl p-4 flex items-center gap-3 shadow-sm ${
+      <div className={`border rounded-xl p-3 flex items-center gap-2.5 shadow-sm ${
         isActivated
           ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20'
           : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20'
       }`}>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm ${
           isActivated ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-amber-500'
         }`}>
-          <Zap size={18} className="text-white" />
+          <Zap size={14} className="text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <p className={`text-sm font-heading font-black uppercase tracking-widest ${isActivated ? 'text-emerald-900 dark:text-emerald-300' : 'text-amber-900 dark:text-amber-300'}`}>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <p className={`text-[11px] font-heading font-black uppercase tracking-widest ${isActivated ? 'text-emerald-900 dark:text-emerald-300' : 'text-amber-900 dark:text-amber-300'}`}>
               {isActivated ? 'Wallet Activated' : 'Not Activated'}
             </p>
             {isActivated && (
-              <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/15 rounded-full border border-emerald-500/20">
+              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/15 rounded-full border border-emerald-500/20">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[8px] font-black uppercase text-emerald-600 dark:text-emerald-400">Live</span>
               </span>
@@ -460,15 +461,15 @@ const Settings: React.FC = () => {
                           setEvmOpen(false);
                           showToast(`Switched to ${chain.label}`, 'success');
                         }}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-[10px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
+                        className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border text-[9px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
                           isActive
                             ? 'bg-emerald-50 dark:bg-[#00FF88]/10 border-emerald-300 dark:border-[#00FF88]/30 text-emerald-700 dark:text-[#00FF88]'
-                            : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/8 text-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10 hover:border-gray-300 dark:hover:border-white/15'
+                            : 'bg-white/50 dark:bg-black/20 border-gray-200 dark:border-white/8 text-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10 hover:border-gray-300 dark:hover:border-white/15'
                         }`}
                       >
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${chain.dot}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${chain.dot}`} />
                         <span className="truncate">{chain.label}</span>
-                        {isActive && <Check size={11} className="ml-auto flex-shrink-0" />}
+                        {isActive && <Check size={10} className="ml-auto flex-shrink-0" />}
                       </button>
                     );
                   })}
@@ -494,12 +495,27 @@ const Settings: React.FC = () => {
             right={<Toggle on={theme === 'dark'} />}
           />
 
-          <div className="flex items-start gap-3 px-4 py-3.5 border-b border-gray-100 dark:border-white/5">
-            <div className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-white/10 flex items-center justify-center flex-shrink-0 text-gray-600 dark:text-gray-400">
-              <Globe size={16} />
+          <Row
+            icon={LayoutGrid}
+            iconColor="bg-cyan-100 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+            label="Dashboard View"
+            sub={dashView === 'wallet' ? 'Compact Wallet UI' : 'Full Portfolio UI'}
+            onClick={() => setDashView(dashView === 'portfolio' ? 'wallet' : 'portfolio')}
+            right={
+              <button
+                className="px-3 py-1.5 bg-gray-100 dark:bg-white/10 rounded-lg text-[9px] font-heading font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/15 transition-all"
+              >
+                Switch
+              </button>
+            }
+          />
+
+          <div className="flex items-start gap-2.5 px-3 py-2.5 border-b border-gray-100 dark:border-white/5">
+            <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/10 flex items-center justify-center flex-shrink-0 text-gray-600 dark:text-gray-400">
+              <Globe size={14} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-heading font-black text-gray-900 dark:text-white uppercase tracking-widest mb-3">{t('settings.language')}</p>
+              <p className="text-[11px] font-heading font-black text-gray-900 dark:text-white uppercase tracking-widest mb-1.5">{t('settings.language')}</p>
               <LanguageSelector />
             </div>
           </div>
@@ -525,13 +541,13 @@ const Settings: React.FC = () => {
       </div>
 
       {/* ── Security notice ── */}
-      <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-200 dark:border-amber-500/20 rounded-2xl shadow-sm">
-        <AlertCircle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+      <div className="flex items-start gap-2.5 p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl shadow-sm">
+        <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-[11px] font-heading font-black text-amber-900 dark:text-amber-300 uppercase tracking-widest mb-1">
+          <p className="text-[10px] font-heading font-black text-amber-900 dark:text-amber-300 uppercase tracking-widest mb-1">
             {t('settings.securityWarning')}
           </p>
-          <p className="text-[10px] font-body text-amber-700 dark:text-amber-400 leading-relaxed">
+          <p className="text-[9px] font-body text-amber-700 dark:text-amber-400 leading-relaxed">
             {t('settings.securityWarningDesc')}
           </p>
         </div>

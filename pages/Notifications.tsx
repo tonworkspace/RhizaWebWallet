@@ -73,7 +73,7 @@ const Notifications: React.FC = () => {
         filtered = filtered.filter(n => n.is_read);
       }
       
-      console.log('✅ Fetched notifications:', filtered.length);
+      console.log('✅ Fetched notifications:', filtered.length, 'Total unread:', filtered.filter(n => !n.is_read).length);
       setNotifications(filtered);
     } else {
       console.error('❌ Failed to fetch notifications:', result.error);
@@ -87,30 +87,50 @@ const Notifications: React.FC = () => {
 
   // Mark as read
   const handleMarkAsRead = async (notificationId: string) => {
-    await notificationService.markAsRead(notificationId);
-    setNotifications(prev =>
-      prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
-    );
+    const result = await notificationService.markAsRead(notificationId);
+    if (result.success) {
+      setNotifications(prev =>
+        prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
+      );
+      
+      // Trigger a custom event to notify Layout component
+      window.dispatchEvent(new CustomEvent('notificationRead'));
+    }
   };
 
   // Mark all as read
   const handleMarkAllAsRead = async () => {
     if (!walletAddress) return;
     
-    await notificationService.markAllAsRead(walletAddress);
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    const result = await notificationService.markAllAsRead(walletAddress);
+    if (result.success) {
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      
+      // Trigger a custom event to notify Layout component
+      window.dispatchEvent(new CustomEvent('notificationRead'));
+    }
   };
 
   // Archive notification
   const handleArchive = async (notificationId: string) => {
-    await notificationService.archiveNotification(notificationId);
-    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    const result = await notificationService.archiveNotification(notificationId);
+    if (result.success) {
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Trigger a custom event to notify Layout component
+      window.dispatchEvent(new CustomEvent('notificationRead'));
+    }
   };
 
   // Delete notification
   const handleDelete = async (notificationId: string) => {
-    await notificationService.deleteNotification(notificationId);
-    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    const result = await notificationService.deleteNotification(notificationId);
+    if (result.success) {
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Trigger a custom event to notify Layout component
+      window.dispatchEvent(new CustomEvent('notificationRead'));
+    }
   };
 
   // Handle notification click
@@ -121,6 +141,31 @@ const Notifications: React.FC = () => {
 
     if (notification.action_url) {
       navigate(notification.action_url);
+    }
+  };
+
+  // Test function to create a notification (for debugging)
+  const handleCreateTestNotification = async () => {
+    if (!walletAddress) return;
+    
+    const result = await notificationService.createNotification(
+      walletAddress,
+      'system_announcement',
+      'Test Notification',
+      'This is a test notification to verify the count is working.',
+      {
+        priority: 'normal',
+        data: { test: true }
+      }
+    );
+    
+    if (result.success) {
+      console.log('✅ Test notification created');
+      fetchNotifications(); // Refresh the list
+      // Trigger the custom event to update the count in Layout
+      window.dispatchEvent(new CustomEvent('notificationRead'));
+    } else {
+      console.error('❌ Failed to create test notification:', result.error);
     }
   };
 
@@ -170,6 +215,17 @@ const Notifications: React.FC = () => {
           >
             <CheckCheck size={14} />
             <span className="hidden sm:inline">Mark All Read</span>
+          </button>
+        )}
+
+        {/* Test button for debugging */}
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            onClick={handleCreateTestNotification}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-500/10 text-blue-400 rounded-xl hover:bg-blue-500/20 transition-all text-xs font-bold"
+          >
+            <Bell size={14} />
+            <span className="hidden sm:inline">Test Notification</span>
           </button>
         )}
       </div>

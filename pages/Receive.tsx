@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -11,43 +10,82 @@ import {
   Info,
   Download,
   QrCode,
-  Zap,
-  Layers
+  Layers,
+  HelpCircle
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
+import { useSecondaryWallet } from '../context/SecondaryWalletContext';
 import { WalletManager } from '../utils/walletManager';
 import { QRCodeSVG } from 'qrcode.react';
 import { CHAIN_META } from '../constants';
 
-type WalletType = 'primary' | 'primary-rzc' | 'multichain-evm' | 'multichain-usdt' | 'multichain-ton' | 'multichain-btc' | 'multichain-sol' | 'multichain-tron';
+type WalletType = 'primary' | 'primary-rzc' | 'multichain-usdt' | 'multichain-evm' | 'multichain-btc' | 'multichain-sol' | 'multichain-tron' | 'multichain-ton';
+type USDTNetwork = 'ton' | 'bsc' | 'ethereum';
 
 const Receive: React.FC = () => {
   const navigate = useNavigate();
   const { address, currentEvmChain } = useWallet();
+  const secondaryWallet = useSecondaryWallet();
   const allWallets = WalletManager.getWallets();
-  // Secondary wallet exists independently of which wallet is active
+  
+  // Secondary wallet checks
   const multiChainWallet = allWallets.find(w => w.type === 'secondary');
-  const isMultiChainActive = !!multiChainWallet;
-  const multiChainAddresses = multiChainWallet?.addresses ? {
+  const isMultiChainActive = !!multiChainWallet || secondaryWallet.isInitialized;
+  
+  // Use live addresses from context if available (handles background EVM auto-repair), 
+  // otherwise fallback to what's in local storage
+  const multiChainAddresses = secondaryWallet.addresses || (multiChainWallet?.addresses ? {
     evmAddress:  multiChainWallet.addresses.evm,
     tonAddress:  multiChainWallet.addresses.ton,
     btcAddress:  multiChainWallet.addresses.btc,
     solAddress:  (multiChainWallet.addresses as any).sol  ?? null,
     tronAddress: (multiChainWallet.addresses as any).tron ?? null,
-  } : null;
-  const [copied, setCopied] = useState(false);
+  } : null);
 
-  // Pre-select wallet from navigation state (e.g. coming from AssetDetail)
+  const [copied, setCopied] = useState(false);
+  const [derivedEvmAddress, setDerivedEvmAddress] = useState<string | null>(null);
+  const [usdtNetwork, setUsdtNetwork] = useState<USDTNetwork>('bsc');
+
+  // Pre-select wallet from navigation state
   const locationState = useLocation().state as any;
   const [selectedWallet, setSelectedWallet] = useState<WalletType>(
     locationState?.preselect ?? 'primary'
   );
 
-  // Get current address based on selected wallet
+  // Fetch true EVM address from WDK service if initialized, fallback to derivation
+  useEffect(() => {
+    if (address) {
+      import('../services/tetherWdkService').then(({ tetherWdkService }) => {
+        if (tetherWdkService.isInitialized()) {
+          tetherWdkService.getAddresses().then(addrs => {
+            if (addrs?.evmAddress) {
+              setDerivedEvmAddress(addrs.evmAddress);
+            }
+          });
+        } else {
+          import('../services/usdtMultiChainService').then(({ usdtMultiChainService }) => {
+            usdtMultiChainService.deriveEvmAddress(address).then(addr => {
+              setDerivedEvmAddress(addr);
+            });
+          });
+        }
+      });
+    }
+  }, [address]);
+
+  // Determine EVM address to show (use WDK if configured, otherwise derived from mnemonic)
+  const evmAddressToShow = multiChainAddresses?.evmAddress || derivedEvmAddress || '';
+  // Show EVM tab as soon as we have a logged-in address OR a secondary WDK with EVM
+  // (tab appears immediately; QR shows "Generating..." while derivation is in progress)
+  const hasEvmAddress = !!(multiChainAddresses?.evmAddress || address); // address means we can derive
+
+  // Get current address based on selected wallet & USDT network
   const currentAddress = (selectedWallet === 'primary' || selectedWallet === 'primary-rzc')
     ? address
-    : (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt')
-    ? multiChainAddresses?.evmAddress
+    : selectedWallet === 'multichain-usdt'
+    ? (usdtNetwork === 'ton' ? address : evmAddressToShow)
+    : selectedWallet === 'multichain-evm'
+    ? evmAddressToShow
     : selectedWallet === 'multichain-btc'
     ? multiChainAddresses?.btcAddress
     : selectedWallet === 'multichain-sol'
@@ -59,10 +97,12 @@ const Receive: React.FC = () => {
   const evmChainName = CHAIN_META[currentEvmChain]?.name ?? currentEvmChain;
   const evmChainLogo = CHAIN_META[currentEvmChain]?.logo ?? 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
 
-  const currentNetwork = selectedWallet === 'primary'        ? 'TON Network • Mainnet Vault'
+  // Customize current network descriptor
+  const currentNetwork = selectedWallet === 'primary'        ? 'TON Network • Native TON'
     : selectedWallet === 'primary-rzc'    ? 'TON Network • Community Token'
+    : selectedWallet === 'multichain-usdt'
+    ? (usdtNetwork === 'ton' ? 'TON Network • Jetton USDT' : usdtNetwork === 'bsc' ? 'BNB Smart Chain • BEP-20 USDT' : 'Ethereum Network • ERC-20 USDT')
     : selectedWallet === 'multichain-evm' ? `${evmChainName} • EVM Network`
-    : selectedWallet === 'multichain-usdt'? `${evmChainName} • Tether USD`
     : selectedWallet === 'multichain-btc' ? 'Bitcoin • Mainnet'
     : selectedWallet === 'multichain-sol' ? 'Solana • Mainnet'
     : selectedWallet === 'multichain-tron'? 'TRON • Mainnet'
@@ -80,8 +120,8 @@ const Receive: React.FC = () => {
     if (navigator.share && currentAddress) {
       const walletName = selectedWallet === 'primary'         ? 'TON Wallet'
         : selectedWallet === 'primary-rzc'    ? 'RZC Token'
+        : selectedWallet === 'multichain-usdt'? `USDT (${usdtNetwork.toUpperCase()})`
         : selectedWallet === 'multichain-evm' ? 'EVM Wallet'
-        : selectedWallet === 'multichain-usdt'? 'USDT'
         : selectedWallet === 'multichain-btc' ? 'BTC'
         : selectedWallet === 'multichain-sol' ? 'SOL'
         : selectedWallet === 'multichain-tron'? 'TRX'
@@ -97,24 +137,44 @@ const Receive: React.FC = () => {
   const handleDownloadQR = () => {
     if (!currentAddress) return;
     
-    // Get the QR code SVG element
     const svg = document.querySelector('.qr-code-container svg');
     if (!svg) return;
 
-    // Convert SVG to data URL
     const svgData = new XMLSerializer().serializeToString(svg);
     const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
     const svgUrl = URL.createObjectURL(svgBlob);
 
-    // Create download link
     const downloadLink = document.createElement('a');
     downloadLink.href = svgUrl;
-    const walletPrefix = selectedWallet === 'primary' ? 'ton' : selectedWallet === 'multichain-evm' ? 'evm' : 'ton-w5';
+    const walletPrefix = selectedWallet === 'primary' ? 'ton' : selectedWallet === 'multichain-usdt' ? `usdt-${usdtNetwork}` : 'evm';
     downloadLink.download = `rhizacore-${walletPrefix}-${currentAddress.slice(0, 8)}.svg`;
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);
     URL.revokeObjectURL(svgUrl);
+  };
+
+  // Get QR code inner logo
+  const getQrLogo = () => {
+    if (selectedWallet === 'primary-rzc') {
+      return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2310b981'%3E%3Cpath d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E";
+    }
+    if (selectedWallet === 'multichain-usdt') {
+      return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png";
+    }
+    if (selectedWallet === 'multichain-evm') {
+      return evmChainLogo;
+    }
+    if (selectedWallet === 'multichain-btc') {
+      return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png";
+    }
+    if (selectedWallet === 'multichain-sol') {
+      return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png";
+    }
+    if (selectedWallet === 'multichain-tron') {
+      return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png";
+    }
+    return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png";
   };
 
   return (
@@ -129,13 +189,11 @@ const Receive: React.FC = () => {
       <div className="luxury-card p-5 sm:p-7 md:p-8 rounded-[2rem] sm:rounded-[2.5rem] flex flex-col items-center space-y-5 sm:space-y-6 md:space-y-7 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#00FF88] to-transparent opacity-50" />
         
-        {/* Wallet Selector - Semi-Compact Horizontal Tray */}
+        {/* Asset Selector */}
         <div className="w-full space-y-3">
           <div className="flex items-center justify-between px-1">
             <span className="text-[9px] font-heading font-black uppercase tracking-[0.2em] text-gray-500">Select Asset</span>
-            {isMultiChainActive && (
-              <span className="text-[8px] font-heading font-black text-violet-500 py-0.5 px-2 bg-violet-500/10 rounded-full border border-violet-500/20 uppercase tracking-widest">Multi-Chain</span>
-            )}
+            <span className="text-[8px] font-heading font-black text-emerald-500 py-0.5 px-2 bg-emerald-500/10 rounded-full border border-emerald-500/20 uppercase tracking-widest">USDT Ready</span>
           </div>
           
           <div className="overflow-x-auto pb-2 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -157,21 +215,23 @@ const Receive: React.FC = () => {
                   color: 'text-[#00FF88]',
                   net: 'Community' 
                 },
+                { 
+                  id: 'multichain-usdt' as const, 
+                  name: 'USDT', 
+                  icon: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
+                  isEmoji: false,
+                  net: 'Multi-Chain' 
+                },
+                // EVM tab: show for ALL users who have any EVM address (primary-derived or secondary WDK)
+                ...(hasEvmAddress ? [{ 
+                  id: 'multichain-evm', 
+                  name: CHAIN_META[currentEvmChain]?.symbol ?? 'EVM', 
+                  icon: evmChainLogo,
+                  isEmoji: false,
+                  net: evmChainName.slice(0, 7)
+                }] : []),
+                // BTC, SOL, TRON, W5-TON: require secondary wallet setup
                 ...(isMultiChainActive && multiChainAddresses ? [
-                  { 
-                    id: 'multichain-evm', 
-                    name: CHAIN_META[currentEvmChain]?.symbol ?? 'EVM', 
-                    icon: evmChainLogo,
-                    isEmoji: false,
-                    net: evmChainName.slice(0, 7)
-                  },
-                  { 
-                    id: 'multichain-usdt', 
-                    name: 'USDT', 
-                    icon: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
-                    isEmoji: false,
-                    net: 'Tether' 
-                  },
                   { 
                     id: 'multichain-btc', 
                     name: 'BTC', 
@@ -255,12 +315,39 @@ const Receive: React.FC = () => {
           </div>
         </div>
 
+        {/* USDT Network Selector (Segmented control) - Only visible when USDT selected */}
+        {selectedWallet === 'multichain-usdt' && (
+          <div className="w-full space-y-2 p-1.5 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5">
+            <span className="text-[8px] font-heading font-black uppercase tracking-widest text-gray-400 pl-1.5">Select Deposit Network</span>
+            <div className="grid grid-cols-3 gap-1">
+              {[
+                { id: 'bsc', label: 'BEP-20', net: 'BSC (Low Fee)' },
+                { id: 'ton', label: 'TON', net: 'Jetton (Fast)' },
+                { id: 'ethereum', label: 'ERC-20', net: 'Ethereum' }
+              ].map((net) => (
+                <button
+                  key={net.id}
+                  onClick={() => setUsdtNetwork(net.id as USDTNetwork)}
+                  className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all ${
+                    usdtNetwork === net.id
+                      ? 'bg-white dark:bg-zinc-800 shadow-md border border-black/5 dark:border-white/5'
+                      : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-60'
+                  }`}
+                >
+                  <span className="text-[10px] font-heading font-black uppercase text-gray-900 dark:text-white">{net.label}</span>
+                  <span className="text-[7px] font-heading font-black text-gray-500 uppercase mt-0.5">{net.net}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="text-center space-y-1.5 sm:space-y-2">
            <h2 className="text-base sm:text-lg font-heading font-black text-gray-900 dark:text-white uppercase tracking-widest leading-tight">
-            {selectedWallet === 'primary'         ? 'Native Vault Key'
+            {selectedWallet === 'primary'         ? 'Native Vault Address'
               : selectedWallet === 'primary-rzc'  ? 'RhizaCore Vault'
+              : selectedWallet === 'multichain-usdt' ? `USDT (${usdtNetwork.toUpperCase()}) Address`
               : selectedWallet === 'multichain-evm'  ? 'EVM Address'
-              : selectedWallet === 'multichain-usdt' ? 'USDT Receiver'
               : selectedWallet === 'multichain-btc'  ? 'BTC Address'
               : selectedWallet === 'multichain-sol'  ? 'Solana Address'
               : selectedWallet === 'multichain-tron' ? 'TRON Address'
@@ -269,11 +356,11 @@ const Receive: React.FC = () => {
            <p className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-[0.3em] mt-1.5">{currentNetwork}</p>
         </div>
 
-        {/* QR Code Section with Professional Animations */}
+        {/* QR Code Section */}
         <div className="relative group min-h-[220px] sm:min-h-[250px] flex items-center justify-center">
           <AnimatePresence mode="wait">
             <motion.div
-              key={selectedWallet}
+              key={`${selectedWallet}-${usdtNetwork}`}
               initial={{ opacity: 0, scale: 0.95, filter: 'blur(8px)' }}
               animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
               exit={{ opacity: 0, scale: 1.05, filter: 'blur(8px)' }}
@@ -281,10 +368,12 @@ const Receive: React.FC = () => {
               className="relative flex flex-col items-center"
             >
               <div className={`absolute -inset-6 rounded-full blur-3xl transition-all duration-700 opacity-15 ${
-                (selectedWallet === 'primary' || selectedWallet === 'primary-rzc')
+                selectedWallet === 'primary-rzc'
+                  ? 'bg-emerald-500'
+                  : selectedWallet === 'multichain-usdt'
+                  ? 'bg-[#26A17B]' // USDT Teal
+                  : selectedWallet === 'primary'
                   ? 'bg-[#00FF88]'
-                  : (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt')
-                  ? 'bg-blue-500'
                   : selectedWallet === 'multichain-btc'
                   ? 'bg-orange-500'
                   : 'bg-sky-500'
@@ -298,27 +387,16 @@ const Receive: React.FC = () => {
                     level="H"
                     includeMargin={false}
                     imageSettings={{
-                      src: selectedWallet === 'primary-rzc'
-                        ? "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2310b981'%3E%3Cpath d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E"
-                        : selectedWallet === 'multichain-usdt'
-                        ? "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png"
-                        : selectedWallet === 'multichain-evm'
-                        ? evmChainLogo
-                        : selectedWallet === 'multichain-btc'
-                        ? "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png"
-                        : selectedWallet === 'multichain-sol'
-                        ? "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png"
-                        : selectedWallet === 'multichain-tron'
-                        ? "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png"
-                        : "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png",
+                      src: getQrLogo(),
                       height: 40,
                       width: 40,
                       excavate: true,
                     }}
                   />
                 ) : (
-                  <div className="flex items-center justify-center text-gray-400">
+                  <div className="flex flex-col items-center justify-center text-gray-400 gap-2">
                     <QrCode size={48} />
+                    <span className="text-[9px] font-heading font-black uppercase">Generating Address...</span>
                   </div>
                 )}
               </div>
@@ -332,7 +410,8 @@ const Receive: React.FC = () => {
                 <span className="text-[9px] font-heading font-black text-gray-600 uppercase tracking-widest">
                   {selectedWallet === 'primary'          ? 'Main Vault Address'
                     : selectedWallet === 'primary-rzc'   ? 'RZC Community Address'
-                    : (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt') ? 'EVM Hub Address'
+                    : selectedWallet === 'multichain-usdt' ? `Derived USDT (${usdtNetwork.toUpperCase()}) Address`
+                    : selectedWallet === 'multichain-evm' ? 'EVM Hub Address'
                     : selectedWallet === 'multichain-btc' ? 'Bitcoin Mainnet Address'
                     : selectedWallet === 'multichain-sol' ? 'Solana Address'
                     : selectedWallet === 'multichain-tron'? 'TRON Address'
@@ -340,14 +419,16 @@ const Receive: React.FC = () => {
                 </span>
                 {copied ? <Check size={14} className="text-[#00FF88]" /> : <Copy size={14} className="text-gray-500 group-hover:text-[#00FF88]" />}
              </div>
-             <p className="text-[11px] sm:text-xs font-numbers font-bold text-gray-900 dark:text-white break-all tracking-wider leading-relaxed">{currentAddress}</p>
+             <p className="text-[11px] sm:text-xs font-numbers font-bold text-gray-900 dark:text-white break-all tracking-wider leading-relaxed">
+               {currentAddress || 'Generating Address... Please log in with password.'}
+             </p>
           </div>
 
           <div className="flex gap-2.5 sm:gap-4">
-             <button onClick={handleShare} className="flex-1 py-3 sm:py-4 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-heading font-black uppercase tracking-widest text-gray-800 dark:text-white hover:bg-black/10 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95">
+             <button onClick={handleShare} disabled={!currentAddress} className="flex-1 py-3 sm:py-4 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-heading font-black uppercase tracking-widest text-gray-800 dark:text-white hover:bg-black/10 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50">
                <Share2 size={14} className="sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Share Link</span><span className="sm:hidden">Share</span>
              </button>
-             <button onClick={handleDownloadQR} className="flex-1 py-3 sm:py-4 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-heading font-black uppercase tracking-widest text-gray-800 dark:text-white hover:bg-black/10 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95">
+             <button onClick={handleDownloadQR} disabled={!currentAddress} className="flex-1 py-3 sm:py-4 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl sm:rounded-2xl text-[10px] font-heading font-black uppercase tracking-widest text-gray-800 dark:text-white hover:bg-black/10 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50">
                <Download size={14} className="sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Save QR</span><span className="sm:hidden">Save</span>
              </button>
           </div>
@@ -363,7 +444,13 @@ const Receive: React.FC = () => {
             <p className="text-[10px] font-heading font-bold text-gray-500 uppercase tracking-widest leading-relaxed">
               {selectedWallet === 'primary' || selectedWallet === 'primary-rzc'
                 ? 'Accepts TON and all Jetton assets (USDT, NOT, etc.) directly into your vault.'
-                : selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt'
+                : selectedWallet === 'multichain-usdt'
+                ? (usdtNetwork === 'ton' 
+                    ? 'Accepts USDT Jetton directly via the TON network into your main TON vault.' 
+                    : usdtNetwork === 'bsc' 
+                    ? 'Accepts USDT (BEP-20) via Binance Smart Chain into your derived EVM vault address.'
+                    : 'Accepts USDT (ERC-20) via Ethereum Network into your derived EVM vault address.')
+                : selectedWallet === 'multichain-evm'
                 ? 'Accepts ETH, USDT, and all ERC-20 tokens on Ethereum and Polygon networks.'
                 : selectedWallet === 'multichain-btc'
                 ? 'Accepts BTC on the Bitcoin mainnet. Use SegWit-compatible wallets for best fees.'
@@ -382,7 +469,13 @@ const Receive: React.FC = () => {
             <p className="text-[10px] font-heading font-bold text-gray-500 uppercase tracking-widest leading-relaxed">
               {selectedWallet === 'primary' || selectedWallet === 'primary-rzc'
                 ? 'Always verify the network is TON before confirming large inbound transfers.'
-                : (selectedWallet === 'multichain-evm' || selectedWallet === 'multichain-usdt')
+                : selectedWallet === 'multichain-usdt'
+                ? (usdtNetwork === 'ton' 
+                    ? 'Ensure you select TON network when sending from external exchanges.' 
+                    : usdtNetwork === 'bsc'
+                    ? 'Verify you choose BNB Smart Chain (BSC/BEP20) as the withdrawal network.'
+                    : 'Verify you choose Ethereum (ETH/ERC20) as the withdrawal network. Standard fees apply.')
+                : selectedWallet === 'multichain-evm'
                 ? 'Verify you\'re sending on the correct EVM network (Ethereum or Polygon) before confirming.'
                 : selectedWallet === 'multichain-btc'
                 ? 'Ensure you are sending via the Bitcoin Mainnet. Minimum dusting limit is 294 sats.'

@@ -16,6 +16,7 @@ import {
 import { useSettingsModal } from '../context/SettingsModalContext';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
+import { WalletManager } from '../utils/walletManager';
 
 const SettingsModals: React.FC = () => {
   const navigate = useNavigate();
@@ -43,6 +44,9 @@ const SettingsModals: React.FC = () => {
     handleCopyWords,
     setExportError
   } = useSettingsModal();
+
+  const activeWallet = WalletManager.getActiveWallet();
+  const phraseCount = activeWallet?.type === 'secondary' ? 12 : 24;
 
   const handleLogout = () => {
     logout();
@@ -78,7 +82,7 @@ const SettingsModals: React.FC = () => {
                         {exportMode === 'mnemonic' ? 'Backup Recovery Phrase' : 'Export Private Key'}
                       </h3>
                       <p className="text-[10px] text-gray-500 dark:text-gray-500 font-semibold">
-                        {exportMode === 'mnemonic' ? '24-word phrase' : 'Raw private key'}
+                        {exportMode === 'mnemonic' ? `${phraseCount}-word phrase` : 'Raw private key'}
                       </p>
                     </div>
                   </div>
@@ -141,7 +145,7 @@ const SettingsModals: React.FC = () => {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-black text-gray-950 dark:text-white">
-                      {exportMode === 'mnemonic' ? '24-Word Recovery Phrase' : 'Recovery Phrase'}
+                      {exportMode === 'mnemonic' ? `${phraseCount}-Word Recovery Phrase` : 'Recovery Phrase'}
                     </h3>
                     <span className="flex items-center gap-1 text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-2 py-0.5 rounded-full">
                       <Timer size={10} /> {countdown}s

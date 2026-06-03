@@ -51,13 +51,19 @@ const History: React.FC = () => {
   // Chain-aware explorer URL
   const getExplorerLink = (hash: string, asset: string) => {
     if (asset === 'BTC') return `https://mempool.space/tx/${hash}`;
-    if (asset === 'ETH' || asset === 'ETH/Polygon') {
+    
+    const EVM_ASSETS = ['ETH', 'ETH/POLYGON', 'ETHEREUM', 'POLYGON', 'BSC', 'ARBITRUM', 'AVALANCHE', 'SEPOLIA'];
+    if (EVM_ASSETS.includes(asset.toUpperCase())) {
       const explorers: Record<string, string> = {
         ethereum: 'https://etherscan.io/tx', polygon: 'https://polygonscan.com/tx',
         arbitrum: 'https://arbiscan.io/tx', bsc: 'https://bscscan.com/tx',
         avalanche: 'https://snowtrace.io/tx', sepolia: 'https://sepolia.etherscan.io/tx',
       };
-      return `${explorers[currentEvmChain] ?? 'https://etherscan.io/tx'}/${hash}`;
+      const chainKey = asset.toLowerCase() === 'bsc' ? 'bsc' : 
+                       asset.toLowerCase() === 'polygon' ? 'polygon' :
+                       asset.toLowerCase() === 'arbitrum' ? 'arbitrum' :
+                       asset.toLowerCase() === 'avalanche' ? 'avalanche' : currentEvmChain;
+      return `${explorers[chainKey] ?? 'https://etherscan.io/tx'}/${hash}`;
     }
     return getTransactionUrl(hash, network);
   };
@@ -65,7 +71,13 @@ const History: React.FC = () => {
   // Fee label per asset
   const getFeeLabel = (asset: string) => {
     if (asset === 'BTC') return 'BTC';
-    if (asset === 'ETH' || asset === 'ETH/Polygon') return CHAIN_META[currentEvmChain]?.symbol ?? 'ETH';
+    const EVM_ASSETS = ['ETH', 'ETH/POLYGON', 'ETHEREUM', 'POLYGON', 'BSC', 'ARBITRUM', 'AVALANCHE', 'SEPOLIA'];
+    if (EVM_ASSETS.includes(asset.toUpperCase())) {
+      if (asset.toUpperCase() === 'BSC') return 'BNB';
+      if (asset.toUpperCase() === 'POLYGON') return 'MATIC';
+      if (asset.toUpperCase() === 'AVALANCHE') return 'AVAX';
+      return 'ETH';
+    }
     return 'TON';
   };
   const [activeTab, setActiveTab] = useState<'transactions' | 'activity'>('transactions');
@@ -558,7 +570,7 @@ const History: React.FC = () => {
                           </div>
                         )}
 
-                        {/* View in Explorer (TON only) */}
+                        {/* View in Explorer */}
                         {tx.hash && tx.asset !== 'RZC' && (
                           <button
                             onClick={() => window.open(getExplorerLink(tx.hash!, tx.asset), '_blank')}

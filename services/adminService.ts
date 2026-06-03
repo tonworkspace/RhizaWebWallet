@@ -10,13 +10,43 @@ export interface AdminUser {
   wallet_address: string;
   name: string;
   email?: string;
+  avatar?: string;
   role: string;
   is_active: boolean;
   is_activated: boolean;
+  is_premium?: boolean;
   activated_at?: string;
   activation_fee_paid?: number;
   rzc_balance: number;
   referrer_code?: string;
+  last_squad_claim_at?: string;
+  total_squad_rewards?: number;
+  // Multi-chain balances
+  ton_balance?: number;
+  evm_balance?: number;
+  btc_balance?: number;
+  sol_balance?: number;
+  tron_balance?: number;
+  usdt_balance?: number;
+  // Verification fields
+  balance_verified?: boolean;
+  balance_locked?: boolean;
+  verification_badge_earned_at?: string;
+  verification_level?: string;
+  // Security fields
+  last_login_at?: string;
+  failed_login_attempts?: number;
+  locked_until?: string;
+  last_failed_attempt?: string;
+  // Node fields
+  node_activated?: boolean;
+  node_activated_at?: string;
+  total_activation_spent?: number;
+  // Sync fields
+  last_balance_sync_at?: string;
+  // Legacy fields
+  transfer_locked?: boolean;
+  transfer_lock_reason?: string;
   created_at: string;
   updated_at: string;
 }
@@ -270,16 +300,44 @@ class AdminService {
   }
 
   /**
-   * Update user account details (admin only)
+   * Update user account details (admin only) - Full profile editing with all wallet_users fields
    */
   async updateUserAccount(
     walletAddress: string,
     updates: {
       name?: string;
       email?: string;
+      avatar?: string;
       role?: string;
       is_active?: boolean;
+      is_activated?: boolean;
+      is_premium?: boolean;
+      activated_at?: string;
+      activation_fee_paid?: number;
       rzc_balance?: number;
+      referrer_code?: string;
+      last_squad_claim_at?: string;
+      total_squad_rewards?: number;
+      // Multi-chain balances
+      ton_balance?: number;
+      evm_balance?: number;
+      btc_balance?: number;
+      sol_balance?: number;
+      tron_balance?: number;
+      usdt_balance?: number;
+      // Verification fields
+      balance_verified?: boolean;
+      balance_locked?: boolean;
+      verification_badge_earned_at?: string;
+      verification_level?: string;
+      // Security fields
+      last_login_at?: string;
+      // Node fields
+      node_activated?: boolean;
+      node_activated_at?: string;
+      total_activation_spent?: number;
+      // Sync fields
+      last_balance_sync_at?: string;
     },
     adminWallet: string,
     reason: string
@@ -293,13 +351,23 @@ class AdminService {
         return { success: false, error: 'Supabase not configured' };
       }
 
+      // Prepare update object - only include defined values
+      const updateData: any = {
+        updated_at: new Date().toISOString()
+      };
+
+      // Add all provided fields to update
+      Object.keys(updates).forEach(key => {
+        const value = (updates as any)[key];
+        if (value !== undefined && value !== null && value !== '') {
+          updateData[key] = value;
+        }
+      });
+
       // Update user account
       const { error: updateError } = await client
         .from('wallet_users')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('wallet_address', walletAddress);
 
       if (updateError) {
@@ -483,6 +551,51 @@ class AdminService {
 
       console.log('✅ Fetched activations:', data?.length || 0, 'total:', count || 0);
 
+      // If no activation records found, try to get activated users instead
+      if (!data || data.length === 0) {
+        console.log('⚠️ No activation records found, checking for activated users...');
+        
+        const { data: activatedUsers, error: usersError, count: usersCount } = await client
+          .from('wallet_users')
+          .select('*', { count: 'exact' })
+          .eq('is_activated', true)
+          .order('activated_at', { ascending: false, nullsFirst: false })
+          .range(offset, offset + limit - 1);
+
+        if (usersError) {
+          console.error('❌ Error fetching activated users:', usersError);
+          return { success: false, error: usersError.message };
+        }
+
+        if (activatedUsers && activatedUsers.length > 0) {
+          console.log('✅ Found activated users:', activatedUsers.length);
+          
+          // Transform activated users to look like activation records
+          const transformedData = activatedUsers.map(user => ({
+            id: user.id,
+            wallet_address: user.wallet_address,
+            activation_fee_usd: user.activation_fee_paid || 0,
+            activation_fee_ton: user.activation_fee_paid || 0,
+            ton_price_at_activation: 0,
+            transaction_hash: null,
+            status: 'completed',
+            completed_at: user.activated_at || user.created_at,
+            created_at: user.created_at,
+            wallet_users: {
+              name: user.name,
+              email: user.email,
+              rzc_balance: user.rzc_balance
+            }
+          }));
+
+          return {
+            success: true,
+            activations: transformedData,
+            total: usersCount || 0
+          };
+        }
+      }
+
       return {
         success: true,
         activations: data || [],
@@ -548,6 +661,231 @@ class AdminService {
       return result;
     } catch (error: any) {
       console.error('Error updating asset rate:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Lock a user's transfer capability (admin only)
+   */
+  async lockUserTransfers(
+    walletAddress: string,
+    reason: string,
+    adminWallet: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return { success: false, error: 'Supabase not configured' };
+
+      const { error } = await client
+        .from('wallet_users')
+        .update({
+          transfer_locked: true,
+          transfer_lock_reason: reason,
+          updated_at: new Date().toISOString()
+        })
+        .eq('wallet_address', walletAddress);
+
+      if (error) throw error;
+
+      const { notificationService } = await import('./notificationService');
+      await notificationService.logActivity(walletAddress, 'settings_changed', `Transfers locked by admin`, {
+        admin_wallet: adminWallet, reason, action: 'transfer_lock'
+      });
+
+      await client.from('wallet_notifications').insert({
+        wallet_address: walletAddress,
+        type: 'security_alert',
+        title: '🔒 Transfers Locked',
+        message: `Your transfer capability has been temporarily suspended. Reason: ${reason}`,
+        data: { admin_wallet: adminWallet, reason },
+        priority: 'urgent'
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Unlock a user's transfer capability (admin only)
+   */
+  async unlockUserTransfers(
+    walletAddress: string,
+    reason: string,
+    adminWallet: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return { success: false, error: 'Supabase not configured' };
+
+      const { error } = await client
+        .from('wallet_users')
+        .update({
+          transfer_locked: false,
+          transfer_lock_reason: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('wallet_address', walletAddress);
+
+      if (error) throw error;
+
+      const { notificationService } = await import('./notificationService');
+      await notificationService.logActivity(walletAddress, 'settings_changed', `Transfers unlocked by admin`, {
+        admin_wallet: adminWallet, reason, action: 'transfer_unlock'
+      });
+
+      await client.from('wallet_notifications').insert({
+        wallet_address: walletAddress,
+        type: 'system_announcement',
+        title: '🔓 Transfers Restored',
+        message: `Your transfer capability has been restored. Reason: ${reason}`,
+        data: { admin_wallet: adminWallet, reason },
+        priority: 'high'
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Deduct RZC from a user's balance (admin only)
+   */
+  async deductRZCFromUser(
+    walletAddress: string,
+    amount: number,
+    reason: string,
+    adminWallet: string
+  ): Promise<{ success: boolean; newBalance?: number; error?: string }> {
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return { success: false, error: 'Supabase not configured' };
+
+      // Fetch current balance
+      const { data: userData, error: fetchError } = await client
+        .from('wallet_users')
+        .select('id, rzc_balance')
+        .eq('wallet_address', walletAddress)
+        .single();
+
+      if (fetchError || !userData) throw new Error('User not found');
+
+      const newBalance = Math.max(0, (userData.rzc_balance || 0) - amount);
+
+      const { error } = await client
+        .from('wallet_users')
+        .update({ rzc_balance: newBalance, updated_at: new Date().toISOString() })
+        .eq('wallet_address', walletAddress);
+
+      if (error) throw error;
+
+      // Insert deduction transaction record
+      await client.from('wallet_rzc_transactions').insert({
+        user_id: userData.id,
+        wallet_address: walletAddress,
+        transaction_type: 'admin_deduction',
+        amount: -amount,
+        balance_after: newBalance,
+        description: `Admin deduction: ${reason}`,
+        metadata: { admin_wallet: adminWallet, reason }
+      }).throwOnError();
+
+      const { notificationService } = await import('./notificationService');
+      await notificationService.logActivity(walletAddress, 'settings_changed', `${amount} RZC deducted by admin`, {
+        admin_wallet: adminWallet, reason, amount, new_balance: newBalance
+      });
+
+      await client.from('wallet_notifications').insert({
+        wallet_address: walletAddress,
+        type: 'security_alert',
+        title: '⚠️ RZC Balance Adjusted',
+        message: `${amount.toLocaleString()} RZC has been deducted from your balance by an administrator. Reason: ${reason}`,
+        data: { admin_wallet: adminWallet, reason, amount, new_balance: newBalance },
+        priority: 'high'
+      });
+
+      return { success: true, newBalance };
+    } catch (error: any) {
+      console.error('Error deducting RZC:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send a custom notification/message to a user (admin only)
+   */
+  async sendUserNotification(
+    walletAddress: string,
+    title: string,
+    message: string,
+    priority: 'normal' | 'high' | 'urgent',
+    adminWallet: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return { success: false, error: 'Supabase not configured' };
+
+      await client.from('wallet_notifications').insert({
+        wallet_address: walletAddress,
+        type: 'system_announcement',
+        title,
+        message,
+        data: { admin_wallet: adminWallet, admin_message: true },
+        priority
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get a single user by ID (admin only)
+   */
+  async getUserById(userId: string): Promise<{ success: boolean; user?: AdminUser; error?: string }> {
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return { success: false, error: 'Supabase not configured' };
+
+      const { data, error } = await client
+        .from('wallet_users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      return { success: true, user: data };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get user RZC transaction history (admin only)
+   */
+  async getUserTransactionHistory(walletAddress: string, limit = 30): Promise<{
+    success: boolean;
+    transactions?: any[];
+    error?: string;
+  }> {
+    try {
+      const client = supabaseService.getClient();
+      if (!client) return { success: false, error: 'Supabase not configured' };
+
+      const { data, error } = await client
+        .from('wallet_rzc_transactions')
+        .select('*')
+        .eq('wallet_address', walletAddress)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      return { success: true, transactions: data || [] };
+    } catch (error: any) {
       return { success: false, error: error.message };
     }
   }

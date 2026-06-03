@@ -20,39 +20,41 @@ export const COLORS = {
 };
 
 // TON Network Configuration
+// ── API key constants — override via VITE_ env vars in .env (never commit real keys to public repos) ──
+const _TONCENTER_KEY_MAINNET  = import.meta.env.VITE_TONCENTER_API_KEY_MAINNET  || '509fc324e5a26df719b2e637cad9f34fd7c3576455b707522ce8319d8b450441';
+const _TONCENTER_KEY_TESTNET  = import.meta.env.VITE_TONCENTER_API_KEY_TESTNET  || 'bb31868e5cf6529efb16bcf547beb3c534a28d1e139bd63356fd936c168fe662';
+const _TONAPI_KEY_MAINNET     = import.meta.env.VITE_TONAPI_KEY_MAINNET         || 'AHZ25K6GOTNFOVQAAAAGWQBCDALGUCPWSHPKL2KQBMUPYIZ4XTQ6ZKHEEONHPY57RXQWUCI';
+const _TONAPI_KEY_TESTNET     = import.meta.env.VITE_TONAPI_KEY_TESTNET         || _TONAPI_KEY_MAINNET;
+
 export const TON_NETWORK = {
   MAINNET: {
     DEPOSIT_ADDRESS: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
-    // StarFi Mining Contract Address (Mainnet) - uses env var if available
     MINING_CONTRACT_ADDRESS: import.meta.env.VITE_STARFI_MINING_CONTRACT_MAINNET || 'EQCPMcE76o6NyVM-BGxvc6Qdx3DjvpJAT5ALQ_e9p9p6Qj2f',
-    API_KEY: '509fc324e5a26df719b2e637cad9f34fd7c3576455b707522ce8319d8b450441', // TonCenter API Key
-    TONAPI_KEY: import.meta.env.VITE_TONAPI_KEY_MAINNET || 'AHZ25K6GOTNFOVQAAAAGWQBCDALGUCPWSHPKL2KQBMUPYIZ4XTQ6ZKHEEONHPY57RXQWUCI', // TonAPI Bearer Token
-    // Use multiple endpoints for better reliability
+    API_KEY: _TONCENTER_KEY_MAINNET,
+    TONAPI_KEY: _TONAPI_KEY_MAINNET,
     API_ENDPOINTS: [
       'https://toncenter.com/api/v2/jsonRPC',
       'https://tonapi.io/v2/jsonRPC',
       'https://mainnet.tonhubapi.com/jsonRPC',
       'https://mainnet-v4.tonhubapi.com/jsonRPC'
     ],
-    API_ENDPOINT: 'https://toncenter.com/api/v2/jsonRPC', // Primary endpoint
+    API_ENDPOINT: 'https://toncenter.com/api/v2/jsonRPC',
     NAME: 'Mainnet',
     EXPLORER_URL: 'https://tonviewer.com',
     CHAIN_ID: -239
   },
   TESTNET: {
     DEPOSIT_ADDRESS: 'UQDck6IU82sfLqAD1el005JcqzPwC8JSgLfOGsF_IUCyEf96',
-    // StarFi Mining Contract Address (Testnet) - DEPLOYED WITH RETROACTIVE REFERRAL!
     MINING_CONTRACT_ADDRESS: import.meta.env.VITE_STARFI_MINING_CONTRACT_TESTNET || 'EQCPMcE76o6NyVM-BGxvc6Qdx3DjvpJAT5ALQ_e9p9p6Qj2f',
-    API_KEY: 'bb31868e5cf6529efb16bcf547beb3c534a28d1e139bd63356fd936c168fe662', // TonCenter API Key
-    TONAPI_KEY: import.meta.env.VITE_TONAPI_KEY_TESTNET || 'AHZ25K6GOTNFOVQAAAAGWQBCDALGUCPWSHPKL2KQBMUPYIZ4XTQ6ZKHEEONHPY57RXQWUCI', // TonAPI Bearer Token
-    // Use multiple endpoints for better reliability - ordered by reliability
+    API_KEY: _TONCENTER_KEY_TESTNET,
+    TONAPI_KEY: _TONAPI_KEY_TESTNET,
     API_ENDPOINTS: [
       'https://testnet.toncenter.com/api/v2/jsonRPC',
       'https://testnet.tonapi.io/v2/jsonRPC',
       'https://testnet-v4.tonhubapi.com/jsonRPC',
       'https://testnet.tonhubapi.com/jsonRPC'
     ],
-    API_ENDPOINT: 'https://testnet.toncenter.com/api/v2/jsonRPC', // Primary endpoint
+    API_ENDPOINT: 'https://testnet.toncenter.com/api/v2/jsonRPC',
     NAME: 'Testnet',
     EXPLORER_URL: 'https://testnet.tonviewer.com',
     CHAIN_ID: -3

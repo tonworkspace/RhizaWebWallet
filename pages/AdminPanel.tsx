@@ -23,17 +23,27 @@ import {
   ExternalLink,
   Clock,
   DollarSign,
-  Receipt
+  Receipt,
+  Plus,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
+  ListTodo,
+  Eye
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
+import { useAdminEditModal } from '../context/AdminEditModalContext';
 import { adminService, AdminUser } from '../services/adminService';
 import { supabaseService } from '../services/supabaseService';
 import { getPriceOverrides, setPriceOverrides, clearPriceOverrides, PriceOverrides } from '../utils/priceConfig';
+import { databaseAirdropService, DatabaseAirdropTask, CreateTaskData, UpdateTaskData } from '../services/databaseAirdropService';
+import { launchpadService, LaunchpadProject } from '../services/launchpadService';
 
 const AdminPanel: React.FC = () => {
   const { address, updateRzcPrice } = useWallet();
   const { success, error } = useToast();
+  const { openEditModal } = useAdminEditModal();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -42,21 +52,9 @@ const AdminPanel: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'activated' | 'not_activated' | 'active' | 'inactive'>('all');
   const [nodeFilter, setNodeFilter] = useState<'all' | 'has_nodes' | 'no_nodes'>('all');
-  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [userNodes, setUserNodes] = useState<Record<string, number>>({});
-  const [showEditModal, setShowEditModal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [errorState, setErrorState] = useState<string | null>(null);
-  
-  // Edit form state
-  const [editForm, setEditForm] = useState({
-    name: '',
-    email: '',
-    role: '',
-    is_active: true,
-    rzc_balance: 0
-  });
-  const [editReason, setEditReason] = useState('');
 
   // Coin rate overrides
   const [rateForm, setRateForm] = useState<PriceOverrides>(() => getPriceOverrides());
@@ -72,6 +70,69 @@ const AdminPanel: React.FC = () => {
   const [loadingActivations, setLoadingActivations] = useState(false);
   const [showActivations, setShowActivations] = useState(false);
   const activationsPageSize = 20;
+
+  // Airdrop task management state
+  const [tasks, setTasks] = useState<DatabaseAirdropTask[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editingTask, setEditingTask] = useState<DatabaseAirdropTask | null>(null);
+  const [taskForm, setTaskForm] = useState<CreateTaskData>({
+    title: '',
+    description: '',
+    reward: 100,
+    action: '',
+    category: 'social',
+    difficulty: 'easy',
+    instructions: '',
+    time_limit: '',
+    verification_type: 'manual',
+    requirements: {},
+    sort_order: 0,
+  });
+  const [taskProcessing, setTaskProcessing] = useState(false);
+
+  // Launchpad project management state
+  const [projects, setProjects] = useState<LaunchpadProject[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [showProjects, setShowProjects] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<LaunchpadProject | null>(null);
+  const [projectForm, setProjectForm] = useState<Partial<LaunchpadProject>>({
+    name: '',
+    symbol: '',
+    tagline: '',
+    description: '',
+    logo_url: '',
+    status: 'upcoming',
+    total_supply: 0,
+    presale_allocation: 0,
+    presale_rate: 0,
+    listing_rate: 0,
+    soft_cap: 0,
+    hard_cap: 0,
+    min_purchase: 0,
+    max_purchase: 0,
+    presale_start: '',
+    presale_end: '',
+    kyc_verified: false,
+    audit_verified: false,
+    safu_verified: false,
+    doxxed: false,
+    distribution_presale: 0,
+    distribution_liquidity: 0,
+    distribution_team: 0,
+    distribution_marketing: 0,
+    distribution_reserve: 0,
+    tge_unlock_percent: 0,
+    vesting_months: 0,
+    monthly_unlock_percent: 0,
+    liquidity_lock_days: 0,
+    liquidity_percent: 0,
+    featured: false,
+    trending: false,
+  });
+  const [projectProcessing, setProjectProcessing] = useState(false);
 
   const handleFetchLiveRates = async () => {
     setFetchingRates(true);
@@ -194,6 +255,16 @@ const AdminPanel: React.FC = () => {
       }
     }
   }, [isAdmin, page, search, filter, nodeFilter, activationsPage, showActivations]);
+
+  // Listen for user updates from the global modal
+  useEffect(() => {
+    const handleUserUpdate = () => {
+      loadUsers();
+    };
+    
+    window.addEventListener('admin-user-updated', handleUserUpdate);
+    return () => window.removeEventListener('admin-user-updated', handleUserUpdate);
+  }, []);
 
   const loadDatabaseRates = async () => {
     const result = await adminService.getAssetRates();
@@ -381,45 +452,6 @@ const AdminPanel: React.FC = () => {
     setProcessing(false);
   };
 
-  const handleEditUser = (user: AdminUser) => {
-    setSelectedUser(user);
-    setEditForm({
-      name: user.name,
-      email: user.email || '',
-      role: user.role,
-      is_active: user.is_active,
-      rzc_balance: user.rzc_balance
-    });
-    setEditReason('');
-    setShowEditModal(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!address || !selectedUser) return;
-
-    if (!editReason.trim()) {
-      error('Please provide a reason for this update');
-      return;
-    }
-
-    setProcessing(true);
-    const result = await adminService.updateUserAccount(
-      selectedUser.wallet_address,
-      editForm,
-      address,
-      editReason
-    );
-
-    if (result.success) {
-      success(`✅ User ${selectedUser.name} updated successfully`);
-      setShowEditModal(false);
-      loadUsers();
-    } else {
-      error(`❌ Failed to update user: ${result.error}`);
-    }
-    setProcessing(false);
-  };
-
   const handleSaveRates = async () => {
     setProcessing(true);
     try {
@@ -457,9 +489,13 @@ const AdminPanel: React.FC = () => {
       // 3. Instantly update the live price in the running app for all components
       updateRzcPrice(rateForm.rzc);
 
+      // 4. Clear the price cache in useBalance to force fresh percentage data
+      const { clearPriceCache } = await import('../hooks/useBalance');
+      clearPriceCache();
+
       setRateSaved(true);
       setTimeout(() => setRateSaved(false), 2500);
-      success('✅ Global asset rates saved — live price updated instantly');
+      success('✅ Global asset rates saved — live price & percentages updated instantly');
     } catch (err: any) {
       error(`❌ Failed to save rates: ${err.message}`);
     } finally {
@@ -471,6 +507,255 @@ const AdminPanel: React.FC = () => {
     clearPriceOverrides();
     setRateForm(getPriceOverrides());
     success('↩️ Coin rates reset to defaults');
+  };
+
+  // ── Airdrop Task Management ──────────────────────────────────────────────
+
+  const loadTasks = async () => {
+    setLoadingTasks(true);
+    const result = await databaseAirdropService.getAllTasks();
+    if (result.success && result.data) {
+      setTasks(result.data);
+    } else {
+      error(`Failed to load tasks: ${result.error}`);
+    }
+    setLoadingTasks(false);
+  };
+
+  const openCreateTask = () => {
+    setEditingTask(null);
+    setTaskForm({
+      title: '',
+      description: '',
+      reward: 100,
+      action: '',
+      category: 'social',
+      difficulty: 'easy',
+      instructions: '',
+      time_limit: '',
+      verification_type: 'manual',
+      requirements: {},
+      sort_order: tasks.length,
+    });
+    setShowTaskModal(true);
+  };
+
+  const openEditTask = (task: DatabaseAirdropTask) => {
+    setEditingTask(task);
+    setTaskForm({
+      title: task.title,
+      description: task.description,
+      reward: task.reward,
+      action: task.action,
+      category: task.category,
+      difficulty: task.difficulty,
+      instructions: task.instructions || '',
+      time_limit: task.time_limit || '',
+      verification_type: task.verification_type,
+      requirements: task.requirements || {},
+      sort_order: task.sort_order,
+    });
+    setShowTaskModal(true);
+  };
+
+  const handleSaveTask = async () => {
+    if (!taskForm.title.trim() || !taskForm.action.trim()) {
+      error('Title and action are required');
+      return;
+    }
+    setTaskProcessing(true);
+    if (editingTask) {
+      const result = await databaseAirdropService.updateTask(
+        editingTask.id,
+        { ...taskForm, is_active: editingTask.is_active },
+        address || undefined
+      );
+      if (result.success) {
+        success('✅ Task updated successfully');
+        setShowTaskModal(false);
+        loadTasks();
+      } else {
+        error(`❌ Failed to update task: ${result.message}`);
+      }
+    } else {
+      const result = await databaseAirdropService.createTask(taskForm, address || undefined);
+      if (result.success) {
+        success('✅ Task created successfully');
+        setShowTaskModal(false);
+        loadTasks();
+      } else {
+        error(`❌ Failed to create task: ${result.message}`);
+      }
+    }
+    setTaskProcessing(false);
+  };
+
+  const handleToggleTask = async (task: DatabaseAirdropTask) => {
+    setTaskProcessing(true);
+    const result = await databaseAirdropService.toggleTaskStatus(task.id, address || undefined);
+    if (result.success) {
+      success(`✅ Task ${task.is_active ? 'deactivated' : 'activated'}`);
+      loadTasks();
+    } else {
+      error(`❌ ${result.message}`);
+    }
+    setTaskProcessing(false);
+  };
+
+  const handleDeleteTask = async (task: DatabaseAirdropTask) => {
+    if (!window.confirm(`Deactivate task "${task.title}"? It won't be shown to users.`)) return;
+    setTaskProcessing(true);
+    const result = await databaseAirdropService.deleteTask(task.id, address || undefined);
+    if (result.success) {
+      success('✅ Task deactivated');
+      loadTasks();
+    } else {
+      error(`❌ ${result.message}`);
+    }
+    setTaskProcessing(false);
+  };
+
+  // ── Launchpad Project Management ──────────────────────────────────────────
+
+  const loadProjects = async () => {
+    setLoadingProjects(true);
+    const result = await launchpadService.getProjects({ status: 'all' });
+    if (result.success && result.data) {
+      setProjects(result.data);
+    } else {
+      error(`Failed to load projects: ${result.error}`);
+    }
+    setLoadingProjects(false);
+  };
+
+  const handleCreateProject = () => {
+    setEditingProject(null);
+    setProjectForm({
+      name: '',
+      symbol: '',
+      tagline: '',
+      description: '',
+      logo_url: '',
+      status: 'upcoming',
+      total_supply: 1000000000,
+      presale_allocation: 200000000,
+      presale_rate: 1000,
+      listing_rate: 800,
+      soft_cap: 50000,
+      hard_cap: 100000,
+      min_purchase: 100,
+      max_purchase: 5000,
+      presale_start: new Date().toISOString().slice(0, 16),
+      presale_end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+      kyc_verified: false,
+      audit_verified: false,
+      safu_verified: false,
+      doxxed: false,
+      distribution_presale: 20,
+      distribution_liquidity: 50,
+      distribution_team: 15,
+      distribution_marketing: 10,
+      distribution_reserve: 5,
+      tge_unlock_percent: 25,
+      vesting_months: 6,
+      monthly_unlock_percent: 12.5,
+      liquidity_lock_days: 365,
+      liquidity_percent: 70,
+      featured: false,
+      trending: false,
+    });
+    setShowProjectModal(true);
+  };
+
+  const handleEditProject = (project: LaunchpadProject) => {
+    setEditingProject(project);
+    setProjectForm({
+      name: project.name,
+      symbol: project.symbol,
+      tagline: project.tagline,
+      description: project.description,
+      logo_url: project.logo_url,
+      status: project.status,
+      total_supply: project.total_supply,
+      presale_allocation: project.presale_allocation,
+      presale_rate: project.presale_rate,
+      listing_rate: project.listing_rate,
+      soft_cap: project.soft_cap,
+      hard_cap: project.hard_cap,
+      min_purchase: project.min_purchase,
+      max_purchase: project.max_purchase,
+      presale_start: project.presale_start.slice(0, 16),
+      presale_end: project.presale_end.slice(0, 16),
+      kyc_verified: project.kyc_verified,
+      audit_verified: project.audit_verified,
+      safu_verified: project.safu_verified,
+      doxxed: project.doxxed,
+      website_url: project.website_url || '',
+      twitter_url: project.twitter_url || '',
+      telegram_url: project.telegram_url || '',
+      discord_url: project.discord_url || '',
+      distribution_presale: project.distribution_presale,
+      distribution_liquidity: project.distribution_liquidity,
+      distribution_team: project.distribution_team,
+      distribution_marketing: project.distribution_marketing,
+      distribution_reserve: project.distribution_reserve,
+      tge_unlock_percent: project.tge_unlock_percent,
+      vesting_months: project.vesting_months,
+      monthly_unlock_percent: project.monthly_unlock_percent,
+      liquidity_lock_days: project.liquidity_lock_days,
+      liquidity_percent: project.liquidity_percent,
+      featured: project.featured,
+      trending: project.trending,
+    });
+    setShowProjectModal(true);
+  };
+
+  const handleSaveProject = async () => {
+    if (!projectForm.name || !projectForm.symbol) {
+      error('Name and symbol are required');
+      return;
+    }
+
+    setProjectProcessing(true);
+    
+    const result = editingProject
+      ? await launchpadService.updateProject(editingProject.id, projectForm)
+      : await launchpadService.createProject(projectForm);
+
+    if (result.success) {
+      success(`✅ Project ${editingProject ? 'updated' : 'created'} successfully`);
+      setShowProjectModal(false);
+      loadProjects();
+    } else {
+      error(`❌ Failed to ${editingProject ? 'update' : 'create'} project: ${result.error}`);
+    }
+    setProjectProcessing(false);
+  };
+
+  const handleToggleProjectStatus = async (project: LaunchpadProject) => {
+    const newStatus = project.status === 'live' ? 'upcoming' : 'live';
+    setProjectProcessing(true);
+    const result = await launchpadService.updateProject(project.id, { status: newStatus });
+    if (result.success) {
+      success(`✅ Project ${newStatus === 'live' ? 'enabled' : 'disabled'}`);
+      loadProjects();
+    } else {
+      error(`❌ Failed to update status: ${result.error}`);
+    }
+    setProjectProcessing(false);
+  };
+
+  const handleDeleteProject = async (project: LaunchpadProject) => {
+    if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+    setProjectProcessing(true);
+    const result = await launchpadService.deleteProject(project.id);
+    if (result.success) {
+      success('✅ Project deleted');
+      loadProjects();
+    } else {
+      error(`❌ Failed to delete: ${result.error}`);
+    }
+    setProjectProcessing(false);
   };
 
   if (loading && !isAdmin) {
@@ -527,7 +812,7 @@ const AdminPanel: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl">
           <div className="flex items-center gap-3">
             <Users size={24} className="text-blue-600" />
@@ -544,17 +829,6 @@ const AdminPanel: React.FC = () => {
               <p className="text-xs text-gray-600 dark:text-gray-400 font-semibold">Activated</p>
               <p className="text-2xl font-black text-gray-950 dark:text-white">
                 {displayedUsers.filter(u => u.is_activated).length}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl">
-          <div className="flex items-center gap-3">
-            <XCircle size={24} className="text-amber-600" />
-            <div>
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-semibold">Not Activated</p>
-              <p className="text-2xl font-black text-gray-950 dark:text-white">
-                {displayedUsers.filter(u => !u.is_activated).length}
               </p>
             </div>
           </div>
@@ -587,8 +861,10 @@ const AdminPanel: React.FC = () => {
       <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl overflow-hidden">
         <button
           onClick={() => {
-            setShowActivations(!showActivations);
-            if (!showActivations && activations.length === 0) {
+            const newShowState = !showActivations;
+            setShowActivations(newShowState);
+            // Always reload when opening, even if we have cached data
+            if (newShowState) {
               loadActivations();
             }
           }}
@@ -608,6 +884,19 @@ const AdminPanel: React.FC = () => {
               <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold rounded-full">
                 {activationsTotal} total
               </span>
+            )}
+            {showActivations && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  loadActivations();
+                }}
+                disabled={loadingActivations}
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                title="Refresh activations"
+              >
+                <RefreshCw size={16} className={`text-gray-600 dark:text-gray-400 ${loadingActivations ? 'animate-spin' : ''}`} />
+              </button>
             )}
             <ChevronRight 
               size={20} 
@@ -639,134 +928,217 @@ const AdminPanel: React.FC = () => {
                         <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Transaction</th>
                         <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Date</th>
                         <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y-2 divide-gray-200 dark:divide-white/10">
-                      {activations.map((activation) => (
-                        <tr key={activation.id} className="hover:bg-gray-50 dark:hover:bg-white/5">
-                          <td className="px-4 py-3">
-                            <div>
-                              <p className="font-bold text-gray-950 dark:text-white">
-                                {activation.wallet_users?.name || 'Unknown'}
-                              </p>
-                              {activation.wallet_users?.email && (
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  {activation.wallet_users.email}
+                      {activations.map((activation) => {
+                        // Find the user in the users list
+                        const user = users.find(u => u.wallet_address === activation.wallet_address);
+                        
+                        return (
+                          <tr key={activation.id} className="hover:bg-gray-50 dark:hover:bg-white/5">
+                            <td className="px-4 py-3">
+                              <div>
+                                <p className="font-bold text-gray-950 dark:text-white">
+                                  {activation.wallet_users?.name || 'Unknown'}
                                 </p>
+                                {activation.wallet_users?.email && (
+                                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                                    {activation.wallet_users.email}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs font-mono text-gray-600 dark:text-gray-400">
+                                {activation.wallet_address.slice(0, 8)}...{activation.wallet_address.slice(-6)}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div>
+                                <p className="font-bold text-gray-950 dark:text-white">
+                                  ${activation.activation_fee_usd?.toFixed(2) || '0.00'}
+                                </p>
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  {activation.activation_fee_ton?.toFixed(4) || '0.0000'} TON
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {activation.transaction_hash ? (
+                                <a
+                                  href={`https://tonscan.org/tx/${activation.transaction_hash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-xs font-mono text-blue-600 dark:text-blue-400 hover:underline"
+                                >
+                                  {activation.transaction_hash.slice(0, 8)}...
+                                  <ExternalLink size={12} />
+                                </a>
+                              ) : (
+                                <span className="text-xs text-gray-500 dark:text-gray-500">
+                                  {activation.activation_fee_usd === 0 ? 'Admin activated' : 'No tx hash'}
+                                </span>
                               )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <p className="text-xs font-mono text-gray-600 dark:text-gray-400">
-                              {activation.wallet_address.slice(0, 8)}...{activation.wallet_address.slice(-6)}
-                            </p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div>
-                              <p className="font-bold text-gray-950 dark:text-white">
-                                ${activation.activation_fee_usd?.toFixed(2) || '0.00'}
-                              </p>
-                              <p className="text-xs text-gray-600 dark:text-gray-400">
-                                {activation.activation_fee_ton?.toFixed(4) || '0.0000'} TON
-                              </p>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            {activation.transaction_hash ? (
-                              <a
-                                href={`https://tonscan.org/tx/${activation.transaction_hash}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-xs font-mono text-blue-600 dark:text-blue-400 hover:underline"
-                              >
-                                {activation.transaction_hash.slice(0, 8)}...
-                                <ExternalLink size={12} />
-                              </a>
-                            ) : (
-                              <span className="text-xs text-gray-500 dark:text-gray-500">
-                                {activation.activation_fee_usd === 0 ? 'Admin activated' : 'No tx hash'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+                                <Clock size={12} />
+                                {new Date(activation.completed_at || activation.created_at).toLocaleString()}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded ${
+                                activation.status === 'completed'
+                                  ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                  : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                              }`}>
+                                {activation.status === 'completed' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                                {activation.status || 'pending'}
                               </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
-                              <Clock size={12} />
-                              {new Date(activation.completed_at || activation.created_at).toLocaleString()}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded ${
-                              activation.status === 'completed'
-                                ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                            }`}>
-                              {activation.status === 'completed' ? <CheckCircle size={12} /> : <Clock size={12} />}
-                              {activation.status || 'pending'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-2">
+                                {user ? (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        // Scroll to user in the main list
+                                        setSearch(activation.wallet_address);
+                                        setShowActivations(false);
+                                        // Small delay to let the search filter apply
+                                        setTimeout(() => {
+                                          const userRow = document.querySelector(`[data-wallet="${activation.wallet_address}"]`);
+                                          userRow?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        }, 100);
+                                      }}
+                                      className="p-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
+                                      title="View User"
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => openEditModal(user)}
+                                      disabled={processing}
+                                      className="p-2 bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50"
+                                      title="Edit User"
+                                    >
+                                      <Edit size={14} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-gray-500 dark:text-gray-500 italic">
+                                    User not found
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Mobile Cards */}
                 <div className="lg:hidden divide-y-2 divide-gray-200 dark:divide-white/10">
-                  {activations.map((activation) => (
-                    <div key={activation.id} className="p-4 space-y-3">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-bold text-gray-950 dark:text-white">
-                            {activation.wallet_users?.name || 'Unknown'}
-                          </p>
-                          <p className="text-xs font-mono text-gray-600 dark:text-gray-400 mt-0.5">
-                            {activation.wallet_address.slice(0, 12)}...{activation.wallet_address.slice(-8)}
-                          </p>
+                  {activations.map((activation) => {
+                    // Find the user in the users list
+                    const user = users.find(u => u.wallet_address === activation.wallet_address);
+                    
+                    return (
+                      <div key={activation.id} className="p-4 space-y-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-bold text-gray-950 dark:text-white">
+                              {activation.wallet_users?.name || 'Unknown'}
+                            </p>
+                            <p className="text-xs font-mono text-gray-600 dark:text-gray-400 mt-0.5">
+                              {activation.wallet_address.slice(0, 12)}...{activation.wallet_address.slice(-8)}
+                            </p>
+                          </div>
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded ${
+                            activation.status === 'completed'
+                              ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                              : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                          }`}>
+                            {activation.status === 'completed' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                            {activation.status || 'pending'}
+                          </span>
                         </div>
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded ${
-                          activation.status === 'completed'
-                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                            : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                        }`}>
-                          {activation.status === 'completed' ? <CheckCircle size={12} /> : <Clock size={12} />}
-                          {activation.status || 'pending'}
-                        </span>
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200 dark:border-white/10">
-                        <div>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Payment</p>
-                          <p className="font-bold text-gray-950 dark:text-white">
-                            ${activation.activation_fee_usd?.toFixed(2) || '0.00'}
-                          </p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">
-                            {activation.activation_fee_ton?.toFixed(4) || '0.0000'} TON
-                          </p>
+                        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200 dark:border-white/10">
+                          <div>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Payment</p>
+                            <p className="font-bold text-gray-950 dark:text-white">
+                              ${activation.activation_fee_usd?.toFixed(2) || '0.00'}
+                            </p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400">
+                              {activation.activation_fee_ton?.toFixed(4) || '0.0000'} TON
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Date</p>
+                            <p className="text-xs font-bold text-gray-950 dark:text-white">
+                              {new Date(activation.completed_at || activation.created_at).toLocaleDateString()}
+                            </p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400">
+                              {new Date(activation.completed_at || activation.created_at).toLocaleTimeString()}
+                            </p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Date</p>
-                          <p className="text-xs font-bold text-gray-950 dark:text-white">
-                            {new Date(activation.completed_at || activation.created_at).toLocaleDateString()}
-                          </p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">
-                            {new Date(activation.completed_at || activation.created_at).toLocaleTimeString()}
-                          </p>
-                        </div>
-                      </div>
 
-                      {activation.transaction_hash && (
-                        <a
-                          href={`https://tonscan.org/tx/${activation.transaction_hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
-                        >
-                          <ExternalLink size={14} />
-                          View on TonScan
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                        {activation.transaction_hash && (
+                          <a
+                            href={`https://tonscan.org/tx/${activation.transaction_hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
+                          >
+                            <ExternalLink size={14} />
+                            View on TonScan
+                          </a>
+                        )}
+
+                        {/* User Actions */}
+                        {user ? (
+                          <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200 dark:border-white/10">
+                            <button
+                              onClick={() => {
+                                // Scroll to user in the main list
+                                setSearch(activation.wallet_address);
+                                setShowActivations(false);
+                                // Small delay to let the search filter apply
+                                setTimeout(() => {
+                                  const userRow = document.querySelector(`[data-wallet="${activation.wallet_address}"]`);
+                                  userRow?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }, 100);
+                              }}
+                              className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors"
+                            >
+                              <Eye size={14} />
+                              View User
+                            </button>
+                            <button
+                              onClick={() => openEditModal(user)}
+                              disabled={processing}
+                              className="flex items-center justify-center gap-2 px-3 py-2 bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 rounded-lg text-xs font-bold hover:bg-purple-200 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50"
+                            >
+                              <Edit size={14} />
+                              Edit User
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="pt-3 border-t border-gray-200 dark:border-white/10 text-center">
+                            <span className="text-xs text-gray-500 dark:text-gray-500 italic">
+                              User not found in current page
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Pagination */}
@@ -879,7 +1251,7 @@ const AdminPanel: React.FC = () => {
                 </tr>
               ) : (
                 displayedUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-white/5">
+                  <tr key={user.id} data-wallet={user.wallet_address} className="hover:bg-gray-50 dark:hover:bg-white/5">
                     <td className="px-4 py-3">
                       <div>
                         <p className="font-bold text-gray-950 dark:text-white">{user.name}</p>
@@ -979,7 +1351,7 @@ const AdminPanel: React.FC = () => {
                           <Gift size={16} />
                         </button>
                         <button
-                          onClick={() => handleEditUser(user)}
+                          onClick={() => openEditModal(user)}
                           disabled={processing}
                           className="p-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors disabled:opacity-50"
                           title="Edit User"
@@ -1036,7 +1408,7 @@ const AdminPanel: React.FC = () => {
           </div>
         ) : (
           displayedUsers.map((user) => (
-            <div key={user.id} className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl p-4 space-y-3">
+            <div key={user.id} data-wallet={user.wallet_address} className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl p-4 space-y-3">
               {/* User Info */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -1136,7 +1508,7 @@ const AdminPanel: React.FC = () => {
                   Award RZC
                 </button>
                 <button
-                  onClick={() => handleEditUser(user)}
+                  onClick={() => openEditModal(user)}
                   disabled={processing}
                   className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors disabled:opacity-50 text-sm font-bold"
                 >
@@ -1175,6 +1547,144 @@ const AdminPanel: React.FC = () => {
                 <ChevronRight size={16} />
               </button>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Airdrop Task Management */}
+      <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl overflow-hidden">
+        <button
+          onClick={() => {
+            setShowTasks(prev => {
+              if (!prev && tasks.length === 0) loadTasks();
+              return !prev;
+            });
+          }}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <ListTodo size={24} className="text-primary" />
+            <div className="text-left">
+              <h2 className="text-lg font-black text-gray-950 dark:text-white">Airdrop Task Management</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Create, edit, and toggle airdrop tasks synced with the database
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {tasks.length > 0 && (
+              <span className="px-3 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full">
+                {tasks.filter(t => t.is_active).length} active / {tasks.length} total
+              </span>
+            )}
+            <ChevronRight
+              size={20}
+              className={`text-gray-400 transition-transform ${showTasks ? 'rotate-90' : ''}`}
+            />
+          </div>
+        </button>
+
+        {showTasks && (
+          <div className="border-t-2 border-gray-200 dark:border-white/10">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-white/5">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {tasks.length} tasks in database
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadTasks}
+                  disabled={loadingTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-lg text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={loadingTasks ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+                <button
+                  onClick={openCreateTask}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-black rounded-lg text-xs font-bold hover:bg-[#00dd77] transition-colors"
+                >
+                  <Plus size={13} />
+                  New Task
+                </button>
+              </div>
+            </div>
+
+            {loadingTasks ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader className="animate-spin" size={32} />
+              </div>
+            ) : tasks.length === 0 ? (
+              <div className="text-center py-12 text-gray-600 dark:text-gray-400">
+                <ListTodo size={32} className="mx-auto mb-3 opacity-40" />
+                <p className="font-bold">No tasks in database</p>
+                <p className="text-xs mt-1">Click "New Task" to create the first one</p>
+              </div>
+            ) : (
+              <div className="divide-y-2 divide-gray-200 dark:divide-white/10">
+                {tasks.map(task => (
+                  <div key={task.id} className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors ${!task.is_active ? 'opacity-50' : ''}`}>
+                    {/* Status toggle */}
+                    <button
+                      onClick={() => handleToggleTask(task)}
+                      disabled={taskProcessing}
+                      title={task.is_active ? 'Deactivate' : 'Activate'}
+                      className="shrink-0 text-gray-400 hover:text-primary transition-colors disabled:opacity-50"
+                    >
+                      {task.is_active
+                        ? <ToggleRight size={24} className="text-primary" />
+                        : <ToggleLeft size={24} />}
+                    </button>
+
+                    {/* Task info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-gray-950 dark:text-white text-sm truncate">{task.title}</p>
+                        <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded uppercase ${
+                          task.category === 'social' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400' :
+                          task.category === 'engagement' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' :
+                          task.category === 'growth' ? 'bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400' :
+                          'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                        }`}>{task.category}</span>
+                        <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded uppercase ${
+                          task.difficulty === 'easy' ? 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400' :
+                          task.difficulty === 'medium' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400' :
+                          task.difficulty === 'hard' ? 'bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400' :
+                          'bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400'
+                        }`}>{task.difficulty}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{task.description}</p>
+                    </div>
+
+                    {/* Reward */}
+                    <div className="shrink-0 text-right hidden sm:block">
+                      <p className="font-black text-primary text-sm">{task.reward} RZC</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400">{task.total_completions || 0} completions</p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="shrink-0 flex items-center gap-1">
+                      <button
+                        onClick={() => openEditTask(task)}
+                        disabled={taskProcessing}
+                        className="p-1.5 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors disabled:opacity-50"
+                        title="Edit task"
+                      >
+                        <Edit size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTask(task)}
+                        disabled={taskProcessing}
+                        className="p-1.5 bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                        title="Deactivate task"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1494,31 +2004,207 @@ const AdminPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Edit User Modal */}
-      {showEditModal && selectedUser && (
+      {/* Launchpad Project Management */}
+      <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl overflow-hidden">
+        <button
+          onClick={() => {
+            setShowProjects(prev => {
+              if (!prev && projects.length === 0) loadProjects();
+              return !prev;
+            });
+          }}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Zap size={24} className="text-emerald-600" />
+            <div className="text-left">
+              <h2 className="text-lg font-black text-gray-950 dark:text-white">Launchpad Management</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Create, edit, and manage presale projects
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {projects.length > 0 && (
+              <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold rounded-full">
+                {projects.filter(p => p.status === 'live').length} live / {projects.length} total
+              </span>
+            )}
+            <ChevronRight
+              size={20}
+              className={`text-gray-400 transition-transform ${showProjects ? 'rotate-90' : ''}`}
+            />
+          </div>
+        </button>
+
+        {showProjects && (
+          <div className="border-t-2 border-gray-200 dark:border-white/10">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-white/5">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {projects.length} projects
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadProjects}
+                  disabled={loadingProjects}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-lg text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={loadingProjects ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+                <button
+                  onClick={handleCreateProject}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors"
+                >
+                  <Plus size={13} />
+                  New Project
+                </button>
+              </div>
+            </div>
+
+            {/* Projects List */}
+            <div className="p-4 space-y-3">
+              {loadingProjects ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader className="animate-spin" size={24} />
+                </div>
+              ) : projects.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  No projects yet. Click "New Project" to create one.
+                </div>
+              ) : (
+                projects.map(project => (
+                  <div
+                    key={project.id}
+                    className="p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Project Info */}
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-white/5 flex items-center justify-center text-2xl overflow-hidden shrink-0">
+                          {project.logo_url?.startsWith('http') ? (
+                            <img src={project.logo_url} alt={project.name} className="w-full h-full object-cover" />
+                          ) : (
+                            project.logo_url || '🚀'
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="text-base font-black text-gray-950 dark:text-white">
+                              {project.name}
+                            </h3>
+                            <span className="px-2 py-0.5 bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 text-xs font-bold rounded">
+                              {project.symbol}
+                            </span>
+                            <span className={`px-2 py-0.5 text-xs font-bold rounded ${
+                              project.status === 'live' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' :
+                              project.status === 'upcoming' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400' :
+                              project.status === 'success' ? 'bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400' :
+                              'bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300'
+                            }`}>
+                              {project.status.toUpperCase()}
+                            </span>
+                            {project.featured && (
+                              <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-bold rounded">
+                                ⭐ Featured
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            {project.tagline}
+                          </p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Hard Cap:</span>
+                              <span className="ml-1 font-bold text-gray-950 dark:text-white">
+                                ${project.hard_cap.toLocaleString()}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Raised:</span>
+                              <span className="ml-1 font-bold text-gray-950 dark:text-white">
+                                ${project.raised_amount.toLocaleString()}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Rate:</span>
+                              <span className="ml-1 font-bold text-gray-950 dark:text-white">
+                                {project.presale_rate} {project.symbol}/USDC
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Participants:</span>
+                              <span className="ml-1 font-bold text-gray-950 dark:text-white">
+                                {project.participant_count}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleEditProject(project)}
+                          disabled={projectProcessing}
+                          className="p-2 bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/20 transition-colors disabled:opacity-50"
+                          title="Edit"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleToggleProjectStatus(project)}
+                          disabled={projectProcessing}
+                          className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                            project.status === 'live'
+                              ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/20'
+                              : 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-500/20'
+                          }`}
+                          title={project.status === 'live' ? 'Disable' : 'Enable'}
+                        >
+                          {project.status === 'live' ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProject(project)}
+                          disabled={projectProcessing}
+                          className="p-2 bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Task Create / Edit Modal */}
+      {showTaskModal && (
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
-            onClick={() => !processing && setShowEditModal(false)}
+            onClick={() => !taskProcessing && setShowTaskModal(false)}
           />
-
-          {/* Modal */}
           <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-2xl bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-[90vh] flex flex-col">
             {/* Header */}
             <div className="p-4 sm:p-5 border-b-2 border-gray-200 dark:border-white/10 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black text-gray-950 dark:text-white">
-                  Edit User Account
+                  {editingTask ? 'Edit Task' : 'New Airdrop Task'}
                 </h2>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                  {selectedUser.wallet_address.slice(0, 12)}...{selectedUser.wallet_address.slice(-8)}
-                </p>
+                {editingTask && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">ID #{editingTask.id} · {editingTask.total_completions || 0} completions</p>
+                )}
               </div>
               <button
-                onClick={() => !processing && setShowEditModal(false)}
+                onClick={() => !taskProcessing && setShowTaskModal(false)}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
-                disabled={processing}
+                disabled={taskProcessing}
               >
                 <X size={20} />
               </button>
@@ -1526,116 +2212,156 @@ const AdminPanel: React.FC = () => {
 
             {/* Content */}
             <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
-              {/* Name */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                  <User size={16} />
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
-                  placeholder="User name"
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Title */}
+                <div className="sm:col-span-2">
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">
+                    Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={taskForm.title}
+                    onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    placeholder="e.g. Follow @RhizaCore on X"
+                  />
+                </div>
 
-              {/* Email */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                  <Mail size={16} />
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={editForm.email}
-                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                  className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
-                  placeholder="user@example.com"
-                />
-              </div>
+                {/* Description */}
+                <div className="sm:col-span-2">
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Description</label>
+                  <input
+                    type="text"
+                    value={taskForm.description}
+                    onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    placeholder="Short description shown to users"
+                  />
+                </div>
 
-              {/* Role */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                  <Shield size={16} />
-                  Role
-                </label>
-                <select
-                  value={editForm.role}
-                  onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                  className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
-                >
-                  <option value="user">User</option>
-                  <option value="premium">Premium</option>
-                  <option value="vip">VIP</option>
-                  <option value="admin">Admin</option>
-                  <option value="super_admin">Super Admin</option>
-                </select>
-              </div>
+                {/* Action */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">
+                    Action Key <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={taskForm.action}
+                    onChange={e => setTaskForm(f => ({ ...f, action: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm font-mono"
+                    placeholder="e.g. follow_twitter"
+                  />
+                </div>
 
-              {/* RZC Balance */}
-              <div>
-                <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                  <Coins size={16} />
-                  RZC Balance
-                </label>
-                <input
-                  type="number"
-                  value={editForm.rzc_balance}
-                  onChange={(e) => setEditForm({ ...editForm, rzc_balance: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary"
-                  placeholder="0"
-                  step="0.01"
-                />
-              </div>
+                {/* Reward */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Reward (RZC)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={taskForm.reward}
+                    onChange={e => setTaskForm(f => ({ ...f, reward: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                  />
+                </div>
 
-              {/* Active Status */}
-              <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-white/5 rounded-xl">
-                <input
-                  type="checkbox"
-                  id="is_active"
-                  checked={editForm.is_active}
-                  onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
-                  className="w-5 h-5 rounded border-2 border-gray-300 dark:border-white/10"
-                />
-                <label htmlFor="is_active" className="text-sm font-bold text-gray-700 dark:text-gray-300 cursor-pointer">
-                  Account Active
-                </label>
-              </div>
+                {/* Category */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Category</label>
+                  <select
+                    value={taskForm.category}
+                    onChange={e => setTaskForm(f => ({ ...f, category: e.target.value as any }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                  >
+                    <option value="social">Social</option>
+                    <option value="engagement">Engagement</option>
+                    <option value="growth">Growth</option>
+                    <option value="content">Content</option>
+                  </select>
+                </div>
 
-              {/* Reason */}
-              <div>
-                <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 block">
-                  Reason for Update <span className="text-red-600">*</span>
-                </label>
-                <textarea
-                  value={editReason}
-                  onChange={(e) => setEditReason(e.target.value)}
-                  className="w-full px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary resize-none"
-                  placeholder="Enter reason for this update..."
-                  rows={3}
-                  required
-                />
+                {/* Difficulty */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Difficulty</label>
+                  <select
+                    value={taskForm.difficulty}
+                    onChange={e => setTaskForm(f => ({ ...f, difficulty: e.target.value as any }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                  >
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                    <option value="expert">Expert</option>
+                  </select>
+                </div>
+
+                {/* Verification Type */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Verification</label>
+                  <select
+                    value={taskForm.verification_type}
+                    onChange={e => setTaskForm(f => ({ ...f, verification_type: e.target.value as any }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                  >
+                    <option value="automatic">Automatic</option>
+                    <option value="manual">Manual</option>
+                    <option value="social_api">Social API</option>
+                  </select>
+                </div>
+
+                {/* Time Limit */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Time Limit</label>
+                  <input
+                    type="text"
+                    value={taskForm.time_limit || ''}
+                    onChange={e => setTaskForm(f => ({ ...f, time_limit: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    placeholder="e.g. 24h, 7 days (leave blank for none)"
+                  />
+                </div>
+
+                {/* Sort Order */}
+                <div>
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Sort Order</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={taskForm.sort_order ?? 0}
+                    onChange={e => setTaskForm(f => ({ ...f, sort_order: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                  />
+                </div>
+
+                {/* Instructions */}
+                <div className="sm:col-span-2">
+                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Instructions</label>
+                  <textarea
+                    value={taskForm.instructions || ''}
+                    onChange={e => setTaskForm(f => ({ ...f, instructions: e.target.value }))}
+                    rows={3}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm resize-none"
+                    placeholder="Step-by-step instructions shown to users"
+                  />
+                </div>
               </div>
             </div>
 
             {/* Footer */}
             <div className="p-4 sm:p-5 border-t-2 border-gray-200 dark:border-white/10 flex flex-col sm:flex-row gap-3">
               <button
-                onClick={() => !processing && setShowEditModal(false)}
-                disabled={processing}
+                onClick={() => !taskProcessing && setShowTaskModal(false)}
+                disabled={taskProcessing}
                 className="flex-1 py-3 bg-gray-200 dark:bg-white/10 text-gray-950 dark:text-white rounded-xl text-sm font-bold hover:bg-gray-300 dark:hover:bg-white/20 transition-all disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
-                onClick={handleSaveEdit}
-                disabled={processing || !editReason.trim()}
-                className="flex-1 py-3 bg-emerald-600 dark:bg-primary text-white dark:text-black rounded-xl text-sm font-bold hover:bg-emerald-700 dark:hover:bg-[#00dd77] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                onClick={handleSaveTask}
+                disabled={taskProcessing || !taskForm.title.trim() || !taskForm.action.trim()}
+                className="flex-1 py-3 bg-primary text-black rounded-xl text-sm font-bold hover:bg-[#00dd77] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {processing ? (
+                {taskProcessing ? (
                   <>
                     <Loader size={16} className="animate-spin" />
                     Saving...
@@ -1643,7 +2369,300 @@ const AdminPanel: React.FC = () => {
                 ) : (
                   <>
                     <Save size={16} />
-                    Save Changes
+                    {editingTask ? 'Save Changes' : 'Create Task'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Project Create / Edit Modal */}
+      {showProjectModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+            onClick={() => !projectProcessing && setShowProjectModal(false)}
+          />
+          <div className="fixed inset-4 sm:inset-8 lg:inset-16 bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b-2 border-gray-200 dark:border-white/10 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="text-xl font-black text-gray-950 dark:text-white">
+                  {editingProject ? 'Edit Project' : 'New Launchpad Project'}
+                </h2>
+                {editingProject && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {editingProject.symbol} · {editingProject.participant_count} participants
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => !projectProcessing && setShowProjectModal(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+                disabled={projectProcessing}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content - Scrollable */}
+            <div className="p-4 sm:p-5 space-y-6 overflow-y-auto flex-1">
+              {/* Basic Info */}
+              <div>
+                <h3 className="text-sm font-black text-gray-950 dark:text-white mb-3">Basic Information</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">
+                      Project Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={projectForm.name}
+                      onChange={e => setProjectForm(f => ({ ...f, name: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                      placeholder="e.g. RhizaCore Token"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">
+                      Symbol <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={projectForm.symbol}
+                      onChange={e => setProjectForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                      placeholder="e.g. RZC"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Tagline</label>
+                    <input
+                      type="text"
+                      value={projectForm.tagline}
+                      onChange={e => setProjectForm(f => ({ ...f, tagline: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                      placeholder="Short catchy description"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Description</label>
+                    <textarea
+                      value={projectForm.description}
+                      onChange={e => setProjectForm(f => ({ ...f, description: e.target.value }))}
+                      rows={3}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm resize-none"
+                      placeholder="Full project description"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Logo URL</label>
+                    <input
+                      type="text"
+                      value={projectForm.logo_url}
+                      onChange={e => setProjectForm(f => ({ ...f, logo_url: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                      placeholder="https://... or emoji"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Financial */}
+              <div>
+                <h3 className="text-sm font-black text-gray-950 dark:text-white mb-3">Financial Details</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Total Supply</label>
+                    <input
+                      type="number"
+                      value={projectForm.total_supply}
+                      onChange={e => setProjectForm(f => ({ ...f, total_supply: parseInt(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Presale Allocation</label>
+                    <input
+                      type="number"
+                      value={projectForm.presale_allocation}
+                      onChange={e => setProjectForm(f => ({ ...f, presale_allocation: parseInt(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Presale Rate (tokens/USDC)</label>
+                    <input
+                      type="number"
+                      value={projectForm.presale_rate}
+                      onChange={e => setProjectForm(f => ({ ...f, presale_rate: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Soft Cap (USDC)</label>
+                    <input
+                      type="number"
+                      value={projectForm.soft_cap}
+                      onChange={e => setProjectForm(f => ({ ...f, soft_cap: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Hard Cap (USDC)</label>
+                    <input
+                      type="number"
+                      value={projectForm.hard_cap}
+                      onChange={e => setProjectForm(f => ({ ...f, hard_cap: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Min Purchase (USDC)</label>
+                    <input
+                      type="number"
+                      value={projectForm.min_purchase}
+                      onChange={e => setProjectForm(f => ({ ...f, min_purchase: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Max Purchase (USDC)</label>
+                    <input
+                      type="number"
+                      value={projectForm.max_purchase}
+                      onChange={e => setProjectForm(f => ({ ...f, max_purchase: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Timing */}
+              <div>
+                <h3 className="text-sm font-black text-gray-950 dark:text-white mb-3">Schedule</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Presale Start</label>
+                    <input
+                      type="datetime-local"
+                      value={projectForm.presale_start}
+                      onChange={e => setProjectForm(f => ({ ...f, presale_start: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Presale End</label>
+                    <input
+                      type="datetime-local"
+                      value={projectForm.presale_end}
+                      onChange={e => setProjectForm(f => ({ ...f, presale_end: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 block">Status</label>
+                    <select
+                      value={projectForm.status}
+                      onChange={e => setProjectForm(f => ({ ...f, status: e.target.value as any }))}
+                      className="w-full px-3 py-2 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary text-sm"
+                    >
+                      <option value="upcoming">Upcoming</option>
+                      <option value="live">Live</option>
+                      <option value="ended">Ended</option>
+                      <option value="success">Success</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Verification Badges */}
+              <div>
+                <h3 className="text-sm font-black text-gray-950 dark:text-white mb-3">Verification</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <label className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={projectForm.kyc_verified}
+                      onChange={e => setProjectForm(f => ({ ...f, kyc_verified: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-gray-950 dark:text-white">KYC</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={projectForm.audit_verified}
+                      onChange={e => setProjectForm(f => ({ ...f, audit_verified: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-gray-950 dark:text-white">Audit</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={projectForm.safu_verified}
+                      onChange={e => setProjectForm(f => ({ ...f, safu_verified: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-gray-950 dark:text-white">SAFU</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={projectForm.doxxed}
+                      onChange={e => setProjectForm(f => ({ ...f, doxxed: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-gray-950 dark:text-white">Doxxed</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={projectForm.featured}
+                      onChange={e => setProjectForm(f => ({ ...f, featured: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-gray-950 dark:text-white">⭐ Featured</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={projectForm.trending}
+                      onChange={e => setProjectForm(f => ({ ...f, trending: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs font-bold text-gray-950 dark:text-white">🔥 Trending</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 border-t-2 border-gray-200 dark:border-white/10 flex flex-col sm:flex-row gap-3 shrink-0">
+              <button
+                onClick={() => !projectProcessing && setShowProjectModal(false)}
+                disabled={projectProcessing}
+                className="flex-1 py-3 bg-gray-200 dark:bg-white/10 text-gray-950 dark:text-white rounded-xl text-sm font-bold hover:bg-gray-300 dark:hover:bg-white/20 transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProject}
+                disabled={projectProcessing || !projectForm.name || !projectForm.symbol}
+                className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {projectProcessing ? (
+                  <>
+                    <Loader size={16} className="animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    {editingProject ? 'Save Changes' : 'Create Project'}
                   </>
                 )}
               </button>

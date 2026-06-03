@@ -4,6 +4,7 @@ import { NetworkType, getNetworkConfig } from '../constants';
 import { supabaseService } from '../services/supabaseService';
 import { transactionSyncService } from '../services/transactionSync';
 import { notificationService } from '../services/notificationService';
+import { balanceSyncService } from '../services/balanceSyncService';
 import type { EvmChain } from '../services/tetherWdkService';
 
 interface UserProfile {
@@ -55,14 +56,18 @@ interface WalletState {
   toggleTheme: () => void;
   switchNetwork: (network: NetworkType) => Promise<void>;
   switchEvmChain: (chain: EvmChain) => Promise<void>;
-  refreshData: () => Promise<void>;
+  refreshData: (skipProfileRefresh?: boolean, forceRefresh?: boolean) => Promise<void>;
   login: (mnemonic: string[], password?: string, type?: 'primary' | 'secondary') => Promise<boolean>;
   logout: () => void;
   multiChainBalances: { evm: string, btc: string, ton: string, usdt: string, sol: string, tron: string } | null;
+  wdkHealth: { ton: boolean; evm: boolean; btc: boolean; sol: boolean; tron: boolean } | null;
   isNetworkModalOpen: boolean;
   setIsNetworkModalOpen: (open: boolean) => void;
   currentEvmChain: EvmChain;
   setCurrentEvmChain: (chain: EvmChain) => void;
+  dashView: 'portfolio' | 'wallet';
+  setDashView: (view: 'portfolio' | 'wallet') => void;
+  reinitializeWdkEvm: () => Promise<boolean>;
 }
 
 const WalletContext = createContext<WalletState | undefined>(undefined);
@@ -101,12 +106,22 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return (saved as 'dark' | 'light') || 'dark';
   });
   const [multiChainBalances, setMultiChainBalances] = useState<{ evm: string, btc: string, ton: string, usdt: string, sol: string, tron: string } | null>(null);
+  const [wdkHealth, setWdkHealth] = useState<{ ton: boolean; evm: boolean; btc: boolean; sol: boolean; tron: boolean } | null>(null);
   const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
   const [currentEvmChain, setCurrentEvmChain] = useState<EvmChain>(() => {
     const saved = localStorage.getItem('rhiza_evm_chain') as EvmChain;
-    const valid = ['ethereum', 'polygon', 'arbitrum', 'bsc', 'avalanche', 'plasma', 'stable', 'sepolia'];
+    const valid = ['ethereum', 'polygon', 'arbitrum', 'bsc', 'bsc_testnet', 'avalanche', 'plasma', 'stable', 'sepolia', 'polygon_testnet'];
     return (saved && valid.includes(saved)) ? saved : 'polygon';
   });
+
+  const [dashViewState, setDashViewState] = useState<'portfolio' | 'wallet'>(() => {
+    return (localStorage.getItem('rhiza_dashboard_view') as 'portfolio' | 'wallet') || 'portfolio';
+  });
+
+  const setDashView = (view: 'portfolio' | 'wallet') => {
+    setDashViewState(view);
+    localStorage.setItem('rhiza_dashboard_view', view);
+  };
 
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionChannelRef = useRef<BroadcastChannel | null>(null);
@@ -149,11 +164,36 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const switchEvmChain = async (chain: EvmChain) => {
-    const { tetherWdkService } = await import('../services/tetherWdkService');
-    const ok = await tetherWdkService.switchEvmChain(chain);
-    if (ok) {
-      setCurrentEvmChain(chain);
-      if (isLoggedIn) await refreshData();
+    localStorage.setItem('rhiza_evm_chain', chain);
+    setCurrentEvmChain(chain);
+    // Reinitialize the WDK EVM manager on the new chain (uses RPC failover internally)
+    try {
+      const { tetherWdkService } = await import('../services/tetherWdkService');
+      await tetherWdkService.switchEvmChain(chain);
+    } catch (e) {
+      console.warn('[WalletContext] WDK EVM chain switch failed:', e);
+    }
+    if (isLoggedIn) await refreshData();
+  };
+
+  /**
+   * Re-initialize the WDK EVM wallet manager.
+   * Useful when EVM initialization failed at startup (e.g. due to slow network).
+   * TON is never touched — only the EVM manager is repaired.
+   * Returns true if EVM came up successfully.
+   */
+  const reinitializeWdkEvm = async (): Promise<boolean> => {
+    try {
+      const { tetherWdkService } = await import('../services/tetherWdkService');
+      const ok = await tetherWdkService.reinitializeEvm();
+      if (ok) {
+        // Update wdkHealth so components react immediately
+        setWdkHealth(tetherWdkService.getWalletHealth());
+      }
+      return ok;
+    } catch (e) {
+      console.error('[WalletContext] reinitializeWdkEvm failed:', e);
+      return false;
     }
   };
 
@@ -188,82 +228,147 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [theme]);
 
-  const refreshData = async (skipProfileRefresh = false) => {
+  const refreshData = async (skipProfileRefresh = false, forceRefresh = false) => {
     let addr = tonWalletService.getWalletAddress();
     const useWdk = !tonWalletService.isInitialized();
 
-    if (useWdk) {
-      const { tetherWdkService } = await import('../services/tetherWdkService');
-      if (!tetherWdkService.isInitialized()) return;
+    // ── Fetch TON balance + WDK balances in parallel ──────────────────────────
+    const balancePromise = useWdk
+      ? (async () => {
+          const { tetherWdkService } = await import('../services/tetherWdkService');
+          if (!tetherWdkService.isTonReady()) return; // wdkPromise will handle init
+          // WDK path: sync via balanceSyncService for DB persistence
+          const addresses = await tetherWdkService.getAddresses();
+          if (addresses?.tonAddress) {
+            addr = addresses.tonAddress;
+            const result = await balanceSyncService.syncBalance(
+              addresses.tonAddress,
+              network as 'mainnet' | 'testnet',
+              userProfile?.id,
+              forceRefresh
+            );
+            setBalance(result.balance);
+          }
+        })()
+      : (async () => {
+          // Primary path: sync via balanceSyncService for DB persistence
+          const walletAddr = tonWalletService.getWalletAddress();
+          if (walletAddr) {
+            const result = await balanceSyncService.syncBalance(
+              walletAddr,
+              network as 'mainnet' | 'testnet',
+              userProfile?.id,
+              forceRefresh
+            );
+            setBalance(result.balance);
+          }
+        })();
 
-      const balances = await tetherWdkService.getBalances();
-      if (balances) setBalance(balances.tonBalance);
+    // ── Auto-initialize WDK + sync all multi-chain balances via balanceSyncService ──
+    let wdkTonAddress: string | null = null;
+    let wdkEvmAddress: string | null = null;
+    const wdkPromise = (async () => {
+      try {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
 
-      const addresses = await tetherWdkService.getAddresses();
-      if (addresses) addr = addresses.tonAddress;
-    } else {
-      const res = await tonWalletService.getBalance();
-      if (res.success && res.balance) setBalance(res.balance);
-    }
-
-    // Auto-initialize WDK to keep multi-chain balances synced, regardless of active wallet
-    try {
-      const { tetherWdkService } = await import('../services/tetherWdkService');
-
-      if (!tetherWdkService.isInitialized() && tetherWdkService.hasStoredWallet() && !tetherWdkService.isEncrypted()) {
-        const savedPhrase = await tetherWdkService.getStoredWallet('');
-        if (savedPhrase) {
-          await tetherWdkService.initializeManagers(savedPhrase);
+        if (!tetherWdkService.isInitialized() && tetherWdkService.hasStoredWallet() && !tetherWdkService.isEncrypted()) {
+          const savedPhrase = await tetherWdkService.getStoredWallet('');
+          if (savedPhrase) await tetherWdkService.initializeManagers(savedPhrase);
         }
-      }
 
-      const allWallets = (await import('../utils/walletManager')).WalletManager.getWallets();
-      const hasSecondary = allWallets.some(w => w.type === 'secondary');
+        const allWallets = (await import('../utils/walletManager')).WalletManager.getWallets();
+        const hasSecondary = allWallets.some(w => w.type === 'secondary');
 
-      if (tetherWdkService.isInitialized()) {
-        const bals = await tetherWdkService.getBalances();
-        if (bals) {
-          // Use the correct USDT contract for the active chain
-          const USDT_CONTRACTS: Record<string, { address: string; decimals: number }> = {
-            ethereum: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
-            polygon: { address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
-            arbitrum: { address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', decimals: 6 },
-            bsc: { address: '0x55d398326f99059fF775485246999027B3197955', decimals: 18 },
-            avalanche: { address: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7', decimals: 6 },
-            sepolia: { address: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0', decimals: 6 },
-          };
-          const activeChain = tetherWdkService.getCurrentEvmChain();
-          const usdtInfo = USDT_CONTRACTS[activeChain] ?? USDT_CONTRACTS.polygon;
-          const usdtRaw = await tetherWdkService.getErc20TokenBalance(usdtInfo.address, usdtInfo.decimals);
-          setMultiChainBalances({ evm: bals.evmBalance, btc: bals.btcBalance, ton: bals.tonBalance, usdt: usdtRaw, sol: bals.solBalance ?? '0.000000000', tron: bals.tronBalance ?? '0.000000' });
+        // Use isTonReady() — EVM/BTC init can fail (RPC timeout) without blocking TON
+        if (tetherWdkService.isTonReady()) {
+          // Snapshot which chains are actually usable
+          const health = tetherWdkService.getWalletHealth();
+          setWdkHealth(health);
+
+          // ── Background EVM auto-repair: if EVM is down but TON is up, try once ──
+          if (!health.evm) {
+            tetherWdkService.reinitializeEvm().then(ok => {
+              if (ok) setWdkHealth(tetherWdkService.getWalletHealth());
+            }).catch(() => { /* non-critical */ });
+          }
+
+          const addresses = await tetherWdkService.getAddresses();
+          if (!addresses) return;
+
+          // Track WDK TON address so the jetton fetch below can use it
+          if (addresses.tonAddress) wdkTonAddress = addresses.tonAddress;
+          if (addresses.evmAddress) wdkEvmAddress = addresses.evmAddress;
+
+          // Evm is removed. USDT balance is set to 0.00
+          let usdtRaw = '0.00';
+          const activeChain = 'polygon'; // Keep a fallback default since balanceSyncService expects a string
+
+          // ── balanceSyncService handles caching + DB persistence for all chains ──
+          const synced = await balanceSyncService.syncMultiChainBalances(
+            {
+              ton:  addresses.tonAddress  || undefined,
+              evm:  addresses.evmAddress  || undefined,
+              btc:  addresses.btcAddress  || undefined,
+              sol:  addresses.solAddress  || undefined,
+              tron: addresses.tronAddress || undefined,
+            },
+            network as 'mainnet' | 'testnet',
+            userProfile?.id,
+            usdtRaw,
+            activeChain,
+            forceRefresh
+          );
+
+          setMultiChainBalances({
+            evm:  synced.evm,
+            btc:  synced.btc,
+            ton:  synced.ton,
+            usdt: synced.usdt,
+            sol:  synced.sol,
+            tron: synced.tron,
+          });
+
+          // For WDK-only users, also update the primary balance state so
+          // useBalance hook (which reads WalletContext.balance) shows the correct value.
+          if (useWdk && synced.ton && parseFloat(synced.ton) > 0) {
+            setBalance(synced.ton);
+            if (addresses.tonAddress) addr = addresses.tonAddress;
+          }
+        } else if (hasSecondary) {
+          setMultiChainBalances({ evm: '0.0000', btc: '0.00000000', ton: '0.0000', usdt: '0.00', sol: '0.000000000', tron: '0.000000' });
+        } else {
+          setMultiChainBalances(null);
         }
-      } else if (hasSecondary) {
-        setMultiChainBalances({ evm: '0.0000', btc: '0.00000000', ton: '0.0000', usdt: '0.00', sol: '0.000000000', tron: '0.000000' });
-      } else {
-        setMultiChainBalances(null);
+      } catch (e) {
+        console.error('Failed to sync WDK balances:', e);
       }
-    } catch (e) {
-      console.error('Failed to sync WDK balances:', e);
-    }
+    })();
 
-    if (addr) {
-      // Run jettons and profile operations in parallel
+    // Run both in parallel — don't wait for WDK to get the primary TON balance
+    await Promise.all([balancePromise, wdkPromise]);
+
+    // Resolve the best available TON address for Jetton fetching
+    const activeWalletType = localStorage.getItem('rhiza_active_wallet_type');
+    const jettonAddr = activeWalletType === 'secondary' && wdkTonAddress 
+      ? wdkTonAddress 
+      : (addr || wdkTonAddress);
+
+    if (jettonAddr) {
       const operations = [
-        tonWalletService.getJettons(addr).then(jRes => {
-          if (jRes.success) setJettons(jRes.jettons);
+        tonWalletService.getJettons(jettonAddr).then(async jRes => {
+          let fetchedJettons = jRes.success ? jRes.jettons : [];
+
+          setJettons(fetchedJettons);
         })
       ];
 
-      // Only refresh profile if not skipped (to avoid redundant fetches during login)
       if (!skipProfileRefresh && supabaseService.isConfigured()) {
         operations.push(
           supabaseService.getProfile(addr).then(profileResult => {
             if (profileResult.success && profileResult.data) {
               setUserProfile(profileResult.data);
-              console.log('🔄 User profile refreshed, RZC balance:', profileResult.data.rzc_balance);
             }
           }),
-
           supabaseService.checkWalletActivation(addr).then(activationData => {
             if (activationData) {
               setIsActivated(activationData.is_activated || false);
@@ -274,12 +379,27 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         );
       }
 
-      // Execute all operations in parallel
       await Promise.all(operations).catch(err => console.warn('⚠️ Some refresh operations failed:', err));
 
-      // Sync transactions if user profile exists
       if (userProfile?.id) {
         transactionSyncService.syncTransactions(addr, userProfile.id);
+        
+        // Only for primary wallet: Sync EVM USDT transactions
+        const activeWalletType = localStorage.getItem('rhiza_active_wallet_type');
+        if (activeWalletType !== 'secondary') {
+          const evmAddressToSync = wdkEvmAddress || await (async () => {
+            try {
+              const { usdtMultiChainService } = await import('../services/usdtMultiChainService');
+              return await usdtMultiChainService.deriveEvmAddress(addr);
+            } catch (e) {
+              return null;
+            }
+          })();
+
+          if (evmAddressToSync) {
+            transactionSyncService.syncEvmTransactions(evmAddressToSync, userProfile.id);
+          }
+        }
       }
     }
   };
@@ -298,6 +418,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (res.success && res.address) {
         addressToUse = res.address;
         loginSuccess = true;
+        
+        // Initialize WDK for the primary wallet too (supports EVM, BTC, SOL, TRON)
+        try {
+          const { tetherWdkService } = await import('../services/tetherWdkService');
+          await tetherWdkService.initializeManagers(mnemonic.join(' '));
+        } catch (e) {
+          console.warn('[WalletContext] Primary WDK initialization failed:', e);
+        }
       }
     } else {
       try {
@@ -494,11 +622,24 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (syncIntervalRef.current) {
             clearInterval(syncIntervalRef.current);
           }
-          syncIntervalRef.current = transactionSyncService.startAutoSync(
-            addressToUse,
-            userProfile.id,
-            30000 // Sync every 30 seconds
-          );
+          
+          (async () => {
+            let derivedEvm: string | null = null;
+            const activeWalletType = localStorage.getItem('rhiza_active_wallet_type');
+            if (activeWalletType !== 'secondary') {
+              try {
+                const { usdtMultiChainService } = await import('../services/usdtMultiChainService');
+                derivedEvm = await usdtMultiChainService.deriveEvmAddress(addressToUse);
+              } catch (e) {}
+            }
+
+            syncIntervalRef.current = transactionSyncService.startAutoSync(
+              addressToUse,
+              userProfile.id,
+              30000, // Sync every 30 seconds
+              derivedEvm || undefined
+            );
+          })();
         }
 
         performanceMonitor.endLoginFlow();
@@ -531,6 +672,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
     }
 
+    import('../services/tetherWdkService').then(({ tetherWdkService }) => {
+      tetherWdkService.logout();
+    }).catch(() => {});
     tonWalletService.logout();
     setAddress(null);
     setBalance('0.00');
@@ -682,10 +826,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       login,
       logout,
       multiChainBalances,
+      wdkHealth,
       isNetworkModalOpen,
       setIsNetworkModalOpen,
       currentEvmChain,
-      setCurrentEvmChain
+      setCurrentEvmChain,
+      dashView: dashViewState,
+      setDashView,
+      reinitializeWdkEvm
     }}>
       {children}
     </WalletContext.Provider>

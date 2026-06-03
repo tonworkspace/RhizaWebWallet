@@ -3,14 +3,16 @@ import { Gift, Check, AlertCircle, Loader } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { supabaseService } from '../services/supabaseService';
 import { useToast } from '../context/ToastContext';
+import { useRewardConfig } from '../hooks/useRewardConfig';
 
 /**
  * Component for users to claim missing activation bonus
  * Shows only if user is activated but hasn't received the 150 RZC bonus
  */
 const ClaimActivationBonus: React.FC = () => {
-  const { address, isActivated } = useWallet();
+  const { address, isActivated, refreshData } = useWallet();
   const { success } = useToast();
+  const { activationBonus } = useRewardConfig();
   const [isEligible, setIsEligible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState(false);
@@ -88,10 +90,10 @@ const ClaimActivationBonus: React.FC = () => {
 
       const userId = profileResult.data.id;
 
-      // Award 150 RZC activation bonus
+      // Award activation bonus using the database value
       const rewardResult = await supabaseService.awardRZCTokens(
         userId,
-        150,
+        activationBonus,
         'activation_bonus',
         'Retroactive activation bonus - Welcome to RhizaCore!',
         {
@@ -111,9 +113,9 @@ const ClaimActivationBonus: React.FC = () => {
       await notificationService.logActivity(
         address,
         'reward_claimed',
-        'Claimed retroactive activation bonus - 150 RZC',
+        `Claimed retroactive activation bonus - ${activationBonus} RZC`,
         {
-          amount: 150,
+          amount: activationBonus,
           type: 'activation_bonus',
           retroactive: true,
           new_balance: rewardResult.newBalance
@@ -123,13 +125,10 @@ const ClaimActivationBonus: React.FC = () => {
       setClaimed(true);
       setIsEligible(false);
 
-      // Show success message
-      success('🎉 Success! You received 150 RZC as your activation bonus. Thank you for being an early supporter!');
+      success(`🎉 Success! You received ${activationBonus} RZC as your activation bonus. Thank you for being an early supporter!`);
 
-      // Reload page to update balance
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
+      // Refresh context data instead of hard reload
+      await refreshData();
     } catch (err: any) {
       console.error('Error claiming bonus:', err);
       setError(err.message || 'Failed to claim bonus. Please try again.');
@@ -156,7 +155,7 @@ const ClaimActivationBonus: React.FC = () => {
               Bonus Claimed! 🎉
             </h3>
             <p className="text-[9px] sm:text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold truncate leading-snug">
-              150 RZC added to your account.
+              {activationBonus} RZC added to your account.
             </p>
           </div>
         </div>
@@ -177,7 +176,7 @@ const ClaimActivationBonus: React.FC = () => {
               Early Supporter! 🎁
             </h3>
             <p className="text-[9px] sm:text-[10px] text-purple-700 dark:text-purple-400 font-semibold truncate leading-snug">
-              Claim your missing 150 RZC instantly.
+              Claim your missing {activationBonus} RZC instantly.
             </p>
             {error && <p className="text-[8px] text-red-600 dark:text-red-400 truncate mt-0.5 font-bold">{error}</p>}
           </div>

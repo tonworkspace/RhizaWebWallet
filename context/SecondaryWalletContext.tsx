@@ -5,7 +5,7 @@ interface SecondaryWalletState {
   isInitialized: boolean;
   isLoading: boolean;
   addresses: MultiChainAddresses | null;
-  balances: { evmBalance: string; tonBalance: string; btcBalance: string } | null;
+  balances: { evmBalance: string; tonBalance: string; btcBalance: string; solBalance: string; tronBalance: string } | null;
   error: string | null;
   hasStoredWallet: boolean;
   isEncrypted: boolean;
@@ -15,6 +15,7 @@ interface SecondaryWalletState {
   restoreFromStorage: (password?: string) => Promise<boolean>;
   savePhrase: (phrase: string, password?: string) => Promise<boolean>;
   refreshBalances: () => Promise<void>;
+  reinitializeEvm: () => Promise<boolean>;
   logout: () => void;
   deleteWallet: () => void;
 }
@@ -25,7 +26,7 @@ export const SecondaryWalletProvider: React.FC<{ children: React.ReactNode }> = 
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [addresses, setAddresses] = useState<MultiChainAddresses | null>(null);
-  const [balances, setBalances] = useState<{ evmBalance: string; tonBalance: string; btcBalance: string } | null>(null);
+  const [balances, setBalances] = useState<{ evmBalance: string; tonBalance: string; btcBalance: string; solBalance: string; tronBalance: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasStoredWallet, setHasStoredWallet] = useState(() => tetherWdkService.hasStoredWallet());
   const [isEncrypted, setIsEncrypted] = useState(() => tetherWdkService.isEncrypted());
@@ -87,6 +88,21 @@ export const SecondaryWalletProvider: React.FC<{ children: React.ReactNode }> = 
     if (bals) setBalances(bals);
   }, []);
 
+  const reinitializeEvm = useCallback(async (): Promise<boolean> => {
+    try {
+      const ok = await tetherWdkService.reinitializeEvm();
+      if (ok) {
+        // Refresh addresses in case EVM address was missing before
+        const addrs = await tetherWdkService.getAddresses();
+        if (addrs) setAddresses(addrs);
+      }
+      return ok;
+    } catch (e) {
+      console.error('[SecondaryWallet] reinitializeEvm failed:', e);
+      return false;
+    }
+  }, []);
+
   const logout = useCallback(() => {
     tetherWdkService.logout();
     setIsInitialized(false);
@@ -108,7 +124,7 @@ export const SecondaryWalletProvider: React.FC<{ children: React.ReactNode }> = 
       isInitialized, isLoading, addresses, balances, error,
       hasStoredWallet, isEncrypted,
       generateAndSetPhrase, initializeFromPhrase, restoreFromStorage,
-      savePhrase, refreshBalances, logout, deleteWallet
+      savePhrase, refreshBalances, reinitializeEvm, logout, deleteWallet
     }}>
       {children}
     </SecondaryWalletContext.Provider>

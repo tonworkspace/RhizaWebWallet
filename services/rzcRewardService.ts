@@ -1,27 +1,36 @@
 import { supabaseService } from './supabaseService';
+import { rewardConfigService } from './rewardConfigService';
 
 /**
  * RZC Token Reward Service
  * Handles RhizaCore (RZC) community token rewards
+ * 
+ * NOTE: Reward amounts are now fetched from database via rewardConfigService
+ * Fallback values are maintained in rewardConfigService for reliability
  */
 
-// RZC reward amounts
-export const RZC_REWARDS = {
-  SIGNUP_BONUS: 2.5,          // Initial bonus on wallet creation (reduced 4x from 50)
-  ACTIVATION_BONUS: 7.5,      // Bonus for $15 wallet activation (reduced 4x from 150)
-  REFERRAL_BONUS: 5,          // Bonus for each successful referral (halved from 50)
-  REFERRAL_MILESTONE_10: 25,  // Bonus at 10 referrals (halved from 500)
-  REFERRAL_MILESTONE_50: 125, // Bonus at 50 referrals (halved from 2500)
-  REFERRAL_MILESTONE_100: 500, // Bonus at 100 referrals (halved from 10000)
-  TRANSACTION_BONUS: 1,        // Small bonus per transaction
-  DAILY_LOGIN: 1              // Daily login bonus
+// Legacy hardcoded values (DEPRECATED - kept for reference only)
+// Use rewardConfigService.getRewardAmount() instead
+export const RZC_REWARDS_LEGACY = {
+  SIGNUP_BONUS: 50,
+  ACTIVATION_BONUS: 15,
+  REFERRAL_BONUS: 50,
+  REFERRAL_MILESTONE_10: 25,
+  REFERRAL_MILESTONE_50: 125,
+  REFERRAL_MILESTONE_100: 500,
+  REFERRAL_MILESTONE_250: 1500,
+  REFERRAL_MILESTONE_500: 5000,
+  TRANSACTION_BONUS: 1,
+  DAILY_LOGIN: 1
 };
 
-// Milestone thresholds
-const MILESTONES = [
-  { count: 10, reward: RZC_REWARDS.REFERRAL_MILESTONE_10, name: '10 Referrals' },
-  { count: 50, reward: RZC_REWARDS.REFERRAL_MILESTONE_50, name: '50 Referrals' },
-  { count: 100, reward: RZC_REWARDS.REFERRAL_MILESTONE_100, name: '100 Referrals' }
+// Milestone thresholds (counts only, rewards fetched from DB)
+const MILESTONE_THRESHOLDS = [
+  { count: 10, key: 'REFERRAL_MILESTONE_10', name: '10 Referrals' },
+  { count: 50, key: 'REFERRAL_MILESTONE_50', name: '50 Referrals' },
+  { count: 100, key: 'REFERRAL_MILESTONE_100', name: '100 Referrals' },
+  { count: 250, key: 'REFERRAL_MILESTONE_250', name: '250 Referrals' },
+  { count: 500, key: 'REFERRAL_MILESTONE_500', name: '500 Referrals' }
 ];
 
 export class RZCRewardService {
@@ -36,19 +45,22 @@ export class RZCRewardService {
     try {
       console.log('🎁 Awarding signup bonus:', userId);
 
+      // Fetch amount from database
+      const amount = await rewardConfigService.getRewardAmount('SIGNUP_BONUS');
+
       const result = await supabaseService.awardRZCTokens(
         userId,
-        RZC_REWARDS.SIGNUP_BONUS,
+        amount,
         'signup_bonus',
         'Welcome bonus for creating wallet',
         { bonus_type: 'signup' }
       );
 
       if (result.success) {
-        console.log(`✅ Signup bonus awarded: ${RZC_REWARDS.SIGNUP_BONUS} RZC`);
+        console.log(`✅ Signup bonus awarded: ${amount} RZC`);
         return {
           success: true,
-          amount: RZC_REWARDS.SIGNUP_BONUS
+          amount
         };
       }
 
@@ -73,9 +85,12 @@ export class RZCRewardService {
     try {
       console.log('🎁 Awarding activation bonus:', userId);
 
+      // Fetch amount from database
+      const amount = await rewardConfigService.getRewardAmount('ACTIVATION_BONUS');
+
       const result = await supabaseService.awardRZCTokens(
         userId,
-        RZC_REWARDS.ACTIVATION_BONUS,
+        amount,
         'activation_bonus',
         'Welcome bonus for wallet activation',
         { 
@@ -85,10 +100,10 @@ export class RZCRewardService {
       );
 
       if (result.success) {
-        console.log(`✅ Activation bonus awarded: ${RZC_REWARDS.ACTIVATION_BONUS} RZC`);
+        console.log(`✅ Activation bonus awarded: ${amount} RZC`);
         return {
           success: true,
-          amount: RZC_REWARDS.ACTIVATION_BONUS
+          amount
         };
       }
 
@@ -116,10 +131,13 @@ export class RZCRewardService {
     try {
       console.log('🎁 Awarding referral bonus to:', referrerId);
 
+      // Fetch amount from database
+      const amount = await rewardConfigService.getRewardAmount('REFERRAL_BONUS');
+
       // Award base referral bonus
       const result = await supabaseService.awardRZCTokens(
         referrerId,
-        RZC_REWARDS.REFERRAL_BONUS,
+        amount,
         'referral_bonus',
         `Referral bonus for inviting user`,
         {
@@ -138,13 +156,16 @@ export class RZCRewardService {
         const totalReferrals = referralData.data.total_referrals;
 
         // Check if user just hit a milestone
-        const milestone = MILESTONES.find(m => m.count === totalReferrals);
+        const milestone = MILESTONE_THRESHOLDS.find(m => m.count === totalReferrals);
         if (milestone) {
           console.log(`🎉 Milestone reached: ${milestone.name}`);
 
+          // Fetch milestone reward from database
+          const milestoneReward = await rewardConfigService.getRewardAmount(milestone.key);
+
           await supabaseService.awardRZCTokens(
             referrerId,
-            milestone.reward,
+            milestoneReward,
             'milestone_bonus',
             `Milestone bonus: ${milestone.name}`,
             {
@@ -155,16 +176,16 @@ export class RZCRewardService {
 
           return {
             success: true,
-            amount: RZC_REWARDS.REFERRAL_BONUS,
+            amount,
             milestoneReached: true,
-            milestoneBonus: milestone.reward
+            milestoneBonus: milestoneReward
           };
         }
       }
 
       return {
         success: true,
-        amount: RZC_REWARDS.REFERRAL_BONUS,
+        amount,
         milestoneReached: false
       };
     } catch (error: any) {
@@ -185,9 +206,12 @@ export class RZCRewardService {
     error?: string;
   }> {
     try {
+      // Fetch amount from database
+      const amount = await rewardConfigService.getRewardAmount('TRANSACTION_BONUS');
+
       const result = await supabaseService.awardRZCTokens(
         userId,
-        RZC_REWARDS.TRANSACTION_BONUS,
+        amount,
         'transaction_bonus',
         'Bonus for completing transaction',
         { transaction_id: transactionId }
@@ -195,7 +219,7 @@ export class RZCRewardService {
 
       return {
         success: result.success,
-        amount: RZC_REWARDS.TRANSACTION_BONUS,
+        amount,
         error: result.error
       };
     } catch (error: any) {
@@ -230,9 +254,12 @@ export class RZCRewardService {
         }
       }
 
+      // Fetch amount from database
+      const amount = await rewardConfigService.getRewardAmount('DAILY_LOGIN');
+
       const result = await supabaseService.awardRZCTokens(
         userId,
-        RZC_REWARDS.DAILY_LOGIN,
+        amount,
         'daily_login',
         'Daily login bonus',
         { date: today }
@@ -240,7 +267,7 @@ export class RZCRewardService {
 
       return {
         success: result.success,
-        amount: RZC_REWARDS.DAILY_LOGIN,
+        amount,
         error: result.error
       };
     } catch (error: any) {
@@ -251,17 +278,20 @@ export class RZCRewardService {
   /**
    * Get next milestone info
    */
-  static getNextMilestone(currentReferrals: number): {
+  static async getNextMilestone(currentReferrals: number): Promise<{
     milestone: number;
     reward: number;
     remaining: number;
-  } | null {
-    const nextMilestone = MILESTONES.find(m => m.count > currentReferrals);
+  } | null> {
+    const nextMilestone = MILESTONE_THRESHOLDS.find(m => m.count > currentReferrals);
     
     if (nextMilestone) {
+      // Fetch reward from database
+      const reward = await rewardConfigService.getRewardAmount(nextMilestone.key);
+      
       return {
         milestone: nextMilestone.count,
-        reward: nextMilestone.reward,
+        reward,
         remaining: nextMilestone.count - currentReferrals
       };
     }
