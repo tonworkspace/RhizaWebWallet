@@ -8,7 +8,7 @@ import StoreUI from '../components/StoreUI';
 const RzcStore: React.FC = () => {
   const navigate = useNavigate();
   const { address, isActivated, userProfile } = useWallet();
-  const { tonPrice, rzcPrice } = useBalance();
+  const { tonPrice, rzcPrice, tronPrice } = useBalance();
   const toast = useToast();
 
   return (
@@ -16,6 +16,7 @@ const RzcStore: React.FC = () => {
       <StoreUI
         tonPrice={tonPrice || 0.1}
         rzcPrice={rzcPrice}
+        trxPrice={tronPrice || 0.1}
         tonAddress={address}
         walletActivated={isActivated}
         onActivateWallet={() => navigate('/wallet/sales-package')}

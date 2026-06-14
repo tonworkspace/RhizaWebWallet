@@ -5,7 +5,7 @@ import {
   Shield, Bell, Globe, Moon, Sun, Key, Trash2, LogOut,
   ChevronRight, Copy, Check, AlertCircle, Wallet, Lock,
   Edit, Cloud, Layers, ChevronDown, Zap, HelpCircle,
-  FileText, Info, RefreshCw, LayoutGrid
+  FileText, Info, RefreshCw, LayoutGrid, Wrench
 } from 'lucide-react';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
@@ -15,16 +15,8 @@ import WalletSwitcher from '../components/WalletSwitcher';
 import { WalletManager } from '../utils/walletManager';
 import { twoFactorService } from '../services/twoFactorService';
 import { cloudBackupService } from '../services/cloudBackupService';
-import { type EvmChain } from '../services/tetherWdkService';
 import { supabaseService } from '../services/supabaseService';
 
-const EVM_CHAINS: { id: EvmChain; label: string; dot: string }[] = [
-  { id: 'ethereum',  label: 'Ethereum',  dot: 'bg-blue-400' },
-  { id: 'polygon',   label: 'Polygon',   dot: 'bg-violet-400' },
-  { id: 'arbitrum',  label: 'Arbitrum',  dot: 'bg-sky-400' },
-  { id: 'bsc',       label: 'BNB Chain', dot: 'bg-yellow-400' },
-  { id: 'avalanche', label: 'Avalanche', dot: 'bg-red-400' },
-];
 
 // ─── Section label ────────────────────────────────────────────────────────────
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -117,18 +109,17 @@ const Settings: React.FC = () => {
   const { t } = useTranslation();
   const {
     address, userProfile, theme, toggleTheme,
-    network, switchNetwork, switchEvmChain, currentEvmChain,
+    network, switchNetwork,
     isActivated, activatedAt, activationFeePaid,
-    dashView, setDashView
+    dashView, setDashView, refreshData, reinitializeWdkEvm
   } = useWallet();
   const { showToast } = useToast();
-  const { openExportModal, setShowLogoutConfirm, setShowDeleteConfirm } = useSettingsModal();
+  const { openExportModal, setShowLogoutConfirm, setShowDeleteConfirm, setShowAutoFixConfirm } = useSettingsModal();
 
   const [addressCopied, setAddressCopied]       = useState(false);
   const [is2faEnabled, setIs2faEnabled]         = useState<boolean | null>(null);
   const [hasCloudBackup, setHasCloudBackup]     = useState<boolean | null>(null);
   const [activeWalletType, setActiveWalletType] = useState<'primary' | 'secondary'>('primary');
-  const [evmOpen, setEvmOpen]                   = useState(false);
   const [showAddressMigration, setShowAddressMigration] = useState(false);
   const [hasOldActivation, setHasOldActivation] = useState(false);
 
@@ -179,8 +170,6 @@ const Settings: React.FC = () => {
     showToast(t('settings.addressCopied'), 'success');
     setTimeout(() => setAddressCopied(false), 2000);
   };
-
-  const activeChain = EVM_CHAINS.find(c => c.id === currentEvmChain) ?? EVM_CHAINS[1];
 
   return (
     <div className="max-w-lg mx-auto space-y-6 pb-24 page-enter px-3 sm:px-4 md:px-0">
@@ -413,14 +402,13 @@ const Settings: React.FC = () => {
 
       {/* ── Network ── */}
       <div>
-        <SectionLabel>{t('settings.network')}</SectionLabel>
+        <SectionLabel>Global Environment</SectionLabel>
         <Card>
-          {/* TON — both wallet types */}
           <Row
             icon={Globe}
             iconColor="bg-cyan-100 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
-            label="TON Network"
-            sub={network === 'mainnet' ? 'TON Mainnet' : 'TON Testnet'}
+            label="Global Environment"
+            sub={network === 'mainnet' ? 'Mainnet (All Chains)' : 'Testnet (All Chains)'}
             right={
               <button
                 onClick={() => switchNetwork(network === 'mainnet' ? 'testnet' : 'mainnet')}
@@ -430,53 +418,6 @@ const Settings: React.FC = () => {
               </button>
             }
           />
-
-          {/* EVM — 12-phrase only */}
-          {activeWalletType === 'secondary' && (
-            <>
-              <Row
-                icon={Layers}
-                iconColor="bg-violet-100 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                label="EVM Network"
-                sub={`Active: ${activeChain.label}`}
-                right={
-                  <button
-                    onClick={() => setEvmOpen(o => !o)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-lg text-[9px] font-heading font-black uppercase tracking-widest text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 transition-all active:scale-95 shadow-sm"
-                  >
-                    Change
-                    <ChevronDown size={11} className={`transition-transform duration-200 ${evmOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                }
-              />
-              {evmOpen && (
-                <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-2 border-t border-gray-100 dark:border-white/5">
-                  {EVM_CHAINS.map(chain => {
-                    const isActive = currentEvmChain === chain.id;
-                    return (
-                      <button
-                        key={chain.id}
-                        onClick={async () => {
-                          await switchEvmChain(chain.id);
-                          setEvmOpen(false);
-                          showToast(`Switched to ${chain.label}`, 'success');
-                        }}
-                        className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border text-[9px] font-heading font-black uppercase tracking-widest transition-all active:scale-95 ${
-                          isActive
-                            ? 'bg-emerald-50 dark:bg-[#00FF88]/10 border-emerald-300 dark:border-[#00FF88]/30 text-emerald-700 dark:text-[#00FF88]'
-                            : 'bg-white/50 dark:bg-black/20 border-gray-200 dark:border-white/8 text-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/10 hover:border-gray-300 dark:hover:border-white/15'
-                        }`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${chain.dot}`} />
-                        <span className="truncate">{chain.label}</span>
-                        {isActive && <Check size={10} className="ml-auto flex-shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
         </Card>
       </div>
 
@@ -537,6 +478,20 @@ const Settings: React.FC = () => {
           <Row icon={HelpCircle} iconColor="bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400" label="Help Center"        onClick={() => navigate('/help')} />
           <Row icon={FileText}   iconColor="bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400" label="Terms of Service"   onClick={() => navigate('/terms')} />
           <Row icon={Info}       iconColor="bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400" label="Privacy Policy"     onClick={() => navigate('/privacy')} />
+        </Card>
+      </div>
+
+      {/* ── Troubleshooting ── */}
+      <div>
+        <SectionLabel>Troubleshooting</SectionLabel>
+        <Card>
+          <Row
+            icon={Wrench}
+            iconColor="bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400"
+            label="Wallet Auto Fix"
+            sub="Fix missing balances & incorrect addresses"
+            onClick={() => setShowAutoFixConfirm(true)}
+          />
         </Card>
       </div>
 

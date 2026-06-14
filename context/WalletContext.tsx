@@ -6,6 +6,16 @@ import { transactionSyncService } from '../services/transactionSync';
 import { notificationService } from '../services/notificationService';
 import { balanceSyncService } from '../services/balanceSyncService';
 import type { EvmChain } from '../services/tetherWdkService';
+import { useToast } from './ToastContext';
+
+interface PendingTransaction {
+  id: string;
+  hash?: string;
+  symbol: string;
+  amount: string;
+  type: 'send' | 'receive' | 'swap' | 'purchase';
+  timestamp: number;
+}
 
 interface UserProfile {
   id: string;
@@ -53,13 +63,17 @@ interface WalletState {
   activationFeePaid: number;
   rzcPrice: number; // Live RZC price from DB (global, admin-controlled)
   updateRzcPrice: (price: number) => void; // Instantly update price across all components
+  pendingTransactions: PendingTransaction[];
+  addPendingTransaction: (tx: Omit<PendingTransaction, 'id' | 'timestamp'>) => void;
+  removePendingTransaction: (idOrHash: string) => void;
+  clearPendingTransactions: () => void;
   toggleTheme: () => void;
   switchNetwork: (network: NetworkType) => Promise<void>;
   switchEvmChain: (chain: EvmChain) => Promise<void>;
   refreshData: (skipProfileRefresh?: boolean, forceRefresh?: boolean) => Promise<void>;
   login: (mnemonic: string[], password?: string, type?: 'primary' | 'secondary') => Promise<boolean>;
   logout: () => void;
-  multiChainBalances: { evm: string, btc: string, ton: string, usdt: string, sol: string, tron: string } | null;
+  multiChainBalances: { evm: string, eth: string, bnb: string, btc: string, ton: string, usdt: string, usdtTotal: string, sol: string, tron: string, tronUsdt: string, ethUsdt: string, bscUsdt: string } | null;
   wdkHealth: { ton: boolean; evm: boolean; btc: boolean; sol: boolean; tron: boolean } | null;
   isNetworkModalOpen: boolean;
   setIsNetworkModalOpen: (open: boolean) => void;
@@ -76,6 +90,7 @@ const WalletContext = createContext<WalletState | undefined>(undefined);
 const SESSION_CHANNEL = 'rhiza_session_sync';
 
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { showToast } = useToast();
   const [address, setAddress] = useState<string | null>(null);
   const [balance, setBalance] = useState('0.00');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -101,11 +116,31 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const saved = localStorage.getItem('rhiza_network');
     return (saved as NetworkType) || 'mainnet'; // Default to mainnet
   });
+  
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([]);
+
+  const addPendingTransaction = (tx: Omit<PendingTransaction, 'id' | 'timestamp'>) => {
+    const newTx: PendingTransaction = {
+      ...tx,
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: Date.now(),
+    };
+    setPendingTransactions(prev => [...prev, newTx]);
+  };
+
+  const removePendingTransaction = (idOrHash: string) => {
+    setPendingTransactions(prev => prev.filter(tx => tx.id !== idOrHash && tx.hash !== idOrHash));
+  };
+
+  const clearPendingTransactions = () => {
+    setPendingTransactions([]);
+  };
+
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('rhiza_theme');
     return (saved as 'dark' | 'light') || 'dark';
   });
-  const [multiChainBalances, setMultiChainBalances] = useState<{ evm: string, btc: string, ton: string, usdt: string, sol: string, tron: string } | null>(null);
+  const [multiChainBalances, setMultiChainBalances] = useState<{ evm: string, eth: string, bnb: string, btc: string, ton: string, usdt: string, usdtTotal: string, sol: string, tron: string, tronUsdt: string, ethUsdt: string, bscUsdt: string } | null>(null);
   const [wdkHealth, setWdkHealth] = useState<{ ton: boolean; evm: boolean; btc: boolean; sol: boolean; tron: boolean } | null>(null);
   const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
   const [currentEvmChain, setCurrentEvmChain] = useState<EvmChain>(() => {
@@ -157,8 +192,41 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Update tonWalletService network
     tonWalletService.setNetwork(newNetwork);
 
+    // Update stored wallet addresses format for the new network
+    try {
+      const { WalletManager } = await import('../utils/walletManager');
+      await WalletManager.sanitizeAndFixAddresses();
+    } catch (e) {
+      console.warn('Failed to sanitize addresses on network switch:', e);
+    }
+
+    let didEvmSwitch = false;
+
+    // EVM Mapping Logic
+    try {
+      if (newNetwork === 'mainnet') {
+        if (currentEvmChain === 'sepolia') { await switchEvmChain('ethereum'); didEvmSwitch = true; }
+        else if (currentEvmChain === 'bsc_testnet') { await switchEvmChain('bsc'); didEvmSwitch = true; }
+        else if (currentEvmChain === 'polygon_testnet') { await switchEvmChain('polygon'); didEvmSwitch = true; }
+      } else {
+        if (currentEvmChain === 'ethereum') { await switchEvmChain('sepolia'); didEvmSwitch = true; }
+        else if (currentEvmChain === 'bsc') { await switchEvmChain('bsc_testnet'); didEvmSwitch = true; }
+        else if (currentEvmChain === 'polygon') { await switchEvmChain('polygon_testnet'); didEvmSwitch = true; }
+      }
+    } catch (e) {
+      console.warn('Failed to auto-switch EVM chain:', e);
+    }
+
+    // Update tetherWdkService network (will reinitialize BTC, SOL, TRON, etc. for the new network)
+    try {
+      const { tetherWdkService } = await import('../services/tetherWdkService');
+      await tetherWdkService.setNetwork(newNetwork);
+    } catch (e) {
+      console.warn('Failed to update WDK network:', e);
+    }
+
     // Refresh wallet data with new network
-    if (isLoggedIn) {
+    if (isLoggedIn && !didEvmSwitch) {
       await refreshData();
     }
   };
@@ -277,7 +345,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         const allWallets = (await import('../utils/walletManager')).WalletManager.getWallets();
-        const hasSecondary = allWallets.some(w => w.type === 'secondary');
+        const hasSecondary = allWallets.some(w => w.type === 'secondary') || allWallets.some(w => w.type === 'primary');
 
         // Use isTonReady() — EVM/BTC init can fail (RPC timeout) without blocking TON
         if (tetherWdkService.isTonReady()) {
@@ -321,11 +389,17 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
           setMultiChainBalances({
             evm:  synced.evm,
+            eth:  synced.eth,
+            bnb:  synced.bnb,
             btc:  synced.btc,
             ton:  synced.ton,
             usdt: synced.usdt,
+            usdtTotal: synced.usdtTotal,
             sol:  synced.sol,
             tron: synced.tron,
+            tronUsdt: synced.tronUsdt,
+            ethUsdt: synced.ethUsdt,
+            bscUsdt: synced.bscUsdt,
           });
 
           // For WDK-only users, also update the primary balance state so
@@ -335,7 +409,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             if (addresses.tonAddress) addr = addresses.tonAddress;
           }
         } else if (hasSecondary) {
-          setMultiChainBalances({ evm: '0.0000', btc: '0.00000000', ton: '0.0000', usdt: '0.00', sol: '0.000000000', tron: '0.000000' });
+          setMultiChainBalances({ evm: '0.0000', eth: '0.000000', bnb: '0.000000', btc: '0.00000000', ton: '0.0000', usdt: '0.00', usdtTotal: '0.00', sol: '0.000000000', tron: '0.000000', tronUsdt: '0.00', ethUsdt: '0.00', bscUsdt: '0.00' });
         } else {
           setMultiChainBalances(null);
         }
@@ -353,6 +427,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ? wdkTonAddress 
       : (addr || wdkTonAddress);
 
+    // Sync WalletContext address state with final resolved address
+    if (jettonAddr && jettonAddr !== address) {
+      console.log(`🔧 Syncing WalletContext address state: ${address} -> ${jettonAddr}`);
+      setAddress(jettonAddr);
+    }
+
     if (jettonAddr) {
       const operations = [
         tonWalletService.getJettons(jettonAddr).then(async jRes => {
@@ -366,7 +446,30 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         operations.push(
           supabaseService.getProfile(addr).then(profileResult => {
             if (profileResult.success && profileResult.data) {
-              setUserProfile(profileResult.data);
+              const currentProfile = profileResult.data;
+              setUserProfile(currentProfile);
+
+              // Auto-correct wallet address in DB if it doesn't match active network format (addr)
+              if (addr && currentProfile.wallet_address !== addr) {
+                console.log(`[Auto-Correct] Stored address '${currentProfile.wallet_address}' doesn't match active network format '${addr}'. Auto-correcting...`);
+                const client = supabaseService.getClient();
+                if (client) {
+                  Promise.all([
+                    client.from('wallet_users').update({ wallet_address: addr, updated_at: new Date().toISOString() }).eq('id', currentProfile.id),
+                    client.from('wallet_transactions').update({ wallet_address: addr }).eq('user_id', currentProfile.id),
+                    client.from('wallet_activations').update({ wallet_address: addr }).eq('user_id', currentProfile.id),
+                    client.from('wallet_analytics').update({ wallet_address: addr }).eq('user_id', currentProfile.id)
+                  ]).then((results) => {
+                    const errs = results.filter(r => r.error);
+                    if (errs.length > 0) {
+                      console.warn('[Auto-Correct] Some tables failed to update during auto-correction:', errs.map(e => e.error?.message));
+                    } else {
+                      console.log('[Auto-Correct] Wallet address successfully auto-corrected across all tables in DB');
+                      setUserProfile(prev => prev ? { ...prev, wallet_address: addr } : null);
+                    }
+                  });
+                }
+              }
             }
           }),
           supabaseService.checkWalletActivation(addr).then(activationData => {
@@ -468,6 +571,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Store the active wallet type so it persists on reload
       localStorage.setItem('rhiza_active_wallet_type', type);
+
+      // Enforce Mainnet on login
+      if (network !== 'mainnet') {
+        console.log('🌐 App is currently set to Testnet. Enforcing Mainnet on login for security...');
+        await switchNetwork('mainnet');
+        showToast('Switched to Mainnet for account security', 'info');
+      }
 
       // Create Supabase auth session for wallet user
       performanceMonitor.startMetric('auth_session_creation');
@@ -702,6 +812,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Set network on tonWalletService
       tonWalletService.setNetwork(network);
 
+      // Sanitize and fix stored wallet addresses on load
+      try {
+        const { WalletManager } = await import('../utils/walletManager');
+        await WalletManager.sanitizeAndFixAddresses();
+      } catch (e) {
+        console.warn('Failed to sanitize addresses on startup:', e);
+      }
+
       // Load global asset rates from DB into local price cache
       try {
         if (supabaseService.isConfigured()) {
@@ -819,6 +937,10 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       activationFeePaid,
       rzcPrice,
       updateRzcPrice,
+      pendingTransactions,
+      addPendingTransaction,
+      removePendingTransaction,
+      clearPendingTransactions,
       toggleTheme,
       switchNetwork,
       switchEvmChain,

@@ -640,7 +640,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                 <div className="absolute top-full right-0 mt-1.5 bg-white dark:bg-[#0f0f0f] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden min-w-[160px] animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="p-1.5 flex flex-col gap-0.5">
                     <div className="px-1.5 py-1 flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">TON Network</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Global Environment</span>
                     </div>
                     <div className="grid grid-cols-2 gap-1 px-1">
                       <button
@@ -661,55 +661,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                       </button>
                     </div>
 
-                    <div className="h-px bg-slate-200 dark:bg-white/10 my-1 mx-1" />
 
-                    <div className="px-1.5 py-1 flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">EVM Network</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 px-1 mb-1">
-                      <button
-                        onClick={() => { switchEvmChain('polygon'); setShowNetworkMenu(false); }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${currentEvmChain === 'polygon' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400' : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentEvmChain === 'polygon' ? 'bg-purple-500' : 'bg-slate-300 dark:bg-gray-600'}`} />
-                        <span className="flex-1 text-left truncate">Polygon</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('ethereum'); setShowNetworkMenu(false); }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${currentEvmChain === 'ethereum' ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400' : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentEvmChain === 'ethereum' ? 'bg-blue-500' : 'bg-slate-300 dark:bg-gray-600'}`} />
-                        <span className="flex-1 text-left truncate">Ethereum</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('bsc'); setShowNetworkMenu(false); }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${currentEvmChain === 'bsc' ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400' : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentEvmChain === 'bsc' ? 'bg-yellow-500' : 'bg-slate-300 dark:bg-gray-600'}`} />
-                        <span className="flex-1 text-left truncate">BSC</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('sepolia'); setShowNetworkMenu(false); }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${currentEvmChain === 'sepolia' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentEvmChain === 'sepolia' ? 'bg-amber-500' : 'bg-slate-300 dark:bg-gray-600'}`} />
-                        <span className="flex-1 text-left truncate">Sepolia</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('bsc_testnet'); setShowNetworkMenu(false); }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${currentEvmChain === 'bsc_testnet' ? 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400' : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentEvmChain === 'bsc_testnet' ? 'bg-orange-500' : 'bg-slate-300 dark:bg-gray-600'}`} />
-                        <span className="flex-1 text-left truncate">BSC Testnet</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('polygon_testnet'); setShowNetworkMenu(false); }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${currentEvmChain === 'polygon_testnet' ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' : 'text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentEvmChain === 'polygon_testnet' ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-gray-600'}`} />
-                        <span className="flex-1 text-left truncate">Polygon Testnet</span>
-                      </button>
-                    </div>
 
                     <div className="p-1 mt-1 border-t border-slate-200 dark:border-white/10">
                       <NavLink
@@ -794,7 +746,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   {/* Network Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-1.5 bg-gray-50 dark:bg-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">TON Network</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Global Environment</span>
                     </div>
                     <div className="grid grid-cols-2 gap-1 p-1.5">
                       <button
@@ -815,53 +767,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                       </button>
                     </div>
 
-                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-white/5 border-t border-gray-100 dark:border-white/10">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">EVM Network</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 p-1.5">
-                      <button
-                        onClick={() => { switchEvmChain('polygon'); setShowMobileMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'polygon' ? 'bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'polygon' ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Polygon</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('ethereum'); setShowMobileMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'ethereum' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'ethereum' ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Ethereum</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('bsc'); setShowMobileMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'bsc' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'bsc' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">BSC</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('sepolia'); setShowMobileMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'sepolia' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'sepolia' ? 'bg-amber-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Sepolia</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('bsc_testnet'); setShowMobileMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'bsc_testnet' ? 'bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'bsc_testnet' ? 'bg-orange-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">BSC Testnet</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('polygon_testnet'); setShowMobileMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'polygon_testnet' ? 'bg-indigo-100 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'polygon_testnet' ? 'bg-indigo-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Polygon Testnet</span>
-                      </button>
-                    </div>
+
                   </div>
                   {/* Language Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
@@ -908,7 +814,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                   {/* Network Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">
                     <div className="px-3 py-1.5 bg-gray-50 dark:bg-white/5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">TON Network</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Global Environment</span>
                     </div>
                     <div className="grid grid-cols-2 gap-1 p-1.5">
                       <button
@@ -929,53 +835,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, isWalletMode }) => {
                       </button>
                     </div>
 
-                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-white/5 border-t border-gray-100 dark:border-white/10">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">EVM Network</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 p-1.5">
-                      <button
-                        onClick={() => { switchEvmChain('polygon'); setShowDesktopMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'polygon' ? 'bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'polygon' ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Polygon</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('ethereum'); setShowDesktopMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'ethereum' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'ethereum' ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Ethereum</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('bsc'); setShowDesktopMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'bsc' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'bsc' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">BSC</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('sepolia'); setShowDesktopMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'sepolia' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'sepolia' ? 'bg-amber-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Sepolia</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('bsc_testnet'); setShowDesktopMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'bsc_testnet' ? 'bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'bsc_testnet' ? 'bg-orange-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">BSC Testnet</span>
-                      </button>
-                      <button
-                        onClick={() => { switchEvmChain('polygon_testnet'); setShowDesktopMenu(false); }}
-                        className={`px-2 py-1.5 rounded-lg text-left text-[11px] font-bold transition-colors flex items-center gap-1.5 ${currentEvmChain === 'polygon_testnet' ? 'bg-indigo-100 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${currentEvmChain === 'polygon_testnet' ? 'bg-indigo-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="flex-1 truncate">Polygon Testnet</span>
-                      </button>
-                    </div>
+
                   </div>
                   {/* Language Switcher */}
                   <div className="border-b-2 border-gray-200 dark:border-white/10">

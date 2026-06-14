@@ -211,13 +211,13 @@ interface AssetDetailProps {
   price?: number;
   verified?: boolean;
   address?: string;
-  type: 'TON' | 'RZC' | 'JETTON' | 'BTC' | 'ETH' | 'EVM' | 'SOL' | 'TRON';
+  type: 'TON' | 'RZC' | 'JETTON' | 'BTC' | 'ETH' | 'BNB' | 'EVM' | 'SOL' | 'TRON';
 }
 
 const AssetDetail: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { address, network, refreshData, setIsNetworkModalOpen, multiChainBalances, isNetworkModalOpen, currentEvmChain, userProfile } = useWallet();
+  const { address, network, refreshData, setIsNetworkModalOpen, multiChainBalances, isNetworkModalOpen, currentEvmChain, userProfile, switchEvmChain } = useWallet();
   const { showToast } = useToast();
   const { transactions, isLoading: txLoading, refreshTransactions } = useTransactions();
 
@@ -230,6 +230,76 @@ const AssetDetail: React.FC = () => {
   const evmChain = currentEvmChain;
   const [activeBalance, setActiveBalance] = useState<string>(assetData?.balance || '0');
   const [isNetworkSwitching, setIsNetworkSwitching] = useState(false);
+  const [resolvedAddress, setResolvedAddress] = useState<string>('');
+
+  useEffect(() => {
+    const fetchResolvedAddress = async () => {
+      if (!address || !assetData) return;
+      if (assetData.type === 'TON' || assetData.type === 'JETTON') {
+        setResolvedAddress(address);
+        return;
+      }
+      try {
+        const addrs = await tetherWdkService.getAddresses();
+        if (addrs) {
+          if (assetData.type === 'ETH' || assetData.type === 'EVM' || assetData.type === 'BNB') {
+            setResolvedAddress(addrs.evmAddress);
+          } else if (assetData.type === 'BTC') {
+            setResolvedAddress(addrs.btcAddress);
+          } else if (assetData.type === 'SOL') {
+            setResolvedAddress(addrs.solAddress);
+          } else if (assetData.type === 'TRON') {
+            setResolvedAddress(addrs.tronAddress);
+          } else {
+            setResolvedAddress(address);
+          }
+        } else {
+          // Fallback if not initialized yet
+          if (assetData.type === 'ETH' || assetData.type === 'EVM' || assetData.type === 'BNB') {
+            const evmAddr = await usdtMultiChainService.deriveEvmAddress(address);
+            setResolvedAddress(evmAddr || address);
+          } else {
+            setResolvedAddress(address);
+          }
+        }
+      } catch (e) {
+        setResolvedAddress(address);
+      }
+    };
+    fetchResolvedAddress();
+  }, [address, assetData]);
+
+  const getTxExplorerUrl = useCallback((txHash: string) => {
+    if (assetData.type === 'BTC') {
+      return `https://blockstream.info/${network === 'testnet' ? 'testnet/' : ''}tx/${txHash}`;
+    }
+    if (assetData.type === 'SOL') {
+      return `https://solscan.io/tx/${txHash}${network === 'testnet' ? '?cluster=devnet' : ''}`;
+    }
+    if (assetData.type === 'TRON') {
+      return `https://shasta.tronscan.org/#/transaction/${txHash}`;
+    }
+    if (assetData.type === 'BNB') {
+      return `https://${network === 'testnet' ? 'testnet.' : ''}bscscan.com/tx/${txHash}`;
+    }
+    if (assetData.type === 'ETH') {
+      return `https://${network === 'testnet' ? 'sepolia.' : ''}etherscan.io/tx/${txHash}`;
+    }
+    if (assetData.type === 'EVM') {
+      // Use the active EVM chain
+      if (evmChain === 'bsc' || evmChain === 'bsc_testnet') {
+        return `https://${network === 'testnet' ? 'testnet.' : ''}bscscan.com/tx/${txHash}`;
+      }
+      if (evmChain === 'ethereum' || evmChain === 'sepolia') {
+        return `https://${network === 'testnet' ? 'sepolia.' : ''}etherscan.io/tx/${txHash}`;
+      }
+      if (evmChain === 'polygon' || evmChain === 'polygon_testnet') {
+        return `https://${network === 'testnet' ? 'amoy.' : ''}polygonscan.com/tx/${txHash}`;
+      }
+    }
+    // Default/fallback to TON
+    return getTransactionUrl(txHash, network);
+  }, [assetData.type, network, evmChain]);
 
   // RZC-specific direct transaction fetch (bypasses useTransactions hook userId race)
   const [rzcTxHistory, setRzcTxHistory] = useState<any[]>([]);
@@ -454,11 +524,17 @@ const AssetDetail: React.FC = () => {
           return Math.round(wdkTon * 1e9).toString(); // Convert to nanotons
         }
 
-      case 'EVM':
       case 'ETH':
-        // USDT uses dedicated balance, native tokens use EVM balance
+        return multiChainBalances.eth;
+
+      case 'BNB':
+        return multiChainBalances.bnb;
+
+      case 'EVM':
+      case 'JETTON':
+        // USDT uses dedicated total balance, native tokens use EVM balance
         return assetData.symbol === 'USDT'
-          ? multiChainBalances.usdt
+          ? multiChainBalances.usdtTotal || multiChainBalances.usdt
           : multiChainBalances.evm;
 
       case 'SOL':
@@ -521,6 +597,8 @@ const AssetDetail: React.FC = () => {
         let symbol: string;
         if (assetData.type === 'BTC') {
           symbol = 'BTC';
+        } else if (assetData.type === 'BNB') {
+          symbol = 'BNB';
         } else if (assetData.type === 'ETH' || assetData.type === 'EVM') {
           symbol = CHAIN_META[evmChain]?.symbol ?? 'ETH';
         } else if (assetData.type === 'SOL') {
@@ -570,7 +648,7 @@ const AssetDetail: React.FC = () => {
   if (!assetData) return null;
 
   const handleCopyAddress = () => {
-    const addr = assetData.address || address;
+    const addr = resolvedAddress || assetData.address || address;
     if (addr) {
       navigator.clipboard.writeText(addr);
       showToast('Address copied!', 'success');
@@ -634,10 +712,12 @@ const AssetDetail: React.FC = () => {
     if (assetData.type === 'BTC') return tx.asset === 'BTC';
     if (assetData.type === 'SOL') return tx.asset === 'SOL';
     if (assetData.type === 'TRON') return tx.asset === 'TRX';
-    if (assetData.type === 'ETH' || assetData.type === 'EVM') {
+    if (assetData.type === 'ETH') return tx.asset === 'ETH';
+    if (assetData.type === 'BNB') return tx.asset === 'BNB';
+    if (assetData.type === 'EVM') {
       // Match the native EVM symbol for the active chain (ETH, BNB, MATIC, AVAX…)
       const evmSymbol = CHAIN_META[evmChain]?.symbol ?? 'ETH';
-      return tx.asset === evmSymbol || tx.asset === 'ETH';
+      return tx.asset === evmSymbol;
     }
     if (assetData.type === 'JETTON') return tx.asset === assetData.symbol;
     return tx.asset === assetData.symbol;
@@ -656,7 +736,9 @@ const AssetDetail: React.FC = () => {
     if (assetData.symbol === 'USDT') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png';
     if (assetData.type === 'TON') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png';
     if (assetData.type === 'BTC') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png';
-    if (assetData.type === 'ETH' || assetData.type === 'EVM') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
+    if (assetData.type === 'BNB') return CHAIN_META['bsc']?.logo || 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png';
+    if (assetData.type === 'ETH') return CHAIN_META['ethereum']?.logo || 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
+    if (assetData.type === 'EVM') return CHAIN_META[evmChain]?.logo || 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
     if (assetData.type === 'SOL') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png';
     if (assetData.type === 'TRON') return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png';
     return null;
@@ -666,9 +748,10 @@ const AssetDetail: React.FC = () => {
 
   const evmLabel = CHAIN_META[evmChain]?.name ?? evmChain.charAt(0).toUpperCase() + evmChain.slice(1);
 
-  // Network label
   const networkLabel = assetData.type === 'BTC' ? 'Bitcoin Mainnet'
-    : assetData.type === 'ETH' || assetData.type === 'EVM' ? `${evmLabel} Network`
+    : assetData.type === 'BNB' ? 'BNB Smart Chain Network'
+    : assetData.type === 'ETH' ? 'Ethereum Network'
+    : assetData.type === 'EVM' ? `${evmLabel} Network`
       : assetData.type === 'RZC' ? 'Rhiza Network'
         : assetData.type === 'JETTON' ? 'TON Jetton'
           : assetData.type === 'SOL' ? 'Solana Mainnet'
@@ -676,7 +759,7 @@ const AssetDetail: React.FC = () => {
               : 'TON Network';
 
   // Accent colors per asset type
-  const accent = assetData.type === 'BTC' ? 'orange'
+  const accent = assetData.type === 'BTC' || assetData.type === 'BNB' ? 'orange'
     : assetData.type === 'ETH' || assetData.type === 'EVM' ? 'blue'
       : assetData.type === 'RZC' ? 'emerald'
         : assetData.type === 'JETTON' ? 'violet'
@@ -706,18 +789,31 @@ const AssetDetail: React.FC = () => {
 
   if (assetData?.symbol === 'USDT') {
 
-    // TON Jetton is the primary/main USDT balance
+    // ── USDT MULTI-CHAIN CALCULATIONS ───────────────────────────────────────────
     const tonVal = parseFloat(usdtBreakdown?.ton || activeBalance || '0');
     const bscVal = parseFloat(usdtBreakdown?.bsc || '0');
     const ethVal = parseFloat(usdtBreakdown?.ethereum || '0');
     const tronVal = parseFloat(usdtBreakdown?.tron || '0');
-    const allChainsTotal = parseFloat(usdtBreakdown?.total || '0');
-    // Show cross-chain total pill only when other chains have a meaningful balance
-    const hasMultiChain = allChainsTotal > tonVal + 0.001;
 
-    const tonPct = allChainsTotal > 0 ? (tonVal / allChainsTotal) * 100 : 100;
-    const bscPct = allChainsTotal > 0 ? (bscVal / allChainsTotal) * 100 : 0;
-    const ethPct = allChainsTotal > 0 ? (ethVal / allChainsTotal) * 100 : 0;
+    // Use the cross-chain total as the canonical balance; fall back to Jetton only
+    const rawTotal = parseFloat(usdtBreakdown?.total || '0');
+    const allChainsTotal = rawTotal > 0 ? rawTotal : tonVal;
+
+    // Segment percentages for the distribution bar
+    const tonPct  = allChainsTotal > 0 ? (tonVal  / allChainsTotal) * 100 : 0;
+    const bscPct  = allChainsTotal > 0 ? (bscVal  / allChainsTotal) * 100 : 0;
+    const ethPct  = allChainsTotal > 0 ? (ethVal  / allChainsTotal) * 100 : 0;
+    const tronPct = allChainsTotal > 0 ? (tronVal / allChainsTotal) * 100 : 0;
+
+    // Only show chains that have a meaningful balance (>= $0.01)
+    const activeChains = [
+      { id: 'ton',      label: 'TON',      sublabel: 'Jetton',  val: tonVal,  pct: tonPct,  color: '#0098EA', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png' },
+      { id: 'bsc',      label: 'BNB Chain', sublabel: 'BEP-20',  val: bscVal,  pct: bscPct,  color: '#F0B90B', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png' },
+      { id: 'ethereum', label: 'Ethereum', sublabel: 'ERC-20',  val: ethVal,  pct: ethPct,  color: '#627EEA', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
+      { id: 'tron',     label: 'TRON',     sublabel: 'TRC-20',  val: tronVal, pct: tronPct, color: '#EB0029', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png' },
+    ].filter(c => c.val >= 0.01);
+
+    const hasMultiChain = activeChains.length > 1;
 
     const filteredBreakdownTxs = usdtTransactions.filter(tx => {
       if (activeChainFilter === 'all') return true;
@@ -734,7 +830,10 @@ const AssetDetail: React.FC = () => {
           >
             <ArrowLeft size={22} />
           </button>
-          <h2 className="text-[17px] font-semibold tracking-tight">Tether USD</h2>
+          <div className="flex flex-col items-center">
+            <h2 className="text-[17px] font-semibold tracking-tight">Tether USD</h2>
+            <span className="text-[11px] font-medium text-gray-500">Multi-Chain USDT</span>
+          </div>
           <button
             onClick={handleRefresh}
             className="p-2 -mr-2 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-white/10 rounded-full transition-all"
@@ -743,44 +842,73 @@ const AssetDetail: React.FC = () => {
           </button>
         </div>
 
-        <div className="max-w-xl mx-auto px-4 pt-8 pb-4 flex flex-col items-center relative">
+        <div className="max-w-xl mx-auto px-4 pt-6 pb-4 flex flex-col items-center relative">
           {/* Background Glow */}
-          <div className="absolute top-10 left-1/2 -translate-x-1/2 w-48 h-48 bg-emerald-500/20 rounded-full blur-[80px] pointer-events-none" />
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 w-40 h-40 bg-[#00C48C]/15 rounded-full blur-[60px] pointer-events-none" />
 
-          {/* Central Balance Area */}
-          <div className="relative w-16 h-16 mb-5 group">
-            <div className="absolute inset-0 bg-emerald-500 rounded-full blur-md opacity-40 group-hover:opacity-70 transition-opacity duration-500" />
-            <div className="relative w-full h-full rounded-full bg-white dark:bg-[#111] shadow-xl border border-gray-100 dark:border-white/10 flex items-center justify-center overflow-hidden z-10 p-1">
+          {/* USDT Logo */}
+          <div className="relative w-14 h-14 mb-4 group">
+            <div className="absolute inset-0 bg-[#00C48C]/30 rounded-full blur-lg opacity-60 group-hover:opacity-90 transition-opacity duration-500" />
+            <div className="relative w-full h-full rounded-full bg-white dark:bg-[#111] shadow-lg border border-gray-100 dark:border-white/10 flex items-center justify-center overflow-hidden z-10 p-1">
               <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png" alt="USDT Logo" className="w-full h-full object-cover rounded-full" />
             </div>
           </div>
           
-          <h1 className="text-[42px] font-black font-value font-glow tracking-tight flex items-baseline gap-1.5 text-gray-900 dark:text-white drop-shadow-sm">
-            {tonVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            <span className="text-[20px] text-gray-400 font-bold tracking-normal">USDT</span>
-          </h1>
-          <div className="flex items-center gap-2 mt-1">
-            <div className="px-3 py-1 bg-gray-100/50 dark:bg-white/5 rounded-full border border-gray-200/50 dark:border-white/5 backdrop-blur-sm">
-              <p className="text-[14px] text-gray-500 dark:text-zinc-400 font-medium">TON Jetton · ≈ ${tonVal.toFixed(2)}</p>
+          {/* Primary Balance — Cross-Chain Total */}
+          {isLoadingBreakdown ? (
+            <div className="flex flex-col items-center gap-2 mt-1">
+              <div className="h-10 w-44 bg-gray-200 dark:bg-white/10 rounded-xl animate-pulse" />
+              <div className="h-4 w-24 bg-gray-100 dark:bg-white/5 rounded-full animate-pulse mt-1" />
             </div>
-            {hasMultiChain && (
-              <div className="px-3 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20">
-                <p className="text-[13px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                  +${(allChainsTotal - tonVal).toFixed(2)} other chains
-                </p>
+          ) : (
+            <>
+              <h1 className="text-[44px] font-black tracking-tight flex items-baseline gap-1.5 text-gray-900 dark:text-white drop-shadow-sm leading-none mt-1">
+                {allChainsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span className="text-[22px] text-gray-400 font-bold tracking-normal">USDT</span>
+              </h1>
+              <p className="text-[15px] text-gray-500 dark:text-zinc-400 font-medium mt-2">
+                ≈ <span className="text-gray-700 dark:text-zinc-300 font-semibold">${allChainsTotal.toFixed(2)}</span>
+                {activeChains.length > 1 && (
+                  <span className="ml-2 text-[11px] text-[#00C48C] font-bold bg-[#00C48C]/10 px-2 py-0.5 rounded-full border border-[#00C48C]/20">
+                    {activeChains.length} networks
+                  </span>
+                )}
+              </p>
+            </>
+          )}
+
+          {/* Chain Distribution Bar */}
+          {!isLoadingBreakdown && activeChains.length > 0 && (
+            <div className="w-full mt-5 max-w-xs">
+              <div className="flex h-1.5 rounded-full overflow-hidden gap-0.5">
+                {activeChains.map(c => (
+                  <div
+                    key={c.id}
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${c.pct}%`, backgroundColor: c.color, minWidth: c.pct > 0 ? '4px' : '0' }}
+                  />
+                ))}
               </div>
-            )}
-          </div>
+              <div className="flex items-center justify-center gap-3 mt-2 flex-wrap">
+                {activeChains.map(c => (
+                  <div key={c.id} className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                    <span className="text-[11px] text-gray-500 font-medium">{c.sublabel} {c.pct.toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-center gap-6 mt-8 w-full">
+          <div className="flex items-center justify-center gap-6 mt-7 w-full">
             <button
               onClick={() => navigate('/wallet/transfer', { state: { asset: 'USDT' } })}
               aria-label="Send USDT"
               className="flex flex-col items-center gap-2.5 group outline-none"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-white to-gray-50 dark:from-[#222] dark:to-[#111] shadow-sm border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 group-hover:scale-105 group-hover:border-emerald-500/50 group-hover:text-emerald-500 dark:group-hover:text-emerald-400 group-active:scale-95 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute inset-0 bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-white to-gray-50 dark:from-[#222] dark:to-[#111] shadow-sm border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 group-hover:scale-105 group-hover:border-[#00C48C]/50 group-hover:text-[#00C48C] group-active:scale-95 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute inset-0 bg-[#00C48C]/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <ArrowUpRight size={22} className="relative z-10" />
               </div>
               <span className="text-[13px] font-bold text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Send</span>
@@ -790,8 +918,8 @@ const AssetDetail: React.FC = () => {
               aria-label="Receive USDT"
               className="flex flex-col items-center gap-2.5 group outline-none"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-white to-gray-50 dark:from-[#222] dark:to-[#111] shadow-sm border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 group-hover:scale-105 group-hover:border-emerald-500/50 group-hover:text-emerald-500 dark:group-hover:text-emerald-400 group-active:scale-95 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute inset-0 bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-white to-gray-50 dark:from-[#222] dark:to-[#111] shadow-sm border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 group-hover:scale-105 group-hover:border-[#00C48C]/50 group-hover:text-[#00C48C] group-active:scale-95 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute inset-0 bg-[#00C48C]/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <ArrowDownLeft size={22} className="relative z-10" />
               </div>
               <span className="text-[13px] font-bold text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Receive</span>
@@ -801,8 +929,8 @@ const AssetDetail: React.FC = () => {
               aria-label="Swap USDT"
               className="flex flex-col items-center gap-2.5 group outline-none"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-white to-gray-50 dark:from-[#222] dark:to-[#111] shadow-sm border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 group-hover:scale-105 group-hover:border-emerald-500/50 group-hover:text-emerald-500 dark:group-hover:text-emerald-400 group-active:scale-95 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute inset-0 bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-b from-white to-gray-50 dark:from-[#222] dark:to-[#111] shadow-sm border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 group-hover:scale-105 group-hover:border-[#00C48C]/50 group-hover:text-[#00C48C] group-active:scale-95 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute inset-0 bg-[#00C48C]/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <Repeat size={22} className="relative z-10" />
               </div>
               <span className="text-[13px] font-bold text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Swap</span>
@@ -810,93 +938,119 @@ const AssetDetail: React.FC = () => {
           </div>
         </div>
 
-        <div className="max-w-xl mx-auto px-4 mt-6 space-y-6">
-          {/* Multi-Chain Portfolio List */}
+        <div className="max-w-xl mx-auto px-4 mt-4 space-y-5">
+
+          {/* ── Chain Breakdown ──────────────────────────────────────────── */}
           <div>
-            <h3 className="text-[14px] font-bold text-gray-900 dark:text-white mb-3 pl-1 uppercase tracking-wider opacity-80">Portfolio Breakdown</h3>
-            <div className="bg-white/50 dark:bg-[#111]/50 backdrop-blur-xl rounded-3xl border border-gray-200/80 dark:border-white/10 overflow-hidden shadow-lg shadow-black/5 dark:shadow-none">
-              
-              <div className="group flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/5 hover:bg-white dark:hover:bg-white/5 transition-colors duration-300">
-                <div className="flex items-center gap-3.5">
-                  <div className="relative">
-                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png" alt="TON" className="w-10 h-10 rounded-full object-cover ring-2 ring-white dark:ring-[#111] z-10 relative shadow-sm" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight">TON</p>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-500 text-white rounded-full leading-none">MAIN</span>
+            <h3 className="text-[11px] font-bold text-gray-400 dark:text-zinc-500 mb-2.5 pl-1 uppercase tracking-widest">Portfolio Breakdown</h3>
+            <div className="bg-white/60 dark:bg-[#0e0e0e] backdrop-blur-xl rounded-2xl border border-gray-200/70 dark:border-white/8 overflow-hidden shadow-sm">
+
+              {isLoadingBreakdown ? (
+                <div className="divide-y divide-gray-100 dark:divide-white/5">
+                  {[1, 2].map(i => (
+                    <div key={i} className="flex items-center gap-3 p-3.5">
+                      <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-white/10 animate-pulse shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <div className="h-3.5 w-20 bg-gray-200 dark:bg-white/10 rounded animate-pulse" />
+                        <div className="h-3 w-12 bg-gray-100 dark:bg-white/5 rounded animate-pulse" />
+                      </div>
+                      <div className="space-y-1.5 text-right">
+                        <div className="h-3.5 w-16 bg-gray-200 dark:bg-white/10 rounded animate-pulse" />
+                        <div className="h-3 w-10 bg-gray-100 dark:bg-white/5 rounded animate-pulse" />
+                      </div>
                     </div>
-                    <p className="text-[13px] text-gray-500 font-medium tracking-wide">TON Jetton</p>
+                  ))}
+                </div>
+              ) : activeChains.length === 0 ? (
+                <div className="py-8 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center mb-2">
+                    <Activity size={18} className="text-gray-300 dark:text-zinc-600" />
                   </div>
+                  <p className="text-[13px] text-gray-400 font-medium">No USDT balance found across any network</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight font-numbers">{tonVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  <p className="text-[13px] text-gray-500 font-medium font-numbers">${tonVal.toFixed(2)}</p>
-                </div>
-              </div>
+              ) : (
+                <div className="divide-y divide-gray-100 dark:divide-white/5">
+                  {activeChains.map((chain, idx) => (
+                    <div key={chain.id} className="flex items-center gap-3 px-3.5 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors">
+                      {/* Chain logo */}
+                      <div className="relative shrink-0">
+                        <img
+                          src={chain.logo}
+                          alt={chain.label}
+                          className="w-9 h-9 rounded-full object-cover shadow-sm"
+                          style={{ boxShadow: `0 0 0 2px ${chain.color}35` }}
+                        />
+                        {idx === 0 && activeChains.length > 1 && (
+                          <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#00C48C] border-2 border-white dark:border-[#0e0e0e] flex items-center justify-center">
+                            <svg width="6" height="5" viewBox="0 0 6 5" fill="none"><path d="M1 2.5L2.5 4L5 1" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          </div>
+                        )}
+                      </div>
+                      {/* Chain info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[14px] font-semibold text-gray-900 dark:text-white leading-tight">{chain.label}</p>
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none border"
+                            style={{ color: chain.color, backgroundColor: `${chain.color}18`, borderColor: `${chain.color}35` }}
+                          >
+                            {chain.sublabel}
+                          </span>
+                        </div>
+                        {/* per-row mini bar */}
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <div className="h-1 rounded-full bg-gray-100 dark:bg-white/10 flex-1 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-700"
+                              style={{ width: `${chain.pct}%`, backgroundColor: chain.color }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-gray-400 font-medium tabular-nums w-7 text-right">{chain.pct.toFixed(0)}%</span>
+                        </div>
+                      </div>
+                      {/* Balance */}
+                      <div className="text-right shrink-0">
+                        <p className="text-[15px] font-bold text-gray-900 dark:text-white leading-tight tabular-nums">
+                          {chain.val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-[12px] text-gray-400 font-medium tabular-nums">${chain.val.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  ))}
 
-              <div className="group flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/5 hover:bg-white dark:hover:bg-white/5 transition-colors duration-300">
-                <div className="flex items-center gap-3.5">
-                  <div className="relative">
-                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png" alt="BSC" className="w-10 h-10 rounded-full object-cover ring-2 ring-white dark:ring-[#111] z-10 relative shadow-sm" />
-                  </div>
-                  <div>
-                    <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight">BSC</p>
-                    <p className="text-[13px] text-gray-500 font-medium tracking-wide">BEP-20</p>
-                  </div>
+                  {/* Total row — only shown when multiple networks have balance */}
+                  {activeChains.length > 1 && (
+                    <div className="flex items-center justify-between px-3.5 py-2.5 bg-gray-50/80 dark:bg-white/[0.025]">
+                      <p className="text-[12px] font-semibold text-gray-400 dark:text-zinc-500">Total across {activeChains.length} networks</p>
+                      <p className="text-[14px] font-black text-gray-900 dark:text-white tabular-nums">
+                        ${allChainsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="text-right">
-                  <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight font-numbers">{bscVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  <p className="text-[13px] text-gray-500 font-medium font-numbers">${bscVal.toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div className="group flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/5 hover:bg-white dark:hover:bg-white/5 transition-colors duration-300">
-                <div className="flex items-center gap-3.5">
-                  <div className="relative">
-                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png" alt="ETH" className="w-10 h-10 rounded-full object-cover ring-2 ring-white dark:ring-[#111] z-10 relative shadow-sm" />
-                  </div>
-                  <div>
-                    <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight">Ethereum</p>
-                    <p className="text-[13px] text-gray-500 font-medium tracking-wide">ERC-20</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight font-numbers">{ethVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  <p className="text-[13px] text-gray-500 font-medium font-numbers">${ethVal.toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div className="group flex items-center justify-between p-4 hover:bg-white dark:hover:bg-white/5 transition-colors duration-300">
-                <div className="flex items-center gap-3.5">
-                  <div className="relative">
-                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png" alt="TRON" className="w-10 h-10 rounded-full object-cover ring-2 ring-white dark:ring-[#111] z-10 relative shadow-sm" />
-                  </div>
-                  <div>
-                    <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight">TRON</p>
-                    <p className="text-[13px] text-gray-500 font-medium tracking-wide">TRC-20</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-[16px] font-bold text-gray-900 dark:text-white leading-tight font-numbers">{tronVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  <p className="text-[13px] text-gray-500 font-medium font-numbers">${tronVal.toFixed(2)}</p>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Transactions List */}
+          {/* ── Transactions ─────────────────────────────────────────────── */}
           <div>
-            <div className="flex items-center justify-between pl-1 mb-4">
-              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white uppercase tracking-wider opacity-80">Transactions</h3>
-              <div className="flex items-center gap-1 text-[12px] font-bold text-gray-500 bg-gray-100 dark:bg-white/5 rounded-full p-1 border border-gray-200/50 dark:border-white/5 shadow-inner">
-                {(['all', 'ton', 'bsc', 'ethereum', 'tron'] as const).map((filter) => (
+            <div className="flex items-center justify-between pl-1 mb-2.5">
+              <h3 className="text-[11px] font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-widest">Transactions</h3>
+              {/* Chain filter chips — only show active chains + All */}
+              <div className="flex items-center gap-1 text-[11px] font-bold text-gray-500 bg-gray-100 dark:bg-white/5 rounded-full p-1 border border-gray-200/50 dark:border-white/5">
+                <button
+                  onClick={() => setActiveChainFilter('all')}
+                  className={`px-2.5 py-1 rounded-full transition-all duration-200 ${activeChainFilter === 'all' ? 'bg-white dark:bg-[#333] text-gray-900 dark:text-white shadow-sm' : 'hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                  All
+                </button>
+                {activeChains.map(c => (
                   <button
-                    key={filter}
-                    onClick={() => setActiveChainFilter(filter)}
-                    className={`px-3 py-1 rounded-full transition-all duration-300 ${activeChainFilter === filter ? 'bg-white dark:bg-[#333] text-gray-900 dark:text-white shadow-sm scale-100' : 'hover:text-gray-700 dark:hover:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 scale-95 hover:scale-100'}`}
+                    key={c.id}
+                    onClick={() => setActiveChainFilter(c.id as any)}
+                    className={`px-2.5 py-1 rounded-full transition-all duration-200 ${activeChainFilter === c.id ? 'bg-white dark:bg-[#333] text-gray-900 dark:text-white shadow-sm' : 'hover:text-gray-700 dark:hover:text-gray-300'}`}
                   >
-                    {filter === 'all' ? 'All' : filter === 'ethereum' ? 'ETH' : filter.toUpperCase()}
+                    {c.id === 'ethereum' ? 'ETH' : c.id === 'bsc' ? 'BSC' : c.id.toUpperCase()}
                   </button>
                 ))}
               </div>
@@ -904,28 +1058,27 @@ const AssetDetail: React.FC = () => {
 
             {isLoadingBreakdown || isLoadingUsdtTxs ? (
               <div className="space-y-2">
-                <LoadingSkeleton height={68} />
-                <LoadingSkeleton height={68} />
-                <LoadingSkeleton height={68} />
+                <LoadingSkeleton height={64} />
+                <LoadingSkeleton height={64} />
+                <LoadingSkeleton height={64} />
               </div>
             ) : filteredBreakdownTxs.length === 0 ? (
-              <div className="py-12 flex flex-col items-center text-center bg-white dark:bg-[#111] border border-gray-200 dark:border-white/5 rounded-2xl shadow-sm">
-                <div className="w-14 h-14 rounded-2xl bg-gray-100 dark:bg-white/5 flex items-center justify-center mb-3">
-                  <History size={24} className="text-gray-300 dark:text-zinc-600" />
+              <div className="py-10 flex flex-col items-center text-center bg-white dark:bg-[#0e0e0e] border border-gray-200 dark:border-white/5 rounded-2xl">
+                <div className="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-white/5 flex items-center justify-center mb-3">
+                  <History size={20} className="text-gray-300 dark:text-zinc-600" />
                 </div>
-                <h4 className="text-sm font-bold text-gray-700 dark:text-white mb-1">No Transactions</h4>
-                <p className="text-[13px] text-gray-500">Your USDT history will appear here</p>
+                <h4 className="text-sm font-bold text-gray-700 dark:text-white mb-1">No Transactions Yet</h4>
+                <p className="text-[13px] text-gray-400">USDT history will appear here once you transact</p>
               </div>
             ) : (
-              <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-sm">
+              <div className="bg-white dark:bg-[#0e0e0e] border border-gray-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-sm">
                 {filteredBreakdownTxs.map((tx, idx) => {
                   const isIncoming = tx.type === 'receive' || tx.type === 'purchase';
-                  const chainLabel = tx.chain === 'bsc' ? 'BSC' : tx.chain === 'ethereum' ? 'ERC20' : tx.chain === 'tron' ? 'TRC20' : 'TON';
-
-                  const dateStr = new Date(tx.timestamp).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  });
+                  const chainEntry = activeChains.find(c => c.id === tx.chain);
+                  const chainColor = chainEntry?.color || '#9ca3af';
+                  const chainLabel = tx.chain === 'bsc' ? 'BEP-20' : tx.chain === 'ethereum' ? 'ERC-20' : tx.chain === 'tron' ? 'TRC-20' : 'Jetton';
+                  const dateStr = new Date(tx.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const timeStr = new Date(tx.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
                   return (
                     <div
@@ -934,29 +1087,37 @@ const AssetDetail: React.FC = () => {
                       onKeyDown={(e) => e.key === 'Enter' && tx.hash && window.open(getChainExplorerLink(tx.hash, tx.chain), '_blank')}
                       role="button"
                       tabIndex={0}
-                      className={`flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/[0.02] cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${idx !== filteredBreakdownTxs.length - 1 ? 'border-b border-gray-100 dark:border-white/5' : ''}`}
+                      className={`flex items-center gap-3 px-3.5 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.02] cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#00C48C] ${idx !== filteredBreakdownTxs.length - 1 ? 'border-b border-gray-100 dark:border-white/5' : ''}`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-gray-700 dark:text-gray-300 shrink-0">
-                          {isIncoming ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
-                        </div>
-                        <div>
-                          <p className="text-[15px] font-semibold text-gray-900 dark:text-white leading-tight flex items-center gap-2">
-                            {isIncoming ? 'Receive' : 'Send'}
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 uppercase">{chainLabel}</span>
-                          </p>
-                          <p className="text-[13px] text-gray-500 font-medium mt-0.5">
-                            {dateStr}
-                          </p>
-                        </div>
+                      {/* Icon */}
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: isIncoming ? '#00C48C18' : '#6b728015', color: isIncoming ? '#00C48C' : '#6b7280' }}
+                      >
+                        {isIncoming ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}
                       </div>
-                      <div className="text-right">
-                        <p className={`text-[15px] font-semibold leading-tight ${isIncoming ? 'text-emerald-500 dark:text-emerald-400' : 'text-gray-900 dark:text-white'}`}>
-                          {isIncoming ? '+' : '-'}{tx.amount}
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[14px] font-semibold text-gray-900 dark:text-white leading-tight">
+                            {isIncoming ? 'Received' : 'Sent'}
+                          </p>
+                          <span
+                            className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none border"
+                            style={{ color: chainColor, backgroundColor: `${chainColor}18`, borderColor: `${chainColor}35` }}
+                          >
+                            {chainLabel}
+                          </span>
+                          {tx.hash && <ExternalLink size={11} className="text-gray-300 dark:text-zinc-600" />}
+                        </div>
+                        <p className="text-[12px] text-gray-400 mt-0.5">{dateStr} · {timeStr}</p>
+                      </div>
+                      {/* Amount */}
+                      <div className="text-right shrink-0">
+                        <p className={`text-[14px] font-bold leading-tight tabular-nums ${isIncoming ? 'text-[#00C48C]' : 'text-gray-900 dark:text-white'}`}>
+                          {isIncoming ? '+' : '−'}{parseFloat(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
-                        <p className="text-[13px] text-gray-500 font-medium">
-                          ${(parseFloat(tx.amount) * 1).toFixed(2)}
-                        </p>
+                        <p className="text-[12px] text-gray-400 tabular-nums">${parseFloat(tx.amount).toFixed(2)}</p>
                       </div>
                     </div>
                   );
@@ -981,7 +1142,7 @@ const AssetDetail: React.FC = () => {
         </button>
         <div className="flex flex-col items-center">
           <h2 className="text-[17px] font-semibold tracking-tight">{assetData.name}</h2>
-          {assetData.type === 'ETH' || assetData.type === 'EVM' ? (
+          {assetData.type === 'EVM' ? (
             <button
               onClick={() => setIsNetworkModalOpen(true)}
               className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-white"
@@ -1008,7 +1169,7 @@ const AssetDetail: React.FC = () => {
           {assetData.type === 'RZC' ? (
             <span className="text-emerald-500 font-black text-xl">RZC</span>
           ) : logo ? (
-            <img src={assetData.type === 'ETH' || assetData.type === 'EVM' ? (CHAIN_META[evmChain]?.logo || logo) : logo} alt={assetData.symbol} className="w-full h-full object-cover rounded-full" />
+            <img src={logo} alt={assetData.symbol} className="w-full h-full object-cover rounded-full" />
           ) : (
             <span className="text-2xl">{assetData.emoji || '🪙'}</span>
           )}
@@ -1025,7 +1186,10 @@ const AssetDetail: React.FC = () => {
             : formatAssetBalance(activeBalance, assetData.type, assetData.decimals)
           }
           <span className="text-[18px] text-gray-400 font-semibold">
-            {(assetData.type === 'ETH' || assetData.type === 'EVM') ? (CHAIN_META[evmChain]?.symbol || 'ETH') : assetData.symbol}
+            {assetData.type === 'BNB' ? 'BNB'
+              : assetData.type === 'ETH' ? 'ETH'
+              : assetData.type === 'EVM' ? (CHAIN_META[evmChain]?.symbol || 'ETH')
+              : assetData.symbol}
           </span>
         </h1>
 
@@ -1041,14 +1205,18 @@ const AssetDetail: React.FC = () => {
         {/* Clean Circular Action Buttons */}
         <div className="flex items-center justify-center gap-7 mt-8 w-full">
           <button
-            onClick={() => navigate('/wallet/transfer', {
+            onClick={async () => {
+              if (assetData.type === 'BNB') await switchEvmChain(network === 'mainnet' ? 'bsc' : 'bsc_testnet');
+              else if (assetData.type === 'ETH') await switchEvmChain(network === 'mainnet' ? 'ethereum' : 'sepolia');
+              
+              navigate('/wallet/transfer', {
               state: {
                 asset: assetData.type === 'JETTON' ? 'JETTON'
                   : assetData.type === 'RZC' ? 'RZC'
                     : assetData.type === 'BTC' ? 'BTC'
                       : assetData.type === 'SOL' ? 'SOL'
                         : assetData.type === 'TRON' ? 'TRON'
-                          : assetData.type === 'ETH' || assetData.type === 'EVM'
+                          : assetData.type === 'ETH' || assetData.type === 'EVM' || assetData.type === 'BNB'
                             ? 'EVM'
                             : 'TON',
                 ...(assetData.type === 'JETTON' && {
@@ -1060,7 +1228,8 @@ const AssetDetail: React.FC = () => {
                   jettonWalletAddress: assetData.address
                 })
               }
-            })}
+            });
+            }}
             aria-label={`Send ${assetData.symbol}`}
             className="flex flex-col items-center gap-2 group active:scale-95 transition-all"
           >
@@ -1070,18 +1239,21 @@ const AssetDetail: React.FC = () => {
             <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-300">Send</span>
           </button>
           <button
-            onClick={() => navigate('/wallet/receive', {
+            onClick={() => {
+              navigate('/wallet/receive', {
               state: {
                 preselect: assetData.type === 'BTC' ? 'multichain-btc'
                   : assetData.type === 'SOL' ? 'multichain-sol'
                     : assetData.type === 'TRON' ? 'multichain-tron'
-                      : assetData.type === 'ETH' || assetData.type === 'EVM'
-                        ? 'multichain-evm'
-                        : assetData.type === 'RZC' ? 'primary-rzc'
-                          : assetData.name === 'TON (W5)' ? 'multichain-ton'
-                            : 'primary'
+                      : assetData.type === 'ETH' ? 'multichain-eth'
+                        : assetData.type === 'BNB' ? 'multichain-bsc'
+                          : assetData.type === 'EVM' ? 'multichain-polygon'
+                            : assetData.type === 'RZC' ? 'primary-rzc'
+                              : assetData.name === 'TON (W5)' ? 'multichain-ton'
+                                : 'primary'
               }
-            })}
+            });
+            }}
             aria-label={`Receive ${assetData.symbol}`}
             className="flex flex-col items-center gap-2 group active:scale-95 transition-all"
           >
@@ -1111,8 +1283,9 @@ const AssetDetail: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Activity size={15} className={ac?.text || 'text-blue-500'} />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-                  {(assetData.type === 'ETH' || assetData.type === 'EVM')
-                    ? `${CHAIN_META[evmChain]?.symbol ?? 'ETH'} Price Performance`
+                  {assetData.type === 'BNB' ? 'BNB Price Performance'
+                    : assetData.type === 'ETH' ? 'ETH Price Performance'
+                    : assetData.type === 'EVM' ? `${CHAIN_META[evmChain]?.symbol ?? 'ETH'} Price Performance`
                     : `${assetData.symbol} Price Performance`}
                 </h3>
               </div>
@@ -1279,8 +1452,8 @@ const AssetDetail: React.FC = () => {
                 return (
                   <div
                     key={tx.id}
-                    onClick={() => canOpenExplorer && window.open(getTransactionUrl(tx.hash!, network), '_blank')}
-                    onKeyDown={(e) => e.key === 'Enter' && canOpenExplorer && window.open(getTransactionUrl(tx.hash!, network), '_blank')}
+                    onClick={() => canOpenExplorer && window.open(getTxExplorerUrl(tx.hash!), '_blank')}
+                    onKeyDown={(e) => e.key === 'Enter' && canOpenExplorer && window.open(getTxExplorerUrl(tx.hash!), '_blank')}
                     role={canOpenExplorer ? 'button' : undefined}
                     tabIndex={canOpenExplorer ? 0 : undefined}
                     className={`px-4 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors group outline-none ${canOpenExplorer ? 'cursor-pointer focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400' : 'cursor-default'} ${idx !== Math.min(assetTransactions.length, 10) - 1 ? 'border-b border-gray-100 dark:border-white/5' : ''}`}

@@ -39,6 +39,7 @@ import { supabaseService } from '../services/supabaseService';
 import { getPriceOverrides, setPriceOverrides, clearPriceOverrides, PriceOverrides } from '../utils/priceConfig';
 import { databaseAirdropService, DatabaseAirdropTask, CreateTaskData, UpdateTaskData } from '../services/databaseAirdropService';
 import { launchpadService, LaunchpadProject } from '../services/launchpadService';
+import { Address } from '@ton/ton';
 
 const AdminPanel: React.FC = () => {
   const { address, updateRzcPrice } = useWallet();
@@ -133,6 +134,28 @@ const AdminPanel: React.FC = () => {
     trending: false,
   });
   const [projectProcessing, setProjectProcessing] = useState(false);
+
+  // Wallet Audit system state
+  interface AuditIssue {
+    user: AdminUser;
+    storedAddress: string;
+    expectedAddress: string;
+    issueDescription: string;
+  }
+  const [showAudit, setShowAudit] = useState(false);
+  const { network } = useWallet();
+  const [auditNetwork, setAuditNetwork] = useState<'mainnet' | 'testnet'>('mainnet');
+  const [auditing, setAuditing] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [auditResults, setAuditResults] = useState<AuditIssue[]>([]);
+  const [scanCompleted, setScanCompleted] = useState(false);
+  const [totalAudited, setTotalAudited] = useState(0);
+
+  useEffect(() => {
+    if (network) {
+      setAuditNetwork(network as 'mainnet' | 'testnet');
+    }
+  }, [network]);
 
   const handleFetchLiveRates = async () => {
     setFetchingRates(true);
@@ -240,7 +263,188 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const pageSize = 20;
+  const runWalletAudit = async () => {
+    setAuditing(true);
+    setScanCompleted(false);
+    setAuditResults([]);
+    
+    try {
+      const client = supabaseService.getClient();
+      if (!client) {
+        error('Supabase client not initialized');
+        setAuditing(false);
+        return;
+      }
+
+      // Fetch all users to audit (without page size limits, to be thorough)
+      const { data: allUsers, error: fetchErr } = await client
+        .from('wallet_users')
+        .select('*');
+
+      if (fetchErr) throw fetchErr;
+
+      if (!allUsers) {
+        setTotalAudited(0);
+        setScanCompleted(true);
+        setAuditing(false);
+        return;
+      }
+
+      setTotalAudited(allUsers.length);
+
+      const targetIsTestnet = auditNetwork === 'testnet';
+      const issues: AuditIssue[] = [];
+
+      for (const u of allUsers) {
+        const storedAddr = u.wallet_address;
+        if (!storedAddr) continue;
+
+        try {
+          const parsed = Address.parse(storedAddr);
+          const expectedAddr = parsed.toString({ bounceable: false, testOnly: targetIsTestnet });
+
+          if (storedAddr !== expectedAddr) {
+            let desc = '';
+            if (storedAddr.startsWith('0Q') && !targetIsTestnet) {
+              desc = 'Testnet address prefix (0Q...) used on Mainnet';
+            } else if (storedAddr.startsWith('UQ') && targetIsTestnet) {
+              desc = 'Mainnet address prefix (UQ...) used on Testnet';
+            } else if (storedAddr.startsWith('EQ') || storedAddr.startsWith('kQ')) {
+              desc = 'Bounceable address format used (expects non-bounceable)';
+            } else {
+              desc = 'Address format mismatch (prefix/testnet flag difference)';
+            }
+
+            issues.push({
+              user: u,
+              storedAddress: storedAddr,
+              expectedAddress: expectedAddr,
+              issueDescription: desc
+            });
+          }
+        } catch (parseErr) {
+          issues.push({
+            user: u,
+            storedAddress: storedAddr,
+            expectedAddress: 'N/A (Invalid TON format)',
+            issueDescription: 'Address is invalid and cannot be parsed as a TON address'
+          });
+        }
+      }
+
+      setAuditResults(issues);
+      setScanCompleted(true);
+      success(`✅ Audit complete! Scanned ${allUsers.length} wallets, found ${issues.length} issue(s).`);
+    } catch (err: any) {
+      console.error('Audit error:', err);
+      error(`❌ Audit failed: ${err.message}`);
+    } finally {
+      setAuditing(false);
+    }
+  };
+
+  const fixSingleWallet = async (issue: AuditIssue) => {
+    const { user, expectedAddress } = issue;
+    if (expectedAddress.startsWith('N/A')) {
+      error(`Cannot auto-fix invalid address: ${issue.storedAddress}`);
+      return;
+    }
+
+    try {
+      const client = supabaseService.getClient();
+      if (!client) throw new Error('Supabase client not initialized');
+
+      // Update wallet_users
+      const { error: userErr } = await client
+        .from('wallet_users')
+        .update({ wallet_address: expectedAddress, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+
+      if (userErr) throw userErr;
+
+      // Update denormalized tables in background
+      await Promise.all([
+        client.from('wallet_transactions').update({ wallet_address: expectedAddress }).eq('user_id', user.id),
+        client.from('wallet_activations').update({ wallet_address: expectedAddress }).eq('user_id', user.id),
+        client.from('wallet_analytics').update({ wallet_address: expectedAddress }).eq('user_id', user.id)
+      ]);
+
+      // Remove from auditResults state
+      setAuditResults(prev => prev.filter(item => item.user.id !== user.id));
+      
+      // Update global users list in AdminPanel if loaded
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, wallet_address: expectedAddress } : u));
+
+      success(`Successfully fixed wallet for user: ${user.name}`);
+    } catch (err: any) {
+      console.error('Fix error:', err);
+      error(`❌ Failed to fix wallet: ${err.message}`);
+    }
+  };
+
+  const fixAllWallets = async () => {
+    if (auditResults.length === 0) return;
+    
+    const confirmFix = window.confirm(`Are you sure you want to auto-fix all ${auditResults.length} wallets with issues?`);
+    if (!confirmFix) return;
+
+    setFixing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    const client = supabaseService.getClient();
+    if (!client) {
+      error('Supabase client not initialized');
+      setFixing(false);
+      return;
+    }
+
+    for (const issue of auditResults) {
+      const { user, expectedAddress } = issue;
+      if (expectedAddress.startsWith('N/A')) {
+        failCount++;
+        continue;
+      }
+
+      try {
+        const { error: userErr } = await client
+          .from('wallet_users')
+          .update({ wallet_address: expectedAddress, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+
+        if (userErr) throw userErr;
+
+        await Promise.all([
+          client.from('wallet_transactions').update({ wallet_address: expectedAddress }).eq('user_id', user.id),
+          client.from('wallet_activations').update({ wallet_address: expectedAddress }).eq('user_id', user.id),
+          client.from('wallet_analytics').update({ wallet_address: expectedAddress }).eq('user_id', user.id)
+        ]);
+
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to fix user ${user.name} (${user.id}):`, err);
+        failCount++;
+      }
+    }
+
+    setFixing(false);
+    
+    // Rerun audit to refresh results list
+    await runWalletAudit();
+    
+    // Refresh main users list
+    loadUsers();
+
+    if (failCount > 0) {
+      success(`Bulk fix completed: ${successCount} fixed, ${failCount} failed.`);
+    } else {
+      success(`✅ Successfully fixed all ${successCount} wallets!`);
+    }
+  };
+
+  const [pageSize, setPageSize] = useState<number | 'all'>(20);
+  const isAllActive = filter === 'active';
+  const effectivePageSize = isAllActive || pageSize === 'all' ? 1000000 : pageSize;
 
   useEffect(() => {
     checkAdminAccess();
@@ -254,7 +458,7 @@ const AdminPanel: React.FC = () => {
         loadActivations();
       }
     }
-  }, [isAdmin, page, search, filter, nodeFilter, activationsPage, showActivations]);
+  }, [isAdmin, page, search, filter, nodeFilter, pageSize, activationsPage, showActivations]);
 
   // Listen for user updates from the global modal
   useEffect(() => {
@@ -331,8 +535,8 @@ const AdminPanel: React.FC = () => {
   const loadUsers = async () => {
     setLoading(true);
     const result = await adminService.getAllUsers({
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
+      limit: effectivePageSize,
+      offset: (page - 1) * effectivePageSize,
       search: search || undefined,
       filter
     });
@@ -782,7 +986,7 @@ const AdminPanel: React.FC = () => {
     );
   }
 
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = Math.ceil(total / effectivePageSize);
 
   // Apply client-side node filter
   const displayedUsers = nodeFilter === 'all' 
@@ -1174,6 +1378,203 @@ const AdminPanel: React.FC = () => {
         )}
       </div>
 
+      {/* Wallet Address Audit System */}
+      <div className="bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl overflow-hidden animate-fadeIn">
+        <button
+          onClick={() => setShowAudit(prev => !prev)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Shield className="text-blue-600" size={24} />
+            <div className="text-left">
+              <h2 className="text-lg font-black text-gray-950 dark:text-white">Wallet Address Audit System</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Scan database for mismatched network prefixes and perform batch auto-corrections
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {scanCompleted && auditResults.length > 0 && (
+              <span className="px-3 py-1 bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 text-xs font-bold rounded-full">
+                {auditResults.length} issue{auditResults.length > 1 ? 's' : ''} found
+              </span>
+            )}
+            {scanCompleted && auditResults.length === 0 && (
+              <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold rounded-full">
+                Healthy
+              </span>
+            )}
+            <ChevronRight 
+              size={20} 
+              className={`text-gray-400 transition-transform ${showAudit ? 'rotate-90' : ''}`} 
+            />
+          </div>
+        </button>
+
+        {showAudit && (
+          <div className="border-t-2 border-gray-200 dark:border-white/10 p-4 space-y-4">
+            {/* Toolbar */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gray-50 dark:bg-white/5 p-3 rounded-xl">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Target Network:</span>
+                <select
+                  value={auditNetwork}
+                  onChange={(e) => {
+                    setAuditNetwork(e.target.value as 'mainnet' | 'testnet');
+                    setScanCompleted(false);
+                    setAuditResults([]);
+                  }}
+                  className="px-3 py-1.5 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-lg text-sm text-gray-950 dark:text-white focus:outline-none focus:border-primary"
+                >
+                  <option value="mainnet">Mainnet (UQ...)</option>
+                  <option value="testnet">Testnet (0Q...)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={runWalletAudit}
+                  disabled={auditing || fixing}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 text-white border border-blue-500/20 rounded-xl text-sm font-bold hover:bg-blue-700 transition-all disabled:opacity-50"
+                >
+                  {auditing ? <Loader className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                  {auditing ? 'Auditing...' : 'Run Wallet Audit'}
+                </button>
+
+                {scanCompleted && auditResults.length > 0 && (
+                  <button
+                    onClick={fixAllWallets}
+                    disabled={fixing || auditing}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-black rounded-xl text-sm font-bold hover:bg-[#00dd77] transition-all disabled:opacity-50"
+                  >
+                    {fixing ? <Loader className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                    {fixing ? 'Fixing...' : 'Auto Fix All'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Results */}
+            {!scanCompleted && !auditing && (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                Select target network format and click <span className="font-bold text-gray-800 dark:text-gray-200">"Run Wallet Audit"</span> to scan.
+              </div>
+            )}
+
+            {auditing && (
+              <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                <Loader className="animate-spin text-blue-600" size={32} />
+                <p className="text-sm font-bold text-gray-600 dark:text-gray-400">Scanning database records...</p>
+              </div>
+            )}
+
+            {scanCompleted && (
+              <div className="space-y-4">
+                {/* Stats Summary */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Scanned</p>
+                    <p className="text-xl font-black text-gray-950 dark:text-white">{totalAudited} wallets</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Healthy</p>
+                    <p className="text-xl font-black text-emerald-600">{totalAudited - auditResults.length} wallets</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Issues</p>
+                    <p className={`text-xl font-black ${auditResults.length > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                      {auditResults.length} wallet{auditResults.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                {auditResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-emerald-600 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
+                    <CheckCircle size={32} className="mb-2 text-emerald-600" />
+                    <p className="font-bold text-sm">All Stored Addresses Are Correct!</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">No mismatches found for {auditNetwork.toUpperCase()} network format.</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Table */}
+                    <div className="hidden md:block overflow-x-auto border border-gray-200 dark:border-white/10 rounded-xl">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 dark:bg-white/5 text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">
+                          <tr>
+                            <th className="px-4 py-3 text-left">User</th>
+                            <th className="px-4 py-3 text-left">Stored Address</th>
+                            <th className="px-4 py-3 text-left">Expected Address</th>
+                            <th className="px-4 py-3 text-left">Issue Description</th>
+                            <th className="px-4 py-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 dark:divide-white/10">
+                          {auditResults.map((issue) => (
+                            <tr key={issue.user.id} className="hover:bg-gray-50 dark:hover:bg-white/5">
+                              <td className="px-4 py-3 font-bold text-gray-950 dark:text-white">
+                                {issue.user.name}
+                                {issue.user.email && (
+                                  <span className="block text-xs font-normal text-gray-500">{issue.user.email}</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs text-red-600 dark:text-red-400 truncate max-w-[150px]" title={issue.storedAddress}>
+                                {issue.storedAddress}
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs text-emerald-600 dark:text-emerald-400 truncate max-w-[150px]" title={issue.expectedAddress}>
+                                {issue.expectedAddress}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                                {issue.issueDescription}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  onClick={() => fixSingleWallet(issue)}
+                                  disabled={fixing}
+                                  className="px-2.5 py-1 bg-primary text-black rounded-lg text-xs font-bold hover:bg-[#00dd77] transition-all disabled:opacity-50"
+                                >
+                                  Auto Fix
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Cards */}
+                    <div className="md:hidden space-y-3">
+                      {auditResults.map((issue) => (
+                        <div key={issue.user.id} className="bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-gray-950 dark:text-white">{issue.user.name}</span>
+                            <button
+                              onClick={() => fixSingleWallet(issue)}
+                              disabled={fixing}
+                              className="px-2.5 py-1 bg-primary text-black rounded-lg text-xs font-bold hover:bg-[#00dd77] transition-all disabled:opacity-50"
+                            >
+                              Auto Fix
+                            </button>
+                          </div>
+                          <div className="text-xs space-y-1">
+                            <p className="text-gray-500 dark:text-gray-400">
+                              Stored: <span className="font-mono text-red-600 dark:text-red-400 break-all">{issue.storedAddress}</span>
+                            </p>
+                            <p className="text-gray-500 dark:text-gray-400">
+                              Expected: <span className="font-mono text-emerald-600 dark:text-emerald-400 break-all">{issue.expectedAddress}</span>
+                            </p>
+                            <p className="text-red-600 dark:text-red-400 font-semibold">{issue.issueDescription}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
@@ -1216,6 +1617,22 @@ const AdminPanel: React.FC = () => {
             <option value="all">All Users</option>
             <option value="has_nodes">Has Squad Claims</option>
             <option value="no_nodes">No Squad Claims</option>
+          </select>
+          <select
+            value={pageSize === 'all' ? 'all' : pageSize.toString()}
+            onChange={(e) => {
+              const val = e.target.value;
+              setPageSize(val === 'all' ? 'all' : parseInt(val));
+              setPage(1);
+            }}
+            disabled={isAllActive}
+            className="px-4 py-3 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl text-gray-950 dark:text-white focus:outline-none focus:border-primary disabled:opacity-50"
+          >
+            <option value="10">10 / page</option>
+            <option value="20">20 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="all">All</option>
           </select>
         </div>
       </div>
@@ -1371,7 +1788,7 @@ const AdminPanel: React.FC = () => {
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t-2 border-gray-200 dark:border-white/10">
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} users
+              Showing {(page - 1) * effectivePageSize + 1} to {Math.min(page * effectivePageSize, total)} of {total} users
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -1524,7 +1941,7 @@ const AdminPanel: React.FC = () => {
         {totalPages > 1 && (
           <div className="flex flex-col gap-3 p-4 bg-white dark:bg-white/5 border-2 border-gray-300 dark:border-white/10 rounded-xl">
             <p className="text-sm text-center text-gray-600 dark:text-gray-400">
-              Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} users
+              Showing {(page - 1) * effectivePageSize + 1} to {Math.min(page * effectivePageSize, total)} of {total} users
             </p>
             <div className="flex items-center justify-center gap-2">
               <button

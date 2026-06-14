@@ -143,65 +143,42 @@ export const processReferralSignup = async (
       console.error('❌ Failed to update referral rank:', rankResult.error);
     }
 
-    // Award referral bonus
-    const { rzcRewardService } = await import('../services/rzcRewardService');
-    const bonusResult = await rzcRewardService.awardReferralBonus(
-      validation.referrerId,
-      newUserId,
-      newUserAddress
-    );
+    // Award referral bonus logic removed to prevent manipulation.
+    // Referrers now earn RZC from their downline's actual activity (e.g., purchases/commissions).
+    // const { rzcRewardService } = await import('../services/rzcRewardService');
+    // const bonusResult = await rzcRewardService.awardReferralBonus(
+    //   validation.referrerId,
+    //   newUserId,
+    //   newUserAddress
+    // );
 
-    if (bonusResult.success) {
-      console.log(`🎁 Referral bonus awarded: ${bonusResult.amount} RZC`);
+    // Instead, just send a notification that someone joined
+    try {
+      const { notificationService } = await import('../services/notificationService');
+      const referrerProfile = await supabaseService.getProfileById(validation.referrerId);
       
-      // Send notification to referrer
-      try {
-        const { notificationService } = await import('../services/notificationService');
-        const referrerProfile = await supabaseService.getProfileById(validation.referrerId);
-        
-        if (referrerProfile.success && referrerProfile.data) {
-          const totalBonus = (bonusResult.amount || 25) + (bonusResult.milestoneBonus || 0);
-          const message = bonusResult.milestoneReached
-            ? `Someone just joined using your referral link! You earned ${bonusResult.amount} RZC. Plus ${bonusResult.milestoneBonus} RZC milestone bonus! 🎉`
-            : `Someone just joined using your referral link! You earned ${bonusResult.amount} RZC.`;
-          
-          await notificationService.createNotification(
-            referrerProfile.data.wallet_address,
-            'referral_joined',
-            'New Referral Signup! 🎉',
-            message,
-            {
-              data: {
-                referral_code: referralCode,
-                new_user_address: newUserAddress,
-                bonus_amount: bonusResult.amount || 25,
-                milestone_bonus: bonusResult.milestoneBonus || 0,
-                milestone_reached: bonusResult.milestoneReached || false,
-                total_bonus: totalBonus
-              },
-              priority: 'high'
-            }
-          );
-          console.log('📬 Notification sent to referrer');
-        }
-      } catch (notifError) {
-        console.warn('⚠️ Failed to send notification:', notifError);
+      if (referrerProfile.success && referrerProfile.data) {
+        await notificationService.createNotification(
+          referrerProfile.data.wallet_address,
+          'referral_joined',
+          'New Referral Signup! 🎉',
+          `Someone just joined using your referral link! You'll earn RZC and TON commissions when they activate or purchase packages.`,
+          {
+            data: { referral_code: referralCode, new_user_address: newUserAddress },
+            priority: 'normal'
+          }
+        );
+        console.log('📬 Notification sent to referrer');
       }
-
-      return {
-        success: true,
-        referrerId: validation.referrerId,
-        bonusAwarded: true
-      };
-    } else {
-      console.error('❌ Referral bonus failed:', bonusResult.error);
-      return {
-        success: true, // Don't fail the signup if bonus fails
-        referrerId: validation.referrerId,
-        bonusAwarded: false,
-        error: bonusResult.error
-      };
+    } catch (notifError) {
+      console.warn('⚠️ Failed to send notification:', notifError);
     }
+
+    return {
+      success: true,
+      referrerId: validation.referrerId,
+      bonusAwarded: false
+    };
   } catch (error: any) {
     console.error('❌ Referral processing error:', error);
     return { success: false, error: error.message };

@@ -19,7 +19,7 @@ const STEPS = ['Enter Phrase', 'Set Password'];
 
 const ImportWallet: React.FC = () => {
   const navigate = useNavigate();
-  const { login, isLoggedIn } = useWallet();
+  const { login, isLoggedIn, network, switchNetwork } = useWallet();
   const { showToast } = useToast();
 
   const [step, setStep] = useState(1);
@@ -51,6 +51,21 @@ const ImportWallet: React.FC = () => {
       .then(text => setBip39Words(text.trim().split('\n')))
       .catch(() => {});
   }, []);
+
+  // Enforce Mainnet network for wallet import
+  useEffect(() => {
+    const enforceMainnet = async () => {
+      if (network !== 'mainnet') {
+        try {
+          await switchNetwork('mainnet');
+          showToast('Switched network to Mainnet for wallet import', 'info');
+        } catch (e) {
+          console.error('Failed to switch to mainnet:', e);
+        }
+      }
+    };
+    enforceMainnet();
+  }, [network, switchNetwork, showToast]);
 
   // ─── Paste smart handler — strips "1. word" numbering format ─────────────
   const handlePaste = async () => {

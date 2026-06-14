@@ -362,8 +362,8 @@ const GlobalPurchaseModal: React.FC = () => {
         'wallet_created activity'
       );
 
-      // Award RZC tokens if profile exists
-      if (profileResult.success && profileResult.data) {
+      // Award RZC tokens if profile exists and we are NOT on testnet
+      if (profileResult.success && profileResult.data && network !== 'testnet') {
         const userId = profileResult.data.id;
         const rewardResult = await supabaseService.awardRZCTokens(
           userId, pkg.rzcReward,
@@ -452,6 +452,13 @@ const GlobalPurchaseModal: React.FC = () => {
     } catch (e: any) {
       console.error('[Activation] Critical error:', e);
       throw e; // Re-throw critical errors
+    }
+
+    if (network === 'testnet') {
+      success('You bought with Testnet successfully! Now buy with Real Mainnet to get credited with RZC in real time.');
+      if (onSuccessCallback) onSuccessCallback(pkg.id);
+      closePurchaseModal();
+      return;
     }
 
     const successMessage = pkg.pricePoint > 0

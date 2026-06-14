@@ -52,7 +52,7 @@ const More = React.lazy(() => import('./pages/More'));
 const RzcUtility = React.lazy(() => import('./pages/RzcUtility'));
 const Swap = React.lazy(() => import('./pages/Swap'));
 const WalletMigration = React.lazy(() => import('./pages/WalletMigration'));
-const SecondaryWallet = React.lazy(() => import('./pages/SecondaryWallet'));
+const MultiChain = React.lazy(() => import('./pages/MultiChain'));
 const CloudBackup = React.lazy(() => import('./pages/CloudBackup'));
 const TwoFactorSetup = React.lazy(() => import('./pages/TwoFactorSetup'));
 const RzcStore = React.lazy(() => import('./pages/RzcStore'));
@@ -85,6 +85,8 @@ import { AdminEditModalProvider } from './context/AdminEditModalContext';
 import AddressChangelogModal from './components/AddressChangelogModal';
 import FloatingSupportEnhanced from './components/FloatingSupportEnhanced';
 import GlobalAdminEditModal from './components/GlobalAdminEditModal';
+import GlobalAssetSelectorModal from './components/GlobalAssetSelectorModal';
+import { AssetSelectorProvider } from './context/AssetSelectorContext';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, isLoading } = useWallet();
@@ -232,6 +234,9 @@ const AppContent: React.FC = () => {
       {/* Global Admin Edit Modal */}
       <GlobalAdminEditModal />
 
+      {/* Global Asset Selector (opened by Transfer page) */}
+      <GlobalAssetSelectorModal />
+
       {/* Enhanced Support Ticket System with Conversations */}
       <FloatingSupportEnhanced />
 
@@ -308,7 +313,7 @@ const AppContent: React.FC = () => {
             <Route path="/wallet/store" element={<ProtectedRoute><RzcStore /></ProtectedRoute>} />
             <Route path="/wallet/swap" element={<ProtectedRoute><Swap /></ProtectedRoute>} />
             <Route path="/wallet/migration" element={<ProtectedRoute><WalletMigration /></ProtectedRoute>} />
-            <Route path="/wallet/multi-chain" element={<ProtectedRoute><SecondaryWallet /></ProtectedRoute>} />
+            <Route path="/wallet/multi-chain" element={<ProtectedRoute><MultiChain /></ProtectedRoute>} />
             <Route path="/wallet/cloud-backup" element={<ProtectedRoute><CloudBackup /></ProtectedRoute>} />
             <Route path="/wallet/2fa" element={<ProtectedRoute><TwoFactorSetup /></ProtectedRoute>} />
             <Route path="/wallet/invoices" element={<ProtectedRoute><InvoiceLookup /></ProtectedRoute>} />
@@ -338,11 +343,13 @@ const App: React.FC = () => {
                 <AirdropProvider>
                   <SettingsModalProvider>
                     <PurchaseModalProvider>
-                      <VerificationFormProvider>
-                        <ActivationModalProvider>
-                          <AppContent />
-                        </ActivationModalProvider>
-                      </VerificationFormProvider>
+                      <AssetSelectorProvider>
+                        <VerificationFormProvider>
+                          <ActivationModalProvider>
+                            <AppContent />
+                          </ActivationModalProvider>
+                        </VerificationFormProvider>
+                      </AssetSelectorProvider>
                     </PurchaseModalProvider>
                   </SettingsModalProvider>
                 </AirdropProvider>

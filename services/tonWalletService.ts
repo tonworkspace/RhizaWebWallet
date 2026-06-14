@@ -166,6 +166,22 @@ export class TonWalletService {
   private currentWalletId: string | null = null; // Track current wallet for secure secret management
 
   /**
+   * Formats any TON address (0Q... or UQ...) into the canonical string representation
+   * for the current network.
+   */
+  public formatAddress(address: string | Address, bounceable: boolean = false): string {
+    const isTestnet = this.currentNetwork === 'testnet';
+    try {
+      const addr = typeof address === 'string' ? Address.parse(address) : address;
+      return addr.toString({ testOnly: isTestnet, bounceable });
+    } catch (e) {
+      console.error('[formatAddress] Invalid address format:', address);
+      return typeof address === 'string' ? address : address.toString();
+    }
+  }
+
+
+  /**
    * Phase 1: RPC Failover Helper
    * Safely fetches from multiple endpoints to guarantee uptime.
    */
@@ -207,6 +223,65 @@ export class TonWalletService {
     }
     
     throw lastError || new Error('All RPC endpoints failed');
+  }
+
+  // ── BROADCAST FAILOVER (V3 -> V2 -> TonAPI) ──────────
+  private async broadcastBoc(bocBase64: string): Promise<void> {
+    let broadcastSuccess = false;
+    let broadcastError = '';
+    try {
+      const broadcastRes = await this.toncenterFetch('/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boc: bocBase64 }),
+      });
+      if (broadcastRes.ok) {
+        broadcastSuccess = true;
+      } else {
+        const text = await broadcastRes.text().catch(() => broadcastRes.statusText);
+        broadcastError = `HTTP ${broadcastRes.status}: ${text}`;
+      }
+    } catch (e) {
+      broadcastError = String(e);
+    }
+
+    if (!broadcastSuccess) {
+      console.warn(`[Broadcast] V3 failed: ${broadcastError}. Falling back to V2...`);
+      const v2Base = this.currentNetwork === 'mainnet' ? 'https://toncenter.com/api/v2' : 'https://testnet.toncenter.com/api/v2';
+      
+      const config = getNetworkConfig(this.currentNetwork);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (config.API_KEY) {
+        headers['X-API-Key'] = config.API_KEY;
+      }
+
+      try {
+        const v2Res = await fetch(`${v2Base}/sendBoc`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ boc: bocBase64 })
+        });
+        
+        if (!v2Res.ok) {
+           const text = await v2Res.text().catch(() => v2Res.statusText);
+           console.warn(`[Broadcast] V2 failed too: ${text}. Falling back to TonAPI...`);
+           
+           const tonapiBase = this.currentNetwork === 'mainnet' ? 'https://tonapi.io/v2' : 'https://testnet.tonapi.io/v2';
+           const tonapiRes = await fetch(`${tonapiBase}/bocs`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ boc: bocBase64 })
+           });
+           
+           if (!tonapiRes.ok) {
+               const text3 = await tonapiRes.text().catch(() => tonapiRes.statusText);
+               throw new Error(`Broadcast completely failed. V3 Error: ${broadcastError.substring(0,50)}. V2 Error: ${text.substring(0,50)}. TonAPI Error: ${text3.substring(0,50)}`);
+           }
+        }
+      } catch (fallbackErr) {
+         throw new Error(`Broadcast completely failed. V3 Error: ${broadcastError.substring(0,50)}. Fallback Error: ${String(fallbackErr)}`);
+      }
+    }
   }
 
   // ── AUDIT FIX #3: Jetton wallet address caching for performance ──────────
@@ -327,14 +402,7 @@ export class TonWalletService {
 
     try {
       // ── Use TonCenter V3 REST directly — fastest path with premium API key ──
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Base = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
-      const res = await fetch(`${v3Base}/account?address=${addr}`, {
-        headers: config.API_KEY ? { 'X-API-Key': config.API_KEY } : {}
-      });
+      const res = await this.toncenterFetch(`/account?address=${addr}`);
 
       if (!res.ok) throw new Error(`V3 HTTP ${res.status}`);
       const data = await res.json();
@@ -377,15 +445,8 @@ export class TonWalletService {
 
   async getBalanceByAddress(address: string) {
     try {
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Base = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
       // ── V3 REST is faster than V2 jsonRPC for simple account lookups ─────────
-      const res = await fetch(`${v3Base}/account?address=${address}`, {
-        headers: config.API_KEY ? { 'X-API-Key': config.API_KEY } : {}
-      });
+      const res = await this.toncenterFetch(`/account?address=${address}`);
 
       if (!res.ok) throw new Error(`V3 HTTP ${res.status}`);
       const data = await res.json();
@@ -402,18 +463,9 @@ export class TonWalletService {
 
   async getJettons(address: string) {
     try {
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
       console.log(`🪙 Fetching jettons for ${address} on ${this.currentNetwork} via TonCenter V3...`);
 
-      const res = await fetch(`${v3Endpoint}/jetton/wallets?owner_address=${address}&limit=250`, {
-        headers: {
-          'x-api-key': config.API_KEY
-        }
-      });
+      const res = await this.toncenterFetch(`/jetton/wallets?owner_address=${address}&limit=250`);
 
       if (!res.ok) {
         console.warn('⚠️ Jettons fetch failed, returning empty array');
@@ -423,6 +475,8 @@ export class TonWalletService {
       const data = await res.json();
       
       // Map TonCenter V3 jettons to look like TonAPI jettons for frontend compatibility
+      const metadataMap = data.metadata || {};
+      
       let mappedBalances = (data.jetton_wallets || []).map((w: any) => {
         let friendlyAddress = w.jetton;
         try {
@@ -433,14 +487,25 @@ export class TonWalletService {
         } catch (e) {
           // ignore parsing errors
         }
+
+        // Try to get metadata from TonCenter V3 structure
+        const tokenInfo = metadataMap[w.jetton]?.token_info?.[0];
+        
+        const name = tokenInfo?.name || w.jetton_master?.name || 'Unknown Token';
+        const symbol = tokenInfo?.symbol || w.jetton_master?.symbol || 'TKN';
+        const decimalsStr = tokenInfo?.extra?.decimals || w.jetton_master?.decimals;
+        const decimals = decimalsStr !== undefined ? Number(decimalsStr) : 9;
+        const image = tokenInfo?.image || w.jetton_master?.image || '';
+
         return {
           balance: w.balance,
+          wallet_address: w.address,  // user's per-wallet jetton contract (needed for sendJettonTransaction)
           jetton: {
             address: friendlyAddress,
-            name: w.jetton_master?.name || 'Unknown Token',
-            symbol: w.jetton_master?.symbol || 'TKN',
-            decimals: w.jetton_master?.decimals || 9,
-            image: w.jetton_master?.image || ''
+            name,
+            symbol,
+            decimals,
+            image
           }
         };
       });
@@ -461,20 +526,10 @@ export class TonWalletService {
     decimals: number = 9
   ): Promise<{ success: boolean; balance?: string; error?: string }> {
     try {
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
       console.log(`🪙 Fetching jetton balance for ${jettonMasterAddress}...`);
 
-      const res = await fetch(
-        `${v3Endpoint}/jetton/wallets?owner_address=${ownerAddress}&jetton_address=${jettonMasterAddress}&limit=1`,
-        {
-          headers: {
-            'x-api-key': config.API_KEY
-          }
-        }
+      const res = await this.toncenterFetch(
+        `/jetton/wallets?owner_address=${ownerAddress}&jetton_address=${jettonMasterAddress}&limit=1`
       );
 
       if (!res.ok) {
@@ -517,20 +572,10 @@ export class TonWalletService {
       }
 
       // Fetch from API
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
       console.log(`🔍 Resolving jetton wallet address for ${jettonMasterAddress}...`);
 
-      const res = await fetch(
-        `${v3Endpoint}/jetton/wallets?owner_address=${ownerAddress}&jetton_address=${jettonMasterAddress}&limit=1`,
-        {
-          headers: {
-            'x-api-key': config.API_KEY
-          }
-        }
+      const res = await this.toncenterFetch(
+        `/jetton/wallets?owner_address=${ownerAddress}&jetton_address=${jettonMasterAddress}&limit=1`
       );
 
       if (!res.ok) {
@@ -565,19 +610,10 @@ export class TonWalletService {
 
   async getTransactions(address: string, limit: number = 50) {
     try {
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
       console.log(`📜 Fetching transactions for ${address} on ${this.currentNetwork} via TonCenter V3...`);
 
       // Using /transactions which is standard in V3
-      const response = await fetch(`${v3Endpoint}/transactions?account=${address}&limit=${limit}`, {
-        headers: {
-          'x-api-key': config.API_KEY
-        }
-      });
+      const response = await this.toncenterFetch(`/transactions?account=${address}&limit=${limit}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -597,18 +633,9 @@ export class TonWalletService {
 
   async getNFTs(address: string, limit: number = 100) {
     try {
-      const config = getNetworkConfig(this.currentNetwork);
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-
       console.log(`🖼️ Fetching NFTs for ${address} on ${this.currentNetwork} via TonCenter V3...`);
 
-      const response = await fetch(`${v3Endpoint}/nft/items?owner_address=${address}&limit=${limit}`, {
-        headers: {
-          'x-api-key': config.API_KEY
-        }
-      });
+      const response = await this.toncenterFetch(`/nft/items?owner_address=${address}&limit=${limit}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -668,7 +695,7 @@ export class TonWalletService {
       }
 
       const currentBalance = parseFloat(balanceResult.balance);
-      const estimatedFee = 0.01; // Estimated gas fee in TON
+      const estimatedFee = 0.005; // Estimated gas fee in TON
 
       if (currentBalance < amountNum + estimatedFee) {
         return {
@@ -680,41 +707,6 @@ export class TonWalletService {
       // Get seqno (sequence number for the transaction)
       const seqno = await this.contract.getSeqno();
       console.log(`📝 Current seqno: ${seqno}`);
-
-      // ── SECURITY FIX #7: Estimate actual fee before sending ──────────────
-      // Create a test transfer to estimate fees
-      const testTransfer = this.contract.createTransfer({
-        seqno,
-        secretKey: this.keyPair.secretKey,
-        messages: [
-          internal({
-            to: recipientAddr,
-            value: toNano(amountNum.toFixed(9)),
-            body: fullComment,
-            bounce: false,
-          })
-        ]
-      });
-
-      // Estimate fee (this is approximate, actual fee may vary slightly)
-      let actualFee = 0.01; // Default fallback
-      try {
-        // Try to estimate fee using the contract
-        // Note: This is a best-effort estimation
-        const feeEstimate = await this.contract.estimateFee(testTransfer);
-        actualFee = Number(feeEstimate) / 1e9;
-        console.log(`💰 Estimated fee: ${actualFee.toFixed(4)} TON`);
-      } catch (feeError) {
-        console.warn('⚠️ Could not estimate fee, using default:', actualFee);
-      }
-
-      // Re-check balance with actual fee
-      if (currentBalance < amountNum + actualFee) {
-        return {
-          success: false,
-          error: `Insufficient balance. You have ${currentBalance.toFixed(4)} TON but need ${(amountNum + actualFee).toFixed(4)} TON (${amount} + ${actualFee.toFixed(4)} fee)`
-        };
-      }
 
       // Create actual transfer message with sanitized comment
       const transfer = this.contract.createTransfer({
@@ -761,29 +753,11 @@ export class TonWalletService {
       console.log(`📤 Sending transaction to ${this.currentNetwork}...`);
       console.log(`   TX Hash (normalized): ${txHash}`);
 
-      // Broadcast via TonCenter V3 /message endpoint
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-      const { getNetworkConfig } = await import('../constants');
-      const config = getNetworkConfig(this.currentNetwork);
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (config.API_KEY) headers['X-API-Key'] = config.API_KEY;
-
-      const broadcastRes = await fetch(`${v3Endpoint}/message`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ boc: bocBase64 }),
-      });
-
-      if (!broadcastRes.ok) {
-        const text = await broadcastRes.text().catch(() => broadcastRes.statusText);
-        throw new Error(`Broadcast failed (${broadcastRes.status}): ${text}`);
-      }
+      // Broadcast via TonCenter V3 /message endpoint with multi-RPC fallback
+      await this.broadcastBoc(bocBase64);
 
       console.log(`✅ Transaction sent successfully!`);
       console.log(`   Seqno: ${seqno}`);
-      console.log(`   Waiting for confirmation...`);
 
       // Invalidate balance cache so next fetch goes on-chain
       try {
@@ -794,38 +768,15 @@ export class TonWalletService {
         );
       } catch { /* non-critical */ }
 
-      // Wait for transaction confirmation (check if seqno increased)
-      let currentSeqno = seqno;
-      let attempts = 0;
-      const maxAttempts = 30;
-
-      while (currentSeqno === seqno && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try {
-          currentSeqno = await this.contract.getSeqno();
-          attempts++;
-        } catch (e) {
-          console.warn('⚠️ Failed to check seqno, retrying...');
-        }
-      }
-
-      if (currentSeqno > seqno) {
-        console.log(`✅ Transaction confirmed! New seqno: ${currentSeqno}`);
-        return {
-          success: true,
-          txHash,
-          seqno,
-          message: 'Transaction sent and confirmed'
-        };
-      } else {
-        console.warn('⚠️ Transaction sent but confirmation timeout');
-        return {
-          success: true,
-          txHash,
-          seqno,
-          message: 'Transaction sent (confirmation pending)'
-        };
-      }
+      // UX OPTIMIZATION (Phase 1): Return immediately to instantly unblock UI
+      // Background sync handles final confirmation.
+      return {
+        success: true,
+        pending: true,
+        txHash,
+        seqno,
+        message: 'Transaction sent (confirmation pending)'
+      };
 
     } catch (e) {
       console.error('❌ Transaction failed:', e);
@@ -845,7 +796,7 @@ export class TonWalletService {
     recipientAddress: string,
     amount: string,
     bocBody?: string
-  ): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  ): Promise<{ success: boolean; txHash?: string; error?: string; pending?: boolean }> {
     if (!this.contract || !this.keyPair) {
       return { success: false, error: 'Wallet not initialized' };
     }
@@ -909,34 +860,10 @@ export class TonWalletService {
         .endCell();
       const txHash = normalizedCell.hash().toString('hex');
 
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-      const config = getNetworkConfig(this.currentNetwork);
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (config.API_KEY) headers['X-API-Key'] = config.API_KEY;
+      // Broadcast with fallback
+      await this.broadcastBoc(bocBase64);
 
-      const broadcastRes = await fetch(`${v3Endpoint}/message`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ boc: bocBase64 }),
-      });
-
-      if (!broadcastRes.ok) {
-        const text = await broadcastRes.text().catch(() => broadcastRes.statusText);
-        throw new Error(`Broadcast failed (${broadcastRes.status}): ${text}`);
-      }
-
-      // Wait for seqno confirmation
-      let currentSeqno = seqno;
-      let attempts = 0;
-      while (currentSeqno === seqno && attempts < 30) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try { currentSeqno = await this.contract.getSeqno(); } catch { break; }
-        attempts++;
-      }
-
-      return { success: true, txHash };
+      return { success: true, pending: true, txHash };
     } catch (e) {
       console.error('❌ sendTransactionWithBody failed:', e);
       return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -950,7 +877,7 @@ export class TonWalletService {
    */
   async sendMultiTransactionWithBodies(
     recipients: Array<{ to: string; amount: string; bocBody?: string }>
-  ): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  ): Promise<{ success: boolean; txHash?: string; error?: string; pending?: boolean }> {
     if (!this.contract || !this.keyPair) {
       return { success: false, error: 'Wallet not initialized' };
     }
@@ -1007,34 +934,10 @@ export class TonWalletService {
         .endCell();
       const txHash = normalizedCell.hash().toString('hex');
 
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-      const config = getNetworkConfig(this.currentNetwork);
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (config.API_KEY) headers['X-API-Key'] = config.API_KEY;
+      // Broadcast with fallback
+      await this.broadcastBoc(bocBase64);
 
-      const broadcastRes = await fetch(`${v3Endpoint}/message`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ boc: bocBase64 }),
-      });
-
-      if (!broadcastRes.ok) {
-        const text = await broadcastRes.text().catch(() => broadcastRes.statusText);
-        throw new Error(`Broadcast failed (${broadcastRes.status}): ${text}`);
-      }
-
-      // Wait for seqno confirmation
-      let currentSeqno = seqno;
-      let attempts = 0;
-      while (currentSeqno === seqno && attempts < 30) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try { currentSeqno = await this.contract.getSeqno(); } catch { break; }
-        attempts++;
-      }
-
-      return { success: true, txHash };
+      return { success: true, pending: true, txHash };
     } catch (e) {
       console.error('❌ sendMultiTransactionWithBodies failed:', e);
       return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -1047,7 +950,7 @@ export class TonWalletService {
    */
   async sendMultiTransaction(
     recipients: { address: string; amount: string; comment?: string }[]
-  ): Promise<{ success: boolean; txHash?: string; seqno?: number; error?: string }> {
+  ): Promise<{ success: boolean; txHash?: string; seqno?: number; error?: string; pending?: boolean }> {
     if (!this.contract || !this.keyPair) {
       return { success: false, error: 'Wallet not initialized' };
     }
@@ -1082,7 +985,7 @@ export class TonWalletService {
       const balanceResult = await this.getBalance();
       if (!balanceResult.success) return { success: false, error: 'Failed to check balance' };
       const currentBalance = parseFloat(balanceResult.balance);
-      const estimatedFee = 0.015; // slightly higher for multi-message
+      const estimatedFee = 0.005; // slightly higher for multi-message
       if (currentBalance < totalTON + estimatedFee) {
         return {
           success: false,
@@ -1122,25 +1025,8 @@ export class TonWalletService {
         .endCell();
       const txHash = normalizedCell.hash().toString('hex');
 
-      // Broadcast via TonCenter V3 /message endpoint
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-      const { getNetworkConfig } = await import('../constants');
-      const config = getNetworkConfig(this.currentNetwork);
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (config.API_KEY) headers['X-API-Key'] = config.API_KEY;
-
-      const broadcastRes = await fetch(`${v3Endpoint}/message`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ boc: bocBase64 }),
-      });
-
-      if (!broadcastRes.ok) {
-        const text = await broadcastRes.text().catch(() => broadcastRes.statusText);
-        throw new Error(`Broadcast failed (${broadcastRes.status}): ${text}`);
-      }
+      // Broadcast via TonCenter V3 /message endpoint with multi-RPC fallback
+      await this.broadcastBoc(bocBase64);
 
       // Invalidate balance cache so next fetch goes on-chain
       try {
@@ -1151,16 +1037,7 @@ export class TonWalletService {
         );
       } catch { /* non-critical */ }
 
-      // Wait for confirmation
-      let currentSeqno = seqno;
-      let attempts = 0;
-      while (currentSeqno === seqno && attempts < 30) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try { currentSeqno = await this.contract.getSeqno(); } catch {}
-        attempts++;
-      }
-
-      return { success: true, txHash, seqno };
+      return { success: true, pending: true, txHash, seqno };
     } catch (e) {
       console.error('❌ Multi-transaction failed:', e);
       return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -1279,62 +1156,19 @@ export class TonWalletService {
 
       console.log(`📤 Sending jetton transaction to ${this.currentNetwork}...`);
 
-      // Broadcast via TonCenter V3 /message endpoint
-      const v3Endpoint = this.currentNetwork === 'mainnet'
-        ? 'https://toncenter.com/api/v3'
-        : 'https://testnet.toncenter.com/api/v3';
-      const { getNetworkConfig } = await import('../constants');
-      const config = getNetworkConfig(this.currentNetwork);
-      const broadcastHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (config.API_KEY) broadcastHeaders['X-API-Key'] = config.API_KEY;
-
-      const broadcastRes = await fetch(`${v3Endpoint}/message`, {
-        method: 'POST',
-        headers: broadcastHeaders,
-        body: JSON.stringify({ boc: bocBase64 }),
-      });
-
-      if (!broadcastRes.ok) {
-        const text = await broadcastRes.text().catch(() => broadcastRes.statusText);
-        throw new Error(`Broadcast failed (${broadcastRes.status}): ${text}`);
-      }
+      // Broadcast via TonCenter V3 /message endpoint with multi-RPC fallback
+      await this.broadcastBoc(bocBase64);
 
       console.log(`✅ Jetton transaction sent successfully!`);
       console.log(`   Seqno: ${seqno}`);
-      console.log(`   Waiting for confirmation...`);
 
-      // Wait for transaction confirmation
-      let currentSeqno = seqno;
-      let attempts = 0;
-      const maxAttempts = 30;
-
-      while (currentSeqno === seqno && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try {
-          currentSeqno = await this.contract.getSeqno();
-          attempts++;
-        } catch (e) {
-          console.warn('⚠️ Failed to check seqno, retrying...');
-        }
-      }
-
-      if (currentSeqno > seqno) {
-        console.log(`✅ Jetton transaction confirmed! New seqno: ${currentSeqno}`);
-        return {
-          success: true,
-          txHash,
-          seqno,
-          message: 'Jetton transaction sent and confirmed'
-        };
-      } else {
-        console.warn('⚠️ Jetton transaction sent but confirmation timeout');
-        return {
-          success: true,
-          txHash,
-          seqno,
-          message: 'Jetton transaction sent (confirmation pending)'
-        };
-      }
+      return {
+        success: true,
+        pending: true,
+        txHash,
+        seqno,
+        message: 'Jetton transaction sent (confirmation pending)'
+      };
 
     } catch (e) {
       console.error('❌ Jetton transaction failed:', e);
@@ -1387,7 +1221,7 @@ export class TonWalletService {
     console.log('👋 Logged out - secrets cleared from memory');
   }
 
-  isInitialized() { return !!this.contract; }
+  isInitialized() { return !!this.contract && !!this.keyPair; }
   getStoredSession(password: string) { return sessionManager.restoreSession(password); }
   hasStoredSession() { return sessionManager.hasSession(); }
   isSessionEncrypted() { return sessionManager.isEncrypted(); }
@@ -1402,21 +1236,7 @@ export class TonWalletService {
     }); 
   }
 
-  /**
-   * Formats any valid TON address into the canonical format used by the application
-   * (non-bounceable, with the correct testnet/mainnet flag).
-   * Useful for standardizing addresses from external sources or user input.
-   */
-  formatAddress(address: string, bounceable: boolean = false): string | null {
-    try {
-      return Address.parse(address).toString({
-        bounceable,
-        testOnly: this.currentNetwork === 'testnet'
-      });
-    } catch (e) {
-      return null;
-    }
-  }
+
 
   getCurrentNetwork() { return this.currentNetwork; }
 }

@@ -336,7 +336,7 @@ export function compareBalances(
  */
 export function formatAssetBalance(
   balance: string | number,
-  assetType: 'TON' | 'RZC' | 'BTC' | 'ETH' | 'EVM' | 'SOL' | 'TRON' | 'USDT' | 'JETTON',
+  assetType: 'TON' | 'RZC' | 'BTC' | 'ETH' | 'BNB' | 'EVM' | 'SOL' | 'TRON' | 'USDT' | 'JETTON',
   decimals: number
 ): string {
   const presets: Record<string, FormatBalanceOptions> = {
@@ -344,6 +344,7 @@ export function formatAssetBalance(
     RZC: { maxDecimals: 2, trimZeros: true },
     BTC: { maxDecimals: 8, trimZeros: true },
     ETH: { maxDecimals: 6, trimZeros: true },
+    BNB: { maxDecimals: 6, trimZeros: true },
     EVM: { maxDecimals: 6, trimZeros: true },
     SOL: { maxDecimals: 6, trimZeros: true },
     TRON: { maxDecimals: 6, trimZeros: true },

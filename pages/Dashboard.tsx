@@ -86,7 +86,7 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { showToast } = useToast();
-  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData, isActivated, activatedAt, multiChainBalances, currentEvmChain, rzcPrice: contextRzcPrice, jettons, dashView, setDashView } = useWallet();
+  const { balance, address, refreshData, network, switchNetwork, userProfile, referralData, isActivated, activatedAt, multiChainBalances, currentEvmChain, rzcPrice: contextRzcPrice, jettons, dashView, setDashView, pendingTransactions } = useWallet();
   const networkConfig = getNetworkConfig(network);
   const {
     tonBalance,
@@ -273,9 +273,21 @@ const Dashboard: React.FC = () => {
   const unifiedTronBalance = multiChainBalances ? parseFloat(multiChainBalances.tron || '0') : 0;
   const unifiedTronUsdValue = unifiedTronBalance * (tronPrice || 0);
 
-  // Calculate combined portfolio value (TON + RZC + Jettons + Unified USDT + Unified TRON)
+  const unifiedSolBalance = multiChainBalances ? parseFloat(multiChainBalances.sol || '0') : 0;
+  const unifiedSolUsdValue = unifiedSolBalance * (solPrice || 0);
+
+  const unifiedEthBalance = multiChainBalances ? parseFloat(multiChainBalances.eth || '0') : 0;
+  const unifiedEthUsdValue = unifiedEthBalance * (ethPrice || 0);
+
+  const unifiedBnbBalance = multiChainBalances ? parseFloat(multiChainBalances.bnb || '0') : 0;
+  const unifiedBnbUsdValue = unifiedBnbBalance * (bnbPrice || 0);
+
+  const unifiedBtcBalance = multiChainBalances ? parseFloat(multiChainBalances.btc || '0') : 0;
+  const unifiedBtcUsdValue = unifiedBtcBalance * (btcPrice || 0);
+
+  // Calculate combined portfolio value (TON + RZC + Jettons + Unified USDT + Unified TRON + Unified SOL + ETH + BNB + BTC)
   // `totalUsdValue` uses `balance` from useWallet, which is synced to the active wallet.
-  const combinedPortfolioValue = totalUsdValue + rzcUsdValue + jettonsUsdValue + unifiedUsdtUsdValue + unifiedTronUsdValue;
+  const combinedPortfolioValue = totalUsdValue + rzcUsdValue + jettonsUsdValue + unifiedUsdtUsdValue + unifiedTronUsdValue + unifiedSolUsdValue + unifiedEthUsdValue + unifiedBnbUsdValue + unifiedBtcUsdValue;
 
   // Node Activation Progressive Milestone
   const nodeMilestoneTotal = getNodeActivationMilestoneRZC(network || 'mainnet');
@@ -764,6 +776,62 @@ const Dashboard: React.FC = () => {
       change: assetChanges.tron || 0,
     });
 
+    // Universal Multi-Chain SOL - Visible for all wallets
+    list.push({
+      id: 'sol',
+      symbol: 'SOL',
+      name: 'Solana',
+      balance: unifiedSolBalance,
+      usdValue: unifiedSolUsdValue,
+      price: solPrice || 0,
+      color: 'text-purple-500',
+      bg: 'bg-purple-500',
+      logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png',
+      change: assetChanges.sol || 0,
+    });
+
+    // Universal Multi-Chain ETH
+    list.push({
+      id: 'eth',
+      symbol: 'ETH',
+      name: 'Ethereum',
+      balance: unifiedEthBalance,
+      usdValue: unifiedEthUsdValue,
+      price: ethPrice || 0,
+      color: 'text-indigo-500',
+      bg: 'bg-indigo-500',
+      logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+      change: assetChanges.eth || 0,
+    });
+
+    // Universal Multi-Chain BNB
+    list.push({
+      id: 'bnb',
+      symbol: 'BNB',
+      name: 'BNB',
+      balance: unifiedBnbBalance,
+      usdValue: unifiedBnbUsdValue,
+      price: bnbPrice || 0,
+      color: 'text-yellow-500',
+      bg: 'bg-yellow-500',
+      logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
+      change: assetChanges.bnb || 0,
+    });
+
+    // Universal Multi-Chain BTC
+    list.push({
+      id: 'btc',
+      symbol: 'BTC',
+      name: 'Bitcoin',
+      balance: unifiedBtcBalance,
+      usdValue: unifiedBtcUsdValue,
+      price: btcPrice || 0,
+      color: 'text-orange-500',
+      bg: 'bg-orange-500',
+      logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
+      change: assetChanges.btc || 0,
+    });
+
     // Jettons (on-chain TON jettons from TonCenter / WDK injection)
     if (jettons && jettons.length > 0) {
       jettons.forEach((j: any) => {
@@ -807,12 +875,12 @@ const Dashboard: React.FC = () => {
 
     // Sort logic (highest USD value first)
     return list.sort((a, b) => b.usdValue - a.usdValue);
-  }, [combinedPortfolioValue, rzcBalance, rzcUsdValue, tonBalance, totalUsdValue, multiChainBalances, currentEvmChain, activeEvmPrice, hideDust, contextRzcPrice, jettons, rzcChange24h, unifiedUsdtBalance, unifiedUsdtUsdValue, usdtPrice, unifiedTronBalance, unifiedTronUsdValue, tronPrice, assetChanges]);
+  }, [combinedPortfolioValue, rzcBalance, rzcUsdValue, tonBalance, totalUsdValue, multiChainBalances, currentEvmChain, activeEvmPrice, hideDust, contextRzcPrice, jettons, rzcChange24h, unifiedUsdtBalance, unifiedUsdtUsdValue, usdtPrice, unifiedTronBalance, unifiedTronUsdValue, tronPrice, unifiedSolBalance, unifiedSolUsdValue, solPrice, unifiedEthBalance, unifiedEthUsdValue, ethPrice, unifiedBnbBalance, unifiedBnbUsdValue, bnbPrice, unifiedBtcBalance, unifiedBtcUsdValue, btcPrice, assetChanges]);
 
   // Build navigation state for AssetDetail from a dashboard asset entry
   const getAssetDetailState = (asset: typeof assetList[0]) => {
     const typeMap: Record<string, string> = {
-      rzc: 'RZC', ton: 'TON', usdt: 'EVM', tron: 'TRON'
+      rzc: 'RZC', ton: 'TON', usdt: 'EVM', tron: 'TRON', sol: 'SOL', eth: 'ETH', bnb: 'BNB', btc: 'BTC'
     };
     return {
       symbol: asset.symbol,
@@ -890,11 +958,13 @@ const Dashboard: React.FC = () => {
             tonPrice={tonPrice}
             btcPrice={btcPrice}
             ethPrice={ethPrice}
+            solPrice={solPrice}
             rzcPrice={contextRzcPrice}
             priceItems={[
               tonPrice > 0 && { symbol: 'TON', price: `$${tonPrice.toFixed(2)}`, color: 'text-blue-500' },
               btcPrice > 0 && { symbol: 'BTC', price: `$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, color: 'text-orange-500' },
               ethPrice > 0 && { symbol: 'ETH', price: `$${ethPrice.toFixed(2)}`, color: 'text-indigo-500' },
+              solPrice > 0 && { symbol: 'SOL', price: `$${solPrice.toFixed(2)}`, color: 'text-purple-500' },
               contextRzcPrice > 0 && { symbol: 'RZC', price: `$${contextRzcPrice.toFixed(4)}`, color: 'text-emerald-500' },
               (usdtPrice > 0 || true) && { symbol: 'USDT', price: `$${(usdtPrice || 1.0).toFixed(3)}`, color: 'text-teal-500' },
             ].filter(Boolean) as any[]}
@@ -903,11 +973,67 @@ const Dashboard: React.FC = () => {
             onRefresh={handleRefresh}
             onToggleView={toggleDashView}
             network={network}
+            isActivated={isActivated}
+            activatedAt={activatedAt ?? null}
+            verificationStatus={verificationStatus}
           />
         )}
 
         {/* ── PORTFOLIO VIEW (existing full dashboard) ── */}
         {dashView === 'portfolio' && (<>
+
+        {/* Testnet Warning Prompt */}
+        {network === 'testnet' && (
+          <div className="relative group p-4 bg-red-500/10 border border-red-500/20 rounded-2xl shadow-sm transition-all animate-in slide-in-from-top-4 fade-in duration-300 mb-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-600 dark:bg-red-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                <AlertCircle size={20} className="text-white" strokeWidth={2.5} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-heading font-black text-red-900 dark:text-red-300 leading-tight">
+                  You are currently on Testnet
+                </h3>
+                <p className="text-xs font-heading font-semibold text-red-800/80 dark:text-red-400/90 leading-snug mt-1.5">
+                  RhizaCore wallet features are optimized for Mainnet. We recommend switching to Mainnet for live wallet transactions.
+                </p>
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={() => { switchNetwork('mainnet'); showToast('Switched to Mainnet', 'success'); }}
+                    className="px-3 py-1.5 bg-red-600 dark:bg-[#00FF88] text-white dark:text-black rounded-lg text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-md"
+                  >
+                    Switch to Mainnet
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pending Transactions Banner */}
+        {pendingTransactions && pendingTransactions.length > 0 && (
+          <div className="relative group p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-2xl shadow-sm transition-all animate-in slide-in-from-top-4 fade-in duration-300 mb-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-600 dark:bg-amber-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                <RefreshCw size={20} className="text-white animate-spin" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <h3 className="text-sm font-heading font-black text-amber-900 dark:text-amber-300 leading-tight truncate">
+                    {pendingTransactions.length === 1 ? 'Pending Transaction' : `${pendingTransactions.length} Pending Transactions`}
+                  </h3>
+                </div>
+                <div className="space-y-1">
+                  {pendingTransactions.map(pt => (
+                    <div key={pt.id} className="flex justify-between text-xs font-heading font-semibold text-amber-800 dark:text-amber-400/90 leading-snug bg-amber-100 dark:bg-amber-500/20 px-2 py-1 rounded">
+                      <span className="capitalize">{pt.type}</span>
+                      <span>{pt.amount} {pt.symbol}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Transaction Confirmation Action Card */}
         {latestConfirmation && (

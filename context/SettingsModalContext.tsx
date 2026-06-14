@@ -17,6 +17,7 @@ interface SettingsModalContextType {
   // Confirmation Modal State
   showLogoutConfirm: boolean;
   showDeleteConfirm: boolean;
+  showAutoFixConfirm: boolean;
   
   // Export Modal Actions
   setExportMode: (mode: ExportMode) => void;
@@ -31,6 +32,7 @@ interface SettingsModalContextType {
   // Confirmation Modal Actions
   setShowLogoutConfirm: (show: boolean) => void;
   setShowDeleteConfirm: (show: boolean) => void;
+  setShowAutoFixConfirm: (show: boolean) => void;
   
   // Modal Actions
   openExportModal: (mode: 'mnemonic' | 'privatekey') => void;
@@ -68,6 +70,7 @@ export const SettingsModalProvider: React.FC<SettingsModalProviderProps> = ({ ch
   // Confirmation Modal State
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showAutoFixConfirm, setShowAutoFixConfirm] = useState(false);
   
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -148,6 +151,7 @@ export const SettingsModalProvider: React.FC<SettingsModalProviderProps> = ({ ch
     countdown,
     showLogoutConfirm,
     showDeleteConfirm,
+    showAutoFixConfirm,
     
     // Setters
     setExportMode,
@@ -160,6 +164,7 @@ export const SettingsModalProvider: React.FC<SettingsModalProviderProps> = ({ ch
     setCountdown,
     setShowLogoutConfirm,
     setShowDeleteConfirm,
+    setShowAutoFixConfirm,
     
     // Actions
     openExportModal,

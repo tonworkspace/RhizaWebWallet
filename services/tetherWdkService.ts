@@ -7,9 +7,10 @@ import { ethers, formatUnits } from 'ethers';
 import { encryptMnemonic, decryptMnemonic } from '../utils/encryption';
 import { getNetworkConfig, NetworkType } from '../constants';
 import { sanitizeComment } from '../utils/sanitization';
-import { NetworkFailover, EVM_RPC_FAILOVER } from './networkFailover';
+import { NetworkFailover, EVM_RPC_FAILOVER, SOLANA_RPC_FAILOVER } from './networkFailover';
 import { BalanceMonitor } from './balanceMonitor';
 import { PaymentRequestGenerator, PaymentRequest, PaymentRequestOptions } from './paymentRequests';
+import { getDeviceKey } from '../utils/deviceFingerprint';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WDK Configuration Constants
@@ -35,6 +36,21 @@ const ELECTRUM_WSS_MAINNET = 'wss://electrum.blockstream.info:50004';
 const ELECTRUM_WSS_TESTNET = 'wss://electrum.blockstream.info:60004';
 
 export type EvmChain = 'ethereum' | 'polygon' | 'arbitrum' | 'bsc' | 'bsc_testnet' | 'avalanche' | 'plasma' | 'stable' | 'sepolia' | 'polygon_testnet';
+
+export function getTargetEvmChain(chain: EvmChain, network: NetworkType): EvmChain {
+  if (network === 'mainnet') {
+    if (chain === 'sepolia') return 'ethereum';
+    if (chain === 'polygon_testnet') return 'polygon';
+    if (chain === 'bsc_testnet') return 'bsc';
+    return chain;
+  } else {
+    if (chain === 'ethereum' || chain === 'arbitrum' || chain === 'avalanche' || chain === 'plasma' || chain === 'stable') return 'sepolia';
+    if (chain === 'polygon') return 'polygon_testnet';
+    if (chain === 'bsc') return 'bsc_testnet';
+    return chain;
+  }
+}
+
 
 export const EVM_RPC_URLS: Record<EvmChain, string> = {
   ethereum: 'https://eth.drpc.org',
@@ -111,7 +127,7 @@ function wdkErrorMessage(error: any, chain: string): string {
   if (msg.includes('Electrum') || msg.includes('electrum'))
     return 'BTC network connection unavailable. Try again in a moment.';
 
-  return msg;
+  return `An unexpected error occurred on the ${chain} network. Please try again later.`;
 }
 
 
@@ -127,7 +143,6 @@ export class TetherWdkService {
   private btcAccount: any = null;
   private solAccount: any = null;
   private tronAccount: any = null;
-  private mnemonic: string | null = null;
   private currentNetwork: NetworkType = 'mainnet';
 
   // Native @ton/ton TonClient (V2 jsonRPC) — used for read operations (getSeqno, estimateFee)
@@ -165,6 +180,27 @@ export class TetherWdkService {
   }
 
   /**
+   * Set the network and reinitialize managers if already initialized.
+   */
+  async setNetwork(network: NetworkType) {
+    if (this.currentNetwork === network) return;
+    this.currentNetwork = network;
+    
+    // Only re-initialize if we've already been initialized with a wallet
+    if (this.isInitialized() || this.hasStoredWallet()) {
+      try {
+        const storedWallet = await this.getStoredWallet();
+        if (storedWallet) {
+          console.log(`[WDK] Re-initializing managers for network switch to ${network}`);
+          await this.initializeManagers(storedWallet);
+        }
+      } catch (e) {
+        console.error('[WDK] Failed to reinitialize on network switch:', e);
+      }
+    }
+  }
+
+  /**
    * Safely gets the RPC URL arrays avoiding prototype pollution.
    */
   private getEvmRpcUrls(chain: EvmChain | string): string[] {
@@ -190,8 +226,11 @@ export class TetherWdkService {
     localStorage.setItem('rhiza_evm_chain', chain);
 
     // Reinitialize if already running
-    if (this.mnemonic && this.evmManager) {
+    if (this.evmManager) {
       try {
+        const storedWallet = await this.getStoredWallet();
+        if (!storedWallet) return true; // Can't reinitialize without seed, but chain is switched
+
         const isMainnet = this.currentNetwork === 'mainnet';
 
         // Use failover RPC selection
@@ -200,7 +239,12 @@ export class TetherWdkService {
 
         try { this.evmManager.dispose(); } catch (_) { }
 
-        this.evmManager = new WalletManagerEvm(this.mnemonic, {
+        const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
+        const salt = ethers.toUtf8Bytes('mnemonic');
+        const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
+        const seedBytes = ethers.getBytes(seedHex);
+
+        this.evmManager = new WalletManagerEvm(seedBytes, {
           provider: workingRpc,
           transferMaxFee: EVM_MAX_FEE_WEI
         });
@@ -240,15 +284,14 @@ export class TetherWdkService {
     const seedBytes = ethers.getBytes(seedHex);
 
     // Save mnemonic immediately so background retries can use it if an individual manager fails
-    this.mnemonic = seedPhrase;
+    // (Removed for security: mnemonic is no longer stored in memory indefinitely)
 
     try {
       // ── EVM ──────────────────────────────────────────────────────────────────
       try {
         // Use failover RPC selection for better reliability
-        const rpcUrls = isMainnet
-          ? this.getEvmRpcUrls(this.currentEvmChain)
-          : this.getEvmRpcUrls('sepolia');
+        const targetChain = getTargetEvmChain(this.currentEvmChain, this.currentNetwork);
+        const rpcUrls = this.getEvmRpcUrls(targetChain);
 
         const workingRpc = await NetworkFailover.getWorkingRpc(rpcUrls);
 
@@ -262,15 +305,11 @@ export class TetherWdkService {
         console.error('[WDK/EVM] Init failed:', evmErr);
         // ── Deferred EVM retry: try once more after 5 seconds without blocking TON ──
         setTimeout(async () => {
-          if (!this.evmAccount && this.mnemonic === null && seedPhrase) {
-            // Only retry if the service hasn't been fully set up or logged out
-          }
           if (!this.evmAccount && this.tonAccount) {
             console.log('[WDK/EVM] Retrying EVM initialization in background...');
             try {
-              const rpcUrls = isMainnet
-                ? this.getEvmRpcUrls(this.currentEvmChain)
-                : this.getEvmRpcUrls('sepolia');
+              const targetChain = getTargetEvmChain(this.currentEvmChain, this.currentNetwork);
+              const rpcUrls = this.getEvmRpcUrls(targetChain);
               const workingRpc = await NetworkFailover.getWorkingRpc(rpcUrls);
               this.evmManager = new WalletManagerEvm(seedBytes, {
                 provider: workingRpc,
@@ -298,7 +337,7 @@ export class TetherWdkService {
         const v2TonClient = new TonClient({ endpoint: v2Url, apiKey });
         this.nativeTonClient = v2TonClient;
 
-        this.tonManager = new WalletManagerTon(seedPhrase, {
+        this.tonManager = new WalletManagerTon(seedBytes, {
           tonClient: { url: v3Url, secretKey: apiKey } as any,
           transferMaxFee: TON_MAX_FEE_NANO
         });
@@ -354,8 +393,10 @@ export class TetherWdkService {
 
       // ── Solana ────────────────────────────────────────────────────────────────
       try {
+        const solRpcUrls = isMainnet ? SOLANA_RPC_FAILOVER.mainnet : SOLANA_RPC_FAILOVER.devnet;
+        const solRpcUrl = await NetworkFailover.getWorkingRpc(solRpcUrls);
         this.solManager = new WalletManagerSolana(seedBytes, {
-          rpcUrl: isMainnet ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com',
+          rpcUrl: solRpcUrl,
           transferMaxFee: 10000000
         });
         this.solAccount = await this.solManager.getAccount(0);
@@ -366,10 +407,17 @@ export class TetherWdkService {
 
       // ── Tron ──────────────────────────────────────────────────────────────────
       try {
-        this.tronManager = new WalletManagerTron(seedBytes, {
+        const tronApiKey = import.meta.env.VITE_TRONGRID_API_KEY;
+        const tronConfig: any = {
           provider: isMainnet ? 'https://api.trongrid.io' : 'https://api.shasta.trongrid.io',
           transferMaxFee: 100000000
-        });
+        };
+        
+        if (tronApiKey) {
+          tronConfig.headers = { 'TRON-PRO-API-KEY': tronApiKey };
+        }
+
+        this.tronManager = new WalletManagerTron(seedBytes, tronConfig);
         this.tronAccount = await this.tronManager.getAccount(0);
         console.log('[WDK/TRON] Initialized');
       } catch (tronErr) {
@@ -398,7 +446,7 @@ export class TetherWdkService {
       let evmAddr = '';
       if (this.evmAccount) {
         evmAddr = await this.evmAccount.getAddress();
-      } else if (this.mnemonic) {
+      } else {
         try {
           const rootWallet = ethers.HDNodeWallet.fromSeed(seedBytes);
           const wallet = rootWallet.derivePath("m/44'/60'/0'/0/0");
@@ -418,9 +466,19 @@ export class TetherWdkService {
 
       try {
         const { WalletManager } = await import('../utils/walletManager');
+        const activeId = WalletManager.getActiveWalletId();
+        if (activeId) {
+          WalletManager.updateWalletAddresses(activeId, {
+            evm: addresses.evmAddress,
+            ton: addresses.tonAddress,
+            btc: addresses.btcAddress,
+            sol: addresses.solAddress,
+            tron: addresses.tronAddress
+          });
+        }
         const wallets = WalletManager.getWallets();
         const secondary = wallets.find(w => w.type === 'secondary');
-        if (secondary) {
+        if (secondary && secondary.id !== activeId) {
           WalletManager.updateWalletAddresses(secondary.id, {
             evm: addresses.evmAddress,
             ton: addresses.tonAddress,
@@ -454,8 +512,21 @@ export class TetherWdkService {
 
   /** True if at minimum the TON account is ready (EVM/BTC may have failed) */
   isTonReady(): boolean {
-    return !!this.tonAccount;
+    if (!this.tonAccount) return false;
+    const acc = this.tonAccount as any;
+    const hasSecret = !!(this.nativeTonKeyPair || acc._keyPair?.secretKey || acc.keyPair?.secretKey);
+    return hasSecret;
   }
+
+  /** True if the wallet is loaded AND keys are decrypted in memory */
+  isUnlocked(): boolean {
+    // A quick proxy for "unlocked" is if the secret keys are available on the ton account.
+    // When locked, WDK clears the secret keys but leaves the public keys/addresses.
+    if (!this.tonAccount) return false;
+    const acc = this.tonAccount as any;
+    return !!(this.nativeTonKeyPair || acc._keyPair?.secretKey || acc.keyPair?.secretKey);
+  }
+
 
   /** True if the EVM manager and account are both up */
   isEvmReady(): boolean {
@@ -470,8 +541,10 @@ export class TetherWdkService {
         localStorage.setItem(SECONDARY_WALLET_KEY, encrypted);
         localStorage.setItem(SECONDARY_WALLET_ENC_KEY, 'true');
       } else {
-        localStorage.setItem(SECONDARY_WALLET_KEY, JSON.stringify(mnemonicArray));
-        localStorage.setItem(SECONDARY_WALLET_ENC_KEY, 'false');
+        const deviceKey = await getDeviceKey();
+        const encrypted = await encryptMnemonic(mnemonicArray, deviceKey);
+        localStorage.setItem(SECONDARY_WALLET_KEY, encrypted);
+        localStorage.setItem(SECONDARY_WALLET_ENC_KEY, 'device');
       }
       return { success: true };
     } catch (e) {
@@ -481,7 +554,9 @@ export class TetherWdkService {
 
   async getStoredWallet(password?: string): Promise<string | null> {
     const stored = localStorage.getItem(SECONDARY_WALLET_KEY);
-    const isEncrypted = localStorage.getItem(SECONDARY_WALLET_ENC_KEY) === 'true';
+    const encKeyType = localStorage.getItem(SECONDARY_WALLET_ENC_KEY);
+    const isEncrypted = encKeyType === 'true';
+    const isDeviceEncrypted = encKeyType === 'device';
 
     if (!stored) return null;
 
@@ -490,8 +565,21 @@ export class TetherWdkService {
         if (!password) return null; // cannot decrypt without password
         const decrypted = await decryptMnemonic(stored, password);
         return decrypted.join(' ');
+      } else if (isDeviceEncrypted) {
+        const deviceKey = await getDeviceKey();
+        const decrypted = await decryptMnemonic(stored, deviceKey);
+        return decrypted.join(' ');
       } else {
+        // Auto-migration: Plaintext ('false' or missing) -> Device Encryption
         const parsed = JSON.parse(stored);
+        
+        console.log('🔄 Auto-migrating secondary wallet to device encryption...');
+        const deviceKey = await getDeviceKey();
+        const encrypted = await encryptMnemonic(parsed, deviceKey);
+        localStorage.setItem(SECONDARY_WALLET_KEY, encrypted);
+        localStorage.setItem(SECONDARY_WALLET_ENC_KEY, 'device');
+        console.log('✅ Secondary wallet migrated successfully');
+
         return parsed.join(' ');
       }
     } catch (e) {
@@ -505,7 +593,8 @@ export class TetherWdkService {
   }
 
   isEncrypted() {
-    return localStorage.getItem(SECONDARY_WALLET_ENC_KEY) === 'true';
+    const encType = localStorage.getItem(SECONDARY_WALLET_ENC_KEY);
+    return encType === 'true' || encType === 'device';
   }
 
   async getAddresses(): Promise<MultiChainAddresses | null> {
@@ -526,16 +615,19 @@ export class TetherWdkService {
     let evmAddress = '';
     if (this.evmAccount) {
       evmAddress = await this.evmAccount.getAddress();
-    } else if (this.mnemonic) {
-      try {
-        const password = ethers.toUtf8Bytes(this.mnemonic.normalize('NFKD'));
-        const salt = ethers.toUtf8Bytes('mnemonic');
-        const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
-        const rootWallet = ethers.HDNodeWallet.fromSeed(ethers.getBytes(seedHex));
-        const wallet = rootWallet.derivePath("m/44'/60'/0'/0/0");
-        evmAddress = wallet.address;
-      } catch (e) {
-        console.error('[WDK] Fallback EVM derivation failed:', e);
+    } else {
+      const storedWallet = await this.getStoredWallet();
+      if (storedWallet) {
+        try {
+          const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
+          const salt = ethers.toUtf8Bytes('mnemonic');
+          const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
+          const rootWallet = ethers.HDNodeWallet.fromSeed(ethers.getBytes(seedHex));
+          const wallet = rootWallet.derivePath("m/44'/60'/0'/0/0");
+          evmAddress = wallet.address;
+        } catch (e) {
+          console.error('[WDK] Fallback EVM derivation failed:', e);
+        }
       }
     }
 
@@ -702,9 +794,9 @@ export class TetherWdkService {
         ],
       });
 
-      // estimateFee is available on OpenedContract
-      const fee = await contract.estimateFee(transfer);
-      return { feeBigInt: fee, feeTon: (Number(fee) / 1e9).toFixed(6) };
+      // Return a safe fallback since WalletContract instances do not expose estimateFee
+      const fallbackFeeBigInt = BigInt(5_000_000); // 0.005 TON in nanotons
+      return { feeBigInt: fallbackFeeBigInt, feeTon: "0.005000" };
     } catch (e) {
       console.error('[WDK/TON] quoteSendTransaction error:', e);
       return null;
@@ -824,12 +916,201 @@ export class TetherWdkService {
     }
   }
 
+  // ── EVM TRANSACTIONS ────────────────────────────────────────────────────
+
+  async quoteSendEvmTransaction(toAddress: string, amount: string, explicitChain?: EvmChain): Promise<{ feeBigInt: bigint; feeEvm: string } | null> {
+    try {
+      const { ethers } = await import('ethers');
+      let targetAccount = this.evmAccount;
+      let tempManager: any = null;
+
+      if (explicitChain && explicitChain !== this.currentEvmChain) {
+        const storedWallet = await this.getStoredWallet('');
+        if (storedWallet) {
+           const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
+           const salt = ethers.toUtf8Bytes('mnemonic');
+           const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
+           const seedBytes = ethers.getBytes(seedHex);
+           const targetChain = getTargetEvmChain(explicitChain, this.currentNetwork);
+           const rpcUrls = this.getEvmRpcUrls(targetChain);
+           const rpc = await NetworkFailover.getWorkingRpc(rpcUrls);
+           tempManager = new WalletManagerEvm(seedBytes, { provider: rpc, transferMaxFee: EVM_MAX_FEE_WEI });
+           targetAccount = await tempManager.getAccount(0);
+        }
+      }
+
+      if (!targetAccount) throw new Error('EVM account not initialized');
+      const amountWei = ethers.parseUnits(amount, 18);
+      const res = await targetAccount.quoteSendTransaction({ to: toAddress, value: amountWei });
+      
+      if (tempManager) {
+        try { tempManager.dispose(); } catch (e) {}
+      }
+
+      return {
+        feeBigInt: res.fee,
+        feeEvm: ethers.formatUnits(res.fee, 18)
+      };
+    } catch (e) {
+      console.error('[WDK/EVM] quote error', e);
+      return null;
+    }
+  }
+
+  async sendEvmTransaction(toAddress: string, amount: string, explicitChain?: EvmChain): Promise<{ success: boolean; txHash?: string; fee?: string; error?: string }> {
+    try {
+      const { ethers } = await import('ethers');
+      let targetAccount = this.evmAccount;
+      let tempManager: any = null;
+
+      if (explicitChain && explicitChain !== this.currentEvmChain) {
+        const storedWallet = await this.getStoredWallet('');
+        if (storedWallet) {
+           const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
+           const salt = ethers.toUtf8Bytes('mnemonic');
+           const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
+           const seedBytes = ethers.getBytes(seedHex);
+           const targetChain = getTargetEvmChain(explicitChain, this.currentNetwork);
+           const rpcUrls = this.getEvmRpcUrls(targetChain);
+           const rpc = await NetworkFailover.getWorkingRpc(rpcUrls);
+           tempManager = new WalletManagerEvm(seedBytes, { provider: rpc, transferMaxFee: EVM_MAX_FEE_WEI });
+           targetAccount = await tempManager.getAccount(0);
+        } else {
+           throw new Error('EVM explicit chain switch requires unlocked wallet');
+        }
+      }
+
+      if (!targetAccount) throw new Error('EVM account not initialized');
+      const amountWei = ethers.parseUnits(amount, 18);
+      
+      const res = await targetAccount.sendTransaction({ to: toAddress, value: amountWei });
+      
+      if (tempManager) {
+        try { tempManager.dispose(); } catch (e) {}
+      }
+      
+      return { success: true, txHash: res.hash, fee: res.fee ? ethers.formatUnits(res.fee, 18) : undefined };
+    } catch (e: any) {
+      console.error('[RhizaCore/EVM] Send failed:', e);
+      return { success: false, error: e.message || 'EVM send failed' };
+    }
+  }
+
+  async quoteSendEvmTokenTransaction(
+    toAddress: string,
+    amount: string,
+    explicitChain: 'ethereum' | 'bsc'
+  ): Promise<{ feeBigInt: bigint; feeEvm: string } | null> {
+    try {
+      const { ethers } = await import('ethers');
+      let targetAccount = this.evmAccount;
+      let tempManager: any = null;
+
+      if (explicitChain !== this.currentEvmChain) {
+        const storedWallet = await this.getStoredWallet('');
+        if (storedWallet) {
+           const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
+           const salt = ethers.toUtf8Bytes('mnemonic');
+           const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
+           const seedBytes = ethers.getBytes(seedHex);
+           const targetChain = getTargetEvmChain(explicitChain, this.currentNetwork);
+           const rpcUrls = this.getEvmRpcUrls(targetChain);
+           const rpc = await NetworkFailover.getWorkingRpc(rpcUrls);
+           tempManager = new WalletManagerEvm(seedBytes, { provider: rpc, transferMaxFee: EVM_MAX_FEE_WEI });
+           targetAccount = await tempManager.getAccount(0);
+        }
+      }
+
+      if (!targetAccount) throw new Error('EVM account not initialized');
+      
+      const { USDT_CONTRACTS } = await import('./usdtMultiChainService');
+      const chainConfig = explicitChain === 'ethereum' ? USDT_CONTRACTS.ethereum : USDT_CONTRACTS.bsc;
+      const tokenAddress = chainConfig.address;
+      const decimals = chainConfig.decimals;
+
+      const amountBigInt = ethers.parseUnits(amount, decimals);
+      const res = await targetAccount.quoteTransfer({
+        token: tokenAddress,
+        recipient: toAddress,
+        amount: amountBigInt
+      });
+
+      if (tempManager) {
+        try { tempManager.dispose(); } catch (e) {}
+      }
+
+      return {
+        feeBigInt: res.fee,
+        feeEvm: ethers.formatUnits(res.fee, 18)
+      };
+    } catch (e) {
+      console.error('[WDK/EVM Token] quote transfer error', e);
+      return null;
+    }
+  }
+
+  async sendEvmTokenTransaction(
+    toAddress: string,
+    amount: string,
+    explicitChain: 'ethereum' | 'bsc'
+  ): Promise<{ success: boolean; txHash?: string; fee?: string; error?: string }> {
+    try {
+      const { ethers } = await import('ethers');
+      let targetAccount = this.evmAccount;
+      let tempManager: any = null;
+
+      if (explicitChain !== this.currentEvmChain) {
+        const storedWallet = await this.getStoredWallet('');
+        if (storedWallet) {
+           const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
+           const salt = ethers.toUtf8Bytes('mnemonic');
+           const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
+           const seedBytes = ethers.getBytes(seedHex);
+           const targetChain = getTargetEvmChain(explicitChain, this.currentNetwork);
+           const rpcUrls = this.getEvmRpcUrls(targetChain);
+           const rpc = await NetworkFailover.getWorkingRpc(rpcUrls);
+           tempManager = new WalletManagerEvm(seedBytes, { provider: rpc, transferMaxFee: EVM_MAX_FEE_WEI });
+           targetAccount = await tempManager.getAccount(0);
+        } else {
+           throw new Error('EVM explicit chain switch requires unlocked wallet');
+        }
+      }
+
+      if (!targetAccount) throw new Error('EVM account not initialized');
+      
+      const { USDT_CONTRACTS } = await import('./usdtMultiChainService');
+      const chainConfig = explicitChain === 'ethereum' ? USDT_CONTRACTS.ethereum : USDT_CONTRACTS.bsc;
+      const tokenAddress = chainConfig.address;
+      const decimals = chainConfig.decimals;
+
+      const amountBigInt = ethers.parseUnits(amount, decimals);
+      const res = await targetAccount.transfer({
+        token: tokenAddress,
+        recipient: toAddress,
+        amount: amountBigInt
+      });
+
+      if (tempManager) {
+        try { tempManager.dispose(); } catch (e) {}
+      }
+
+      return {
+        success: true,
+        txHash: res.hash,
+        fee: res.fee ? ethers.formatUnits(res.fee, 18) : undefined
+      };
+    } catch (e: any) {
+      console.error('[RhizaCore/EVM Token] Send transfer failed:', e);
+      return { success: false, error: e.message || 'EVM token transfer failed' };
+    }
+  }
+
   // ── TRON TRANSACTIONS ───────────────────────────────────────────────────
 
   async quoteSendTronTransaction(toAddress: string, amount: string): Promise<{ feeBigInt: bigint; feeTrx: string } | null> {
     try {
       if (!this.tronAccount) throw new Error('TRON account not initialized');
-      const amountSun = BigInt(Math.floor(parseFloat(amount) * 1_000_000));
+      const amountSun = BigInt(Math.round(parseFloat(amount) * 1_000_000));
       const res = await this.tronAccount.quoteSendTransaction({ to: toAddress, value: amountSun });
       return {
         feeBigInt: res.fee,
@@ -844,7 +1125,7 @@ export class TetherWdkService {
   async sendTronTransaction(toAddress: string, amount: string): Promise<{ success: boolean; txHash?: string; fee?: string; error?: string }> {
     try {
       if (!this.tronAccount) throw new Error('TRON account not initialized');
-      const amountSun = BigInt(Math.floor(parseFloat(amount) * 1_000_000));
+      const amountSun = BigInt(Math.round(parseFloat(amount) * 1_000_000));
       
       const res = await this.tronAccount.sendTransaction({ to: toAddress, value: amountSun });
       
@@ -852,6 +1133,178 @@ export class TetherWdkService {
     } catch (e: any) {
       console.error('[RhizaCore/TRON] Send failed:', e);
       return { success: false, error: e.message || 'TRON send failed' };
+    }
+  }
+
+  async quoteSendBtcTransaction(toAddress: string, amount: string): Promise<{ feeBigInt: bigint; feeBtc: string } | null> {
+    try {
+      if (!this.btcAccount) throw new Error('BTC account not initialized');
+      const amountSats = BigInt(Math.round(parseFloat(amount) * 1e8));
+      const res = await this.btcAccount.quoteSendTransaction({ to: toAddress, value: amountSats });
+      return {
+        feeBigInt: res.fee,
+        feeBtc: (Number(res.fee) / 1e8).toFixed(8)
+      };
+    } catch (e) {
+      console.error('[WDK/BTC] quote error', e);
+      return null;
+    }
+  }
+
+  async sendBtcTransaction(toAddress: string, amount: string): Promise<{ success: boolean; txHash?: string; fee?: string; error?: string }> {
+    try {
+      if (!this.btcAccount) throw new Error('BTC account not initialized');
+      const amountSats = BigInt(Math.round(parseFloat(amount) * 1e8));
+      
+      const res = await this.btcAccount.sendTransaction({ to: toAddress, value: amountSats });
+      
+      return { success: true, txHash: res.hash, fee: res.fee ? (Number(res.fee) / 1e8).toFixed(8) : undefined };
+    } catch (e: any) {
+      console.error('[RhizaCore/BTC] Send failed:', e);
+      return { success: false, error: wdkErrorMessage(e, 'BTC') };
+    }
+  }
+
+  async quoteSendSolTransaction(toAddress: string, amount: string): Promise<{ feeBigInt: bigint; feeSol: string } | null> {
+    try {
+      if (!this.solAccount) throw new Error('SOL account not initialized');
+      const amountLamports = BigInt(Math.round(parseFloat(amount) * 1e9));
+      const res = await this.solAccount.quoteSendTransaction({ to: toAddress, value: amountLamports });
+      return {
+        feeBigInt: res.fee,
+        feeSol: (Number(res.fee) / 1e9).toFixed(9)
+      };
+    } catch (e) {
+      console.error('[WDK/SOL] quote error', e);
+      return null;
+    }
+  }
+
+  async sendSolTransaction(toAddress: string, amount: string): Promise<{ success: boolean; txHash?: string; fee?: string; error?: string }> {
+    try {
+      if (!this.solAccount) throw new Error('SOL account not initialized');
+      const amountLamports = BigInt(Math.round(parseFloat(amount) * 1e9));
+      
+      const res = await this.solAccount.sendTransaction({ to: toAddress, value: amountLamports });
+      
+      return { success: true, txHash: res.hash, fee: res.fee ? (Number(res.fee) / 1e9).toFixed(9) : undefined };
+    } catch (e: any) {
+      console.error('[RhizaCore/SOL] Send failed:', e);
+      return { success: false, error: e.message || 'SOL send failed' };
+    }
+  }
+
+  async quoteSendTronTrc20Transaction(toAddress: string, amount: string): Promise<{ feeBigInt: bigint; feeTrx: string } | null> {
+    try {
+      if (!this.tronAccount) throw new Error('TRON account not initialized');
+      const amountBigInt = BigInt(Math.round(parseFloat(amount) * 1_000_000)); // USDT has 6 decimals
+      const { USDT_CONTRACTS } = await import('./usdtMultiChainService');
+      const tokenAddress = USDT_CONTRACTS.tron.address;
+      
+      // According to WDK types, quoteTransfer accepts TransferOptions: { token: string, recipient: string, amount: bigint }
+      const res = await this.tronAccount.quoteTransfer({ token: tokenAddress, recipient: toAddress, amount: amountBigInt });
+      return {
+        feeBigInt: res.fee,
+        feeTrx: (Number(res.fee) / 1_000_000).toFixed(6)
+      };
+    } catch (e) {
+      console.error('[WDK/TRON] TRC20 quote error', e);
+      return null;
+    }
+  }
+
+  async sendTronTrc20Transaction(toAddress: string, amount: string): Promise<{ success: boolean; txHash?: string; fee?: string; error?: string }> {
+    try {
+      if (!this.tronAccount) throw new Error('TRON account not initialized');
+      const amountBigInt = BigInt(Math.floor(parseFloat(amount) * 1_000_000)); // USDT has 6 decimals
+      const { USDT_CONTRACTS } = await import('./usdtMultiChainService');
+      const tokenAddress = USDT_CONTRACTS.tron.address;
+      
+      // According to WDK types, transfer accepts TransferOptions
+      const res = await this.tronAccount.transfer({ token: tokenAddress, recipient: toAddress, amount: amountBigInt });
+      
+      return { success: true, txHash: res.hash, fee: (Number(res.fee) / 1_000_000).toFixed(6) };
+    } catch (e: any) {
+      console.error('[RhizaCore/TRON] TRC20 send failed:', e);
+      return { success: false, error: e.message || 'TRON TRC20 send failed' };
+    }
+  }
+
+  async getTronTransactions(address: string): Promise<any[]> {
+    try {
+      const headers: Record<string, string> = { 'Accept': 'application/json' };
+      const apiKey = import.meta.env.VITE_TRONGRID_API_KEY;
+      if (apiKey) headers['TRON-PRO-API-KEY'] = apiKey;
+
+      const isMainnet = this.currentNetwork === 'mainnet';
+      const baseUrl = isMainnet ? 'https://api.trongrid.io' : 'https://api.shasta.trongrid.io';
+
+      const [resTrx, resTrc20] = await Promise.all([
+        fetch(`${baseUrl}/v1/accounts/${address}/transactions?only_confirmed=true&limit=20`, { headers }).catch(() => null),
+        fetch(`${baseUrl}/v1/accounts/${address}/transactions/trc20?only_confirmed=true&limit=20`, { headers }).catch(() => null)
+      ]);
+
+      const trxData = resTrx?.ok ? await resTrx.json() : { data: [] };
+      const trc20Data = resTrc20?.ok ? await resTrc20.json() : { data: [] };
+
+      const transactions: any[] = [];
+      
+      let addressHex = '';
+      try {
+        const { ethers } = await import('ethers');
+        // Decode Base58 to a 25-byte hex string, then extract the 21-byte payload (first 42 hex chars)
+        const fullHex = ethers.toBeHex(ethers.decodeBase58(address), 25);
+        addressHex = fullHex.substring(2, 44).toLowerCase();
+      } catch (e) {
+        console.warn('[WDK/TRON] Base58 decode failed for', address);
+      }
+
+      // Parse TRC20
+      for (const tx of trc20Data.data || []) {
+        const isIncoming = tx.to === address || (addressHex && tx.to.toLowerCase() === addressHex);
+        transactions.push({
+          id: tx.transaction_id,
+          type: isIncoming ? 'receive' : 'send',
+          amount: (Number(tx.value) / Math.pow(10, Number(tx.token_info?.decimals || 6))).toFixed(4),
+          asset: tx.token_info?.symbol || 'USDT',
+          timestamp: tx.block_timestamp,
+          status: 'completed',
+          address: isIncoming ? tx.from : tx.to,
+          hash: tx.transaction_id,
+          fee: '0',
+          comment: ''
+        });
+      }
+
+      // Parse TRX
+      for (const tx of trxData.data || []) {
+        if (tx.raw_data?.contract?.[0]?.type === 'TransferContract') {
+          const contract = tx.raw_data.contract[0].parameter.value;
+          
+          let fromAddress = contract.owner_address;
+          let toAddress = contract.to_address;
+          
+          const isIncoming = toAddress === address || (addressHex && toAddress.toLowerCase() === addressHex);
+          transactions.push({
+            id: tx.txID,
+            type: isIncoming ? 'receive' : 'send',
+            amount: (Number(contract.amount) / 1_000_000).toFixed(4),
+            asset: 'TRX',
+            timestamp: tx.raw_data.timestamp || new Date().getTime(),
+            status: tx.ret?.[0]?.contractRet === 'SUCCESS' ? 'completed' : 'failed',
+            address: isIncoming ? fromAddress : toAddress,
+            hash: tx.txID,
+            fee: '0',
+            comment: ''
+          });
+        }
+      }
+
+      // Sort by timestamp descending
+      return transactions.sort((a, b) => b.timestamp - a.timestamp);
+    } catch (e) {
+      console.error('[WDK/TRON] Transaction fetch error:', e);
+      return [];
     }
   }
 
@@ -1381,14 +1834,10 @@ export class TetherWdkService {
    * Returns true if EVM came up successfully.
    */
   async reinitializeEvm(): Promise<boolean> {
-    if (!this.mnemonic) {
-      // Try restoring from storage (unencrypted only — encrypted wallets need the password)
-      const stored = await this.getStoredWallet('');
-      if (!stored) {
-        console.warn('[WDK/EVM] reinitializeEvm: no mnemonic available');
-        return false;
-      }
-      this.mnemonic = stored;
+    const storedWallet = await this.getStoredWallet('');
+    if (!storedWallet) {
+      console.warn('[WDK/EVM] reinitializeEvm: no mnemonic available');
+      return false;
     }
 
     const isMainnet = this.currentNetwork === 'mainnet';
@@ -1400,16 +1849,15 @@ export class TetherWdkService {
       this.evmManager = null;
       this.evmAccount = null;
 
-      const rpcUrls = isMainnet
-        ? this.getEvmRpcUrls(this.currentEvmChain)
-        : this.getEvmRpcUrls('sepolia');
+      const targetChain = getTargetEvmChain(this.currentEvmChain, this.currentNetwork);
+      const rpcUrls = this.getEvmRpcUrls(targetChain);
 
       // Clear stale health cache so getWorkingRpc re-probes all endpoints
       NetworkFailover.clearHealthCache();
       const workingRpc = await NetworkFailover.getWorkingRpc(rpcUrls);
 
       // Pre-compute PBKDF2 seed to support TON 24-word phrases
-      const password = ethers.toUtf8Bytes(this.mnemonic.normalize('NFKD'));
+      const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
       const salt = ethers.toUtf8Bytes('mnemonic');
       const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
       const seedBytes = ethers.getBytes(seedHex);
@@ -1438,20 +1886,17 @@ export class TetherWdkService {
   async reinitializeAll(): Promise<{ evm: boolean; btc: boolean; sol: boolean; tron: boolean }> {
     const results = { evm: false, btc: false, sol: false, tron: false };
 
-    if (!this.mnemonic) {
-      const stored = await this.getStoredWallet('');
-      if (!stored) {
-        console.warn('[WDK] reinitializeAll: no mnemonic available');
-        return results;
-      }
-      this.mnemonic = stored;
+    const storedWallet = await this.getStoredWallet('');
+    if (!storedWallet) {
+      console.warn('[WDK] reinitializeAll: no mnemonic available');
+      return results;
     }
 
     const isMainnet = this.currentNetwork === 'mainnet';
     NetworkFailover.clearHealthCache();
 
     // Pre-compute PBKDF2 seed to support TON 24-word phrases
-    const password = ethers.toUtf8Bytes(this.mnemonic.normalize('NFKD'));
+    const password = ethers.toUtf8Bytes(storedWallet.normalize('NFKD'));
     const salt = ethers.toUtf8Bytes('mnemonic');
     const seedHex = ethers.pbkdf2(password, salt, 2048, 64, 'sha512');
     const seedBytes = ethers.getBytes(seedHex);
@@ -1463,9 +1908,8 @@ export class TetherWdkService {
         try {
           try { this.evmManager?.dispose(); } catch (_) { }
           this.evmManager = null; this.evmAccount = null;
-          const rpcUrls = isMainnet
-            ? this.getEvmRpcUrls(this.currentEvmChain)
-            : this.getEvmRpcUrls('sepolia');
+          const targetChain = getTargetEvmChain(this.currentEvmChain, this.currentNetwork);
+          const rpcUrls = this.getEvmRpcUrls(targetChain);
           const rpc = await NetworkFailover.getWorkingRpc(rpcUrls);
           this.evmManager = new WalletManagerEvm(seedBytes, { provider: rpc, transferMaxFee: EVM_MAX_FEE_WEI });
           this.evmAccount = await this.evmManager.getAccount(0);
@@ -1497,8 +1941,10 @@ export class TetherWdkService {
         try {
           try { this.solManager?.dispose(); } catch (_) { }
           this.solManager = null; this.solAccount = null;
+          const solRpcUrls = isMainnet ? SOLANA_RPC_FAILOVER.mainnet : SOLANA_RPC_FAILOVER.devnet;
+          const solRpcUrl = await NetworkFailover.getWorkingRpc(solRpcUrls);
           this.solManager = new WalletManagerSolana(seedBytes, {
-            rpcUrl: isMainnet ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com',
+            rpcUrl: solRpcUrl,
             transferMaxFee: 10000000
           });
           this.solAccount = await this.solManager.getAccount(0);
@@ -1511,10 +1957,15 @@ export class TetherWdkService {
         try {
           try { this.tronManager?.dispose(); } catch (_) { }
           this.tronManager = null; this.tronAccount = null;
-          this.tronManager = new WalletManagerTron(seedBytes, {
+          const tronApiKey = import.meta.env.VITE_TRONGRID_API_KEY;
+          const tronConfig: any = {
             provider: isMainnet ? 'https://api.trongrid.io' : 'https://api.shasta.trongrid.io',
             transferMaxFee: 100000000
-          });
+          };
+          if (tronApiKey) {
+            tronConfig.headers = { 'TRON-PRO-API-KEY': tronApiKey };
+          }
+          this.tronManager = new WalletManagerTron(seedBytes, tronConfig);
           this.tronAccount = await this.tronManager.getAccount(0);
           results.tron = true;
           console.log('[WDK] reinitializeAll: ✅ TRON ready');
@@ -1547,7 +1998,6 @@ export class TetherWdkService {
     this.solAccount = null;
     this.tronAccount = null;
 
-    this.mnemonic = null;
     // Scrub native TON client references so GC can collect them
     this.nativeTonClient = null;
     this.nativeTonContract = null;

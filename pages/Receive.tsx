@@ -19,7 +19,7 @@ import { WalletManager } from '../utils/walletManager';
 import { QRCodeSVG } from 'qrcode.react';
 import { CHAIN_META } from '../constants';
 
-type WalletType = 'primary' | 'primary-rzc' | 'multichain-usdt' | 'multichain-evm' | 'multichain-btc' | 'multichain-sol' | 'multichain-tron' | 'multichain-ton';
+type WalletType = 'primary' | 'primary-rzc' | 'multichain-usdt' | 'multichain-eth' | 'multichain-bsc' | 'multichain-polygon' | 'multichain-btc' | 'multichain-sol' | 'multichain-tron' | 'multichain-ton';
 type USDTNetwork = 'ton' | 'bsc' | 'ethereum';
 
 const Receive: React.FC = () => {
@@ -84,7 +84,7 @@ const Receive: React.FC = () => {
     ? address
     : selectedWallet === 'multichain-usdt'
     ? (usdtNetwork === 'ton' ? address : evmAddressToShow)
-    : selectedWallet === 'multichain-evm'
+    : (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon')
     ? evmAddressToShow
     : selectedWallet === 'multichain-btc'
     ? multiChainAddresses?.btcAddress
@@ -102,7 +102,9 @@ const Receive: React.FC = () => {
     : selectedWallet === 'primary-rzc'    ? 'TON Network • Community Token'
     : selectedWallet === 'multichain-usdt'
     ? (usdtNetwork === 'ton' ? 'TON Network • Jetton USDT' : usdtNetwork === 'bsc' ? 'BNB Smart Chain • BEP-20 USDT' : 'Ethereum Network • ERC-20 USDT')
-    : selectedWallet === 'multichain-evm' ? `${evmChainName} • EVM Network`
+    : selectedWallet === 'multichain-eth' ? 'Ethereum • EVM Network'
+    : selectedWallet === 'multichain-bsc' ? 'BNB Smart Chain • EVM Network'
+    : selectedWallet === 'multichain-polygon' ? 'Polygon • EVM Network'
     : selectedWallet === 'multichain-btc' ? 'Bitcoin • Mainnet'
     : selectedWallet === 'multichain-sol' ? 'Solana • Mainnet'
     : selectedWallet === 'multichain-tron'? 'TRON • Mainnet'
@@ -121,7 +123,9 @@ const Receive: React.FC = () => {
       const walletName = selectedWallet === 'primary'         ? 'TON Wallet'
         : selectedWallet === 'primary-rzc'    ? 'RZC Token'
         : selectedWallet === 'multichain-usdt'? `USDT (${usdtNetwork.toUpperCase()})`
-        : selectedWallet === 'multichain-evm' ? 'EVM Wallet'
+        : selectedWallet === 'multichain-eth' ? 'Ethereum Wallet'
+        : selectedWallet === 'multichain-bsc' ? 'BNB Smart Chain Wallet'
+        : selectedWallet === 'multichain-polygon' ? 'Polygon Wallet'
         : selectedWallet === 'multichain-btc' ? 'BTC'
         : selectedWallet === 'multichain-sol' ? 'SOL'
         : selectedWallet === 'multichain-tron'? 'TRX'
@@ -162,8 +166,14 @@ const Receive: React.FC = () => {
     if (selectedWallet === 'multichain-usdt') {
       return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png";
     }
-    if (selectedWallet === 'multichain-evm') {
-      return evmChainLogo;
+    if (selectedWallet === 'multichain-eth') {
+      return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
+    }
+    if (selectedWallet === 'multichain-bsc') {
+      return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png';
+    }
+    if (selectedWallet === 'multichain-polygon') {
+      return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png';
     }
     if (selectedWallet === 'multichain-btc') {
       return "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png";
@@ -222,14 +232,30 @@ const Receive: React.FC = () => {
                   isEmoji: false,
                   net: 'Multi-Chain' 
                 },
-                // EVM tab: show for ALL users who have any EVM address (primary-derived or secondary WDK)
-                ...(hasEvmAddress ? [{ 
-                  id: 'multichain-evm', 
-                  name: CHAIN_META[currentEvmChain]?.symbol ?? 'EVM', 
-                  icon: evmChainLogo,
-                  isEmoji: false,
-                  net: evmChainName.slice(0, 7)
-                }] : []),
+                // EVM tabs: show for ALL users who have any EVM address (primary-derived or secondary WDK)
+                ...(hasEvmAddress ? [
+                  { 
+                    id: 'multichain-eth' as const, 
+                    name: 'ETH', 
+                    icon: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+                    isEmoji: false,
+                    net: 'Ethereum'
+                  },
+                  { 
+                    id: 'multichain-bsc' as const, 
+                    name: 'BNB', 
+                    icon: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
+                    isEmoji: false,
+                    net: 'BSC'
+                  },
+                  { 
+                    id: 'multichain-polygon' as const, 
+                    name: 'MATIC', 
+                    icon: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
+                    isEmoji: false,
+                    net: 'Polygon'
+                  }
+                ] : []),
                 // BTC, SOL, TRON, W5-TON: require secondary wallet setup
                 ...(isMultiChainActive && multiChainAddresses ? [
                   { 
@@ -347,7 +373,7 @@ const Receive: React.FC = () => {
             {selectedWallet === 'primary'         ? 'Native Vault Address'
               : selectedWallet === 'primary-rzc'  ? 'RhizaCore Vault'
               : selectedWallet === 'multichain-usdt' ? `USDT (${usdtNetwork.toUpperCase()}) Address`
-              : selectedWallet === 'multichain-evm'  ? 'EVM Address'
+              : (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon') ? 'EVM Address'
               : selectedWallet === 'multichain-btc'  ? 'BTC Address'
               : selectedWallet === 'multichain-sol'  ? 'Solana Address'
               : selectedWallet === 'multichain-tron' ? 'TRON Address'
@@ -411,7 +437,7 @@ const Receive: React.FC = () => {
                   {selectedWallet === 'primary'          ? 'Main Vault Address'
                     : selectedWallet === 'primary-rzc'   ? 'RZC Community Address'
                     : selectedWallet === 'multichain-usdt' ? `Derived USDT (${usdtNetwork.toUpperCase()}) Address`
-                    : selectedWallet === 'multichain-evm' ? 'EVM Hub Address'
+                    : (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon') ? 'EVM Hub Address'
                     : selectedWallet === 'multichain-btc' ? 'Bitcoin Mainnet Address'
                     : selectedWallet === 'multichain-sol' ? 'Solana Address'
                     : selectedWallet === 'multichain-tron'? 'TRON Address'
@@ -450,8 +476,9 @@ const Receive: React.FC = () => {
                     : usdtNetwork === 'bsc' 
                     ? 'Accepts USDT (BEP-20) via Binance Smart Chain into your derived EVM vault address.'
                     : 'Accepts USDT (ERC-20) via Ethereum Network into your derived EVM vault address.')
-                : selectedWallet === 'multichain-evm'
-                ? 'Accepts ETH, USDT, and all ERC-20 tokens on Ethereum and Polygon networks.'
+                : selectedWallet === 'multichain-eth' ? 'Accepts ETH and ERC-20 tokens on the Ethereum network.'
+                : selectedWallet === 'multichain-bsc' ? 'Accepts BNB and BEP-20 tokens on the Binance Smart Chain.'
+                : selectedWallet === 'multichain-polygon' ? 'Accepts MATIC and ERC-20 tokens on the Polygon network.'
                 : selectedWallet === 'multichain-btc'
                 ? 'Accepts BTC on the Bitcoin mainnet. Use SegWit-compatible wallets for best fees.'
                 : selectedWallet === 'multichain-sol'
@@ -475,8 +502,9 @@ const Receive: React.FC = () => {
                     : usdtNetwork === 'bsc'
                     ? 'Verify you choose BNB Smart Chain (BSC/BEP20) as the withdrawal network.'
                     : 'Verify you choose Ethereum (ETH/ERC20) as the withdrawal network. Standard fees apply.')
-                : selectedWallet === 'multichain-evm'
-                ? 'Verify you\'re sending on the correct EVM network (Ethereum or Polygon) before confirming.'
+                : selectedWallet === 'multichain-eth' ? 'Verify you\'re sending on the Ethereum network before confirming.'
+                : selectedWallet === 'multichain-bsc' ? 'Verify you\'re sending on the BNB Smart Chain network before confirming.'
+                : selectedWallet === 'multichain-polygon' ? 'Verify you\'re sending on the Polygon network before confirming.'
                 : selectedWallet === 'multichain-btc'
                 ? 'Ensure you are sending via the Bitcoin Mainnet. Minimum dusting limit is 294 sats.'
                 : selectedWallet === 'multichain-sol'

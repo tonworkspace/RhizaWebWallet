@@ -41,6 +41,10 @@ const FloatingSupportEnhanced: React.FC = () => {
   const repliesEndRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(true);
   const lastScrollY = useRef(0);
+  
+  // Real-time unread tracking
+  const [hasUnread, setHasUnread] = useState(false);
+  const lastCheckRef = useRef<number>(Date.now());
 
   // Auto-scroll to bottom when new replies arrive
   useEffect(() => {
@@ -67,10 +71,64 @@ const FloatingSupportEnhanced: React.FC = () => {
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && activeTab === 'history' && address) {
-      loadTicketHistory();
+    if (isOpen && address) {
+      const initSupport = async () => {
+        setIsLoadingHistory(true);
+        const result = await supabaseService.getUserTickets(address);
+        if (result.success && result.data) {
+          setUserTickets(result.data);
+          
+          // Auto-route to active ticket if one exists
+          const activeTicket = result.data.find(t => t.status === 'open' || t.status === 'pending');
+          if (activeTicket && !selectedTicket) {
+            loadTicketConversation(activeTicket);
+          } else if (!activeTicket && activeTab === 'conversation' && !selectedTicket) {
+            setActiveTab('chat');
+          }
+        }
+        setIsLoadingHistory(false);
+      };
+      initSupport();
     }
-  }, [isOpen, activeTab, address]);
+  }, [isOpen, address]);
+
+  // Global polling for unread admin replies
+  useEffect(() => {
+    if (!address) return;
+    const checkUnread = async () => {
+      try {
+        const client = supabaseService.getClient();
+        if (!client) return;
+        const { data, error } = await client
+          .from('support_ticket_replies')
+          .select('id')
+          .eq('wallet_address', address)
+          .eq('is_admin', true)
+          .gt('created_at', new Date(lastCheckRef.current).toISOString());
+        
+        if (data && data.length > 0) {
+          setHasUnread(true);
+          if (!isOpen) {
+            showToast('New response from support team!', 'success');
+          }
+          lastCheckRef.current = Date.now();
+        }
+      } catch (err) {
+        console.error('Error checking unread support replies:', err);
+      }
+    };
+    
+    const interval = setInterval(checkUnread, 15000);
+    return () => clearInterval(interval);
+  }, [address, isOpen, showToast]);
+
+  // Clear unread dot when modal is opened
+  useEffect(() => {
+    if (isOpen) {
+      setHasUnread(false);
+      lastCheckRef.current = Date.now();
+    }
+  }, [isOpen]);
 
   // Real-time subscription to ticket replies
   useEffect(() => {
@@ -199,11 +257,11 @@ const FloatingSupportEnhanced: React.FC = () => {
       {isOpen && !isMinimized && (
         <div 
           ref={chatRef}
-          className="w-[380px] h-[550px] bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-[32px] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-300 backdrop-blur-xl"
+          className="w-[340px] h-[480px] bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-[24px] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-300 backdrop-blur-xl"
         >
           {/* Header */}
-          <div className="p-6 bg-gradient-to-r from-primary to-secondary/80">
-            <div className="flex items-center justify-between mb-4">
+          <div className="p-4 pb-3 bg-gradient-to-r from-primary to-secondary/80">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
                 {activeTab === 'conversation' && (
                   <button
@@ -239,18 +297,20 @@ const FloatingSupportEnhanced: React.FC = () => {
             {/* Tabs - Only show when not in conversation */}
             {activeTab !== 'conversation' && (
               <div className="flex bg-black/10 p-1 rounded-xl">
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={`flex-1 py-2 rounded-lg text-[10px] font-heading font-black uppercase tracking-widest transition-all ${
-                    activeTab === 'chat' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white'
-                  }`}
-                >
-                  New Request
-                </button>
+                {!userTickets.some(t => t.status === 'open' || t.status === 'pending') && (
+                  <button
+                    onClick={() => setActiveTab('chat')}
+                    className={`flex-1 py-2 rounded-lg text-[10px] font-heading font-black uppercase tracking-widest transition-all ${
+                      activeTab === 'chat' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    New Request
+                  </button>
+                )}
                 <button
                   onClick={() => setActiveTab('history')}
                   className={`flex-1 py-2 rounded-lg text-[10px] font-heading font-black uppercase tracking-widest transition-all ${
-                    activeTab === 'history' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white'
+                    activeTab === 'history' || userTickets.some(t => t.status === 'open' || t.status === 'pending') ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white'
                   }`}
                 >
                   My Tickets
@@ -260,10 +320,10 @@ const FloatingSupportEnhanced: React.FC = () => {
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
             {activeTab === 'chat' ? (
               // NEW TICKET FORM
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="text-[10px] font-heading font-black text-slate-400 dark:text-gray-500 uppercase tracking-[0.2em] mb-3 block">
                     Choose Subject
@@ -307,7 +367,7 @@ const FloatingSupportEnhanced: React.FC = () => {
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder="Describe your issue or question..."
-                    className="w-full h-32 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-4 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-primary/50 transition-all resize-none font-medium"
+                    className="w-full h-24 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-primary/50 transition-all resize-none font-medium"
                     required
                   />
                 </div>
@@ -315,7 +375,7 @@ const FloatingSupportEnhanced: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting || !message.trim()}
-                  className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-black font-heading font-black uppercase tracking-widest py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-[0_10px_30px_rgba(0,255,136,0.2)]"
+                  className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-black font-heading font-black uppercase tracking-widest py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-[0_10px_30px_rgba(0,255,136,0.2)]"
                 >
                   {isSubmitting ? (
                     <Loader2 className="animate-spin" size={20} />
@@ -466,13 +526,26 @@ const FloatingSupportEnhanced: React.FC = () => {
                 </div>
 
                 {/* Reply Input */}
-                <form onSubmit={handleSendReply} className="flex gap-2">
-                  <input
-                    type="text"
+                <form onSubmit={handleSendReply} className="flex gap-2 items-end">
+                  <textarea
                     value={replyMessage}
                     onChange={(e) => setReplyMessage(e.target.value)}
-                    placeholder="Type your reply..."
-                    className="flex-1 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-primary/50 transition-all font-medium"
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = '48px';
+                      target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (replyMessage.trim() && !isSendingReply) {
+                          handleSendReply(e as any);
+                        }
+                      }
+                    }}
+                    placeholder="Type your reply... (Enter to send)"
+                    className="flex-1 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-primary/50 transition-all font-medium resize-none min-h-[48px] scrollbar-hide"
+                    rows={1}
                     disabled={isSendingReply || selectedTicket?.status === 'resolved' || selectedTicket?.status === 'closed'}
                   />
                   <button
@@ -502,16 +575,18 @@ const FloatingSupportEnhanced: React.FC = () => {
       {/* Launcher Bubble */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-16 h-16 rounded-[24px] flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group relative ${
+        className={`w-14 h-14 rounded-[20px] flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group relative ${
           isOpen ? 'bg-black text-white hover:rotate-90' : 'bg-primary text-black'
         }`}
       >
         {isOpen ? (
-          <X size={28} />
+          <X size={26} />
         ) : (
           <>
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 border-2 border-white dark:border-black rounded-full z-10 animate-bounce" />
-            <MessageCircle size={30} className="group-hover:rotate-12 transition-transform" />
+            {hasUnread && (
+              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 border-2 border-white dark:border-black rounded-full z-10 animate-bounce shadow-md" />
+            )}
+            <MessageCircle size={26} className="group-hover:rotate-12 transition-transform" />
           </>
         )}
       </button>

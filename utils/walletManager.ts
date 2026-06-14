@@ -390,4 +390,56 @@ export class WalletManager {
     const result = await this.getWalletMnemonic(walletId, password);
     return result.success;
   }
+
+  /**
+   * Fix and normalize all stored wallet addresses in localStorage based on the current network setting.
+   */
+  static async sanitizeAndFixAddresses(): Promise<void> {
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (!data) return;
+      
+      const network = localStorage.getItem('rhiza_network') || 'mainnet';
+      const isTestnet = network === 'testnet';
+      
+      const wallets: StoredWallet[] = JSON.parse(data);
+      const { Address } = await import('@ton/ton');
+      
+      let changed = false;
+      const updated = wallets.map(w => {
+        try {
+          const parsed = Address.parse(w.address);
+          const correctAddr = parsed.toString({ bounceable: false, testOnly: isTestnet });
+          
+          let correctTonSubAddr = w.addresses?.ton;
+          if (w.addresses?.ton) {
+            const parsedSub = Address.parse(w.addresses.ton);
+            correctTonSubAddr = parsedSub.toString({ bounceable: false, testOnly: isTestnet });
+          }
+          
+          let hasAddressChange = w.address !== correctAddr;
+          let hasSubAddressChange = w.addresses && w.addresses.ton !== correctTonSubAddr;
+          
+          if (hasAddressChange || hasSubAddressChange) {
+            changed = true;
+            return {
+              ...w,
+              address: correctAddr,
+              addresses: w.addresses ? { ...w.addresses, ton: correctTonSubAddr } : undefined
+            };
+          }
+        } catch (e) {
+          // Ignore parsing errors for non-TON wallets
+        }
+        return w;
+      });
+      
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        console.log('✅ Stored wallet addresses in localStorage successfully fixed');
+      }
+    } catch (error) {
+      console.error('Failed to fix stored wallet addresses:', error);
+    }
+  }
 }

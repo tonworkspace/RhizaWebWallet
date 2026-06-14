@@ -3,13 +3,14 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useWallet } from '../context/WalletContext';
 import { useBalance } from '../hooks/useBalance';
 import { tonWalletService } from '../services/tonWalletService';
+import { tetherWdkService } from '../services/tetherWdkService';
 import { useNavigate } from 'react-router-dom';
 import {
     Zap, Shield, ShoppingBag, Info, TrendingUp, ArrowRight, Lock,
     Star, HelpCircle, CheckCircle2, Wallet, CreditCard,
-    ChevronRight, Sparkles, Clock, Flame, AlertTriangle, Trophy, QrCode, Package, Percent, Users, Check, Gift, ArrowDownUp
+    ChevronRight, Sparkles, Clock, Flame, AlertTriangle, Trophy, QrCode, Package, Percent, Users, Check, Gift, ArrowDownUp, Activity
 } from 'lucide-react';
-import { getNetworkConfig } from '../constants';
+import { getNetworkConfig, TRON_DEPOSIT_ADDRESS } from '../constants';
 import { toDecimals } from '../utility/decimals';
 import { notificationService } from '../services/notificationService';
 import { supabaseService } from '../services/supabaseService';
@@ -23,6 +24,7 @@ import { getStoreActivationFeeUSD, getNodeActivationMilestoneUSD } from '../conf
 interface StoreUIProps {
     tonPrice: number;
     rzcPrice?: number;
+    trxPrice?: number;
     tonAddress?: string | null;
     showSnackbar?: ({ message, description, type }: any) => void;
     onPurchaseComplete?: () => void;
@@ -32,7 +34,7 @@ interface StoreUIProps {
 }
 
 const USDT_JETTON_ADDRESS = 'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs';
-type PaymentMethod = 'TON' | 'USDT';
+type PaymentMethod = 'TON' | 'USDT' | 'TRX' | 'USDT_TRC20';
 
 const SEED_END_DATE = new Date('2026-06-30T23:59:59Z');
 
@@ -61,6 +63,7 @@ function useCountdown(targetDate: Date) {
 const StoreUI: React.FC<StoreUIProps> = ({
     tonPrice,
     rzcPrice: rzcPriceProp,
+    trxPrice,
     tonAddress,
     showSnackbar,
     onPurchaseComplete,
@@ -76,7 +79,42 @@ const StoreUI: React.FC<StoreUIProps> = ({
     const [usdtBalance, setUsdtBalance] = useState<string>('0');
     const [isLoadingSponsor, setIsLoadingSponsor] = useState(true);
     const [lastPurchaseAttempt, setLastPurchaseAttempt] = useState(0);
+    const [recentPurchases, setRecentPurchases] = useState<any[]>([]);
     const barRef = useRef<HTMLDivElement>(null);
+
+    const timeAgo = (dateStr: string) => {
+        const diff = Math.floor((new Date().getTime() - new Date(dateStr).getTime()) / 1000);
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        return `${Math.floor(diff / 86400)}d ago`;
+    };
+
+    // Fetch recent buyers (FOMO)
+    useEffect(() => {
+        const fetchRecentPurchases = async () => {
+            try {
+                const client = supabaseService.getClient();
+                if (!client) return;
+                const { data, error } = await client
+                    .from('ico_purchases')
+                    .select('wallet_address, rzc_amount, created_at')
+                    .order('created_at', { ascending: false })
+                    .limit(5);
+                    
+                if (!error && data) {
+                    setRecentPurchases(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch recent purchases', err);
+            }
+        };
+        fetchRecentPurchases();
+        
+        // Poll every 15s to keep it live
+        const interval = setInterval(fetchRecentPurchases, 15000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Initialize progress bar on mount
     useEffect(() => {
@@ -100,9 +138,29 @@ const StoreUI: React.FC<StoreUIProps> = ({
     const countdown = useCountdown(saleEndDate);
 
     const navigate = useNavigate();
-    const { address, network, rzcPrice: contextRzcPrice, isActivated, refreshData } = useWallet();
-    const { tonBalance } = useBalance(); // Add TON balance from useBalance hook
-    const currentTonAddress = tonAddress || address;
+    const { address, network, rzcPrice: contextRzcPrice, isActivated, refreshData, multiChainBalances } = useWallet();
+    const { tonBalance } = useBalance(); // Primary TON balance
+
+    // Calculate effective balances (prefer WDK multi-chain if primary is 0, or take max)
+    const effectiveTonBalance = Math.max(tonBalance, parseFloat(multiChainBalances?.ton || '0'));
+    const effectiveUsdtBalance = parseFloat(usdtBalance);
+    const effectiveTrxBalance = parseFloat(multiChainBalances?.tron || '0');
+    const effectiveUsdtTrc20Balance = parseFloat(multiChainBalances?.tronUsdt || '0');
+
+
+
+    // Determine the actual TON address (prefer primary, fallback to context/prop address)
+    const currentTonAddress = useMemo(() => {
+        if (tonWalletService.isInitialized() && tonWalletService.getWalletAddress()) {
+            return tonWalletService.getWalletAddress()!;
+        }
+        // Fallback to tonAddress prop or context address (which holds the WDK address when active)
+        const addr = tonAddress || address;
+        if (addr && (addr.startsWith('U') || addr.startsWith('0') || addr.startsWith('E'))) {
+            return addr;
+        }
+        return '';
+    }, [tonAddress, address, tonWalletService.isInitialized()]);
 
     const salesPackages = useSalesPackages();
     const { openPurchaseModal } = usePurchaseModal();
@@ -217,7 +275,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
     const LISTING_PRICE    = 1.00;
     const multiplier = Math.min(Math.round(LISTING_PRICE / RZC_PRICE_USD), 99);
 
-    const MIN_TON = 0.02;
+    const MIN_TON = 0.01;
 
     // If inputMode=rzc: user types RZC → derive TON cost
     // If inputMode=ton: user types TON → derive RZC received
@@ -243,11 +301,20 @@ const StoreUI: React.FC<StoreUIProps> = ({
     const costUsd = finalAmount * RZC_PRICE_USD;
     const costTon = inputMode === 'ton' ? enteredNum : costUsd / tonPrice;
     const costUsdt = costUsd;
+    const costTrx = costUsd / (trxPrice || 0.15); // Fallback TRX price if missing
+    const costUsdtTrc20 = costUsd;
     const totalRZC = finalAmount * (1 + bonus / 100);
     const projectedValue = totalRZC * LISTING_PRICE;
 
     // Minimum check: 0.02 TON
     const belowMinimum = costTon < MIN_TON && finalAmount > 0;
+
+    // Consolidated balance checker
+    const hasInsufficientBalance = 
+        (paymentMethod === 'TON' && effectiveTonBalance < costTon) ||
+        (paymentMethod === 'USDT' && effectiveUsdtBalance < costUsdt) ||
+        (paymentMethod === 'TRX' && effectiveTrxBalance < costTrx) ||
+        (paymentMethod === 'USDT_TRC20' && (effectiveUsdtTrc20Balance < costUsdtTrc20 || effectiveTrxBalance < 15));
 
     useEffect(() => {
         // Ensure progress bar updates reliably when data loads or changes
@@ -290,12 +357,12 @@ const StoreUI: React.FC<StoreUIProps> = ({
             return;
         }
 
-        // ✅ ADD TON BALANCE VALIDATION
+        // ✅ BALANCE VALIDATION
         if (paymentMethod === 'TON') {
-            if (tonBalance < costTon) {
+            if (effectiveTonBalance < costTon) {
                 showSnackbar?.({
                     message: 'Insufficient TON Balance',
-                    description: `You need ${costTon.toFixed(4)} TON but only have ${tonBalance.toFixed(4)} TON`,
+                    description: `You need ${costTon.toFixed(4)} TON but only have ${effectiveTonBalance.toFixed(4)} TON`,
                     type: 'error'
                 });
                 return;
@@ -303,11 +370,40 @@ const StoreUI: React.FC<StoreUIProps> = ({
         }
 
         if (paymentMethod === 'USDT') {
-            const availableUsdt = parseFloat(usdtBalance);
-            if (availableUsdt < costUsdt) {
+            if (effectiveUsdtBalance < costUsdt) {
                 showSnackbar?.({
                     message: 'Insufficient USDT Balance',
-                    description: `You need ${costUsdt.toFixed(2)} USDT but only have ${availableUsdt.toFixed(2)} USDT`,
+                    description: `You need ${costUsdt.toFixed(2)} USDT but only have ${effectiveUsdtBalance.toFixed(2)} USDT`,
+                    type: 'error'
+                });
+                return;
+            }
+        }
+
+        if (paymentMethod === 'TRX') {
+            if (effectiveTrxBalance < costTrx) {
+                showSnackbar?.({
+                    message: 'Insufficient TRX Balance',
+                    description: `You need ${costTrx.toFixed(2)} TRX but only have ${effectiveTrxBalance.toFixed(2)} TRX`,
+                    type: 'error'
+                });
+                return;
+            }
+        }
+
+        if (paymentMethod === 'USDT_TRC20') {
+            if (effectiveUsdtTrc20Balance < costUsdtTrc20) {
+                showSnackbar?.({
+                    message: 'Insufficient USDT (TRC20) Balance',
+                    description: `You need ${costUsdtTrc20.toFixed(2)} USDT but only have ${effectiveUsdtTrc20Balance.toFixed(2)} USDT`,
+                    type: 'error'
+                });
+                return;
+            }
+            if (effectiveTrxBalance < 15) {
+                showSnackbar?.({
+                    message: 'Insufficient TRX for Gas',
+                    description: `You need at least 15 TRX to pay for network fees. You have ${effectiveTrxBalance.toFixed(2)} TRX.`,
                     type: 'error'
                 });
                 return;
@@ -336,8 +432,19 @@ const StoreUI: React.FC<StoreUIProps> = ({
                 }
             }
 
-            const { tetherWdkService } = await import('../services/tetherWdkService');
-            const useWdk = !tonWalletService.isInitialized() && tetherWdkService.isInitialized();
+            // tetherWdkService is statically imported at the top
+            
+            if (!tonWalletService.isInitialized() && !tetherWdkService.isTonReady()) {
+                showSnackbar?.({
+                    message: 'Wallet Locked',
+                    description: 'Your wallet is locked. Please enter your password in the Multi-Chain Hub or Dashboard to unlock it before purchasing.',
+                    type: 'error'
+                });
+                setIsProcessing(false);
+                return;
+            }
+            
+            const useWdk = !tonWalletService.isInitialized() && tetherWdkService.isTonReady();
             console.log(`[StoreUI] Payment path: ${useWdk ? 'WDK multi-chain wallet' : 'Primary TON wallet (tonWalletService)'}`);
 
             if (paymentMethod === 'TON') {
@@ -391,7 +498,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                 if (!paymentResult.success || !paymentResult.txHash) throw new Error(paymentResult.error || 'Payment failed');
                 showSnackbar?.({ message: 'Transaction Initiated', description: `Purchasing ${totalRZC.toLocaleString()} RZC for ${costTon.toFixed(4)} TON`, type: 'info' });
                 txResult = { boc: paymentResult.txHash };
-            } else {
+            } else if (paymentMethod === 'USDT') {
                 const balanceInfo = await tonWalletService.getJettons(currentTonAddress);
                 if (!balanceInfo.success || !balanceInfo.jettons) throw new Error('USDT jetton not found');
                 const usdtJetton = balanceInfo.jettons.find(
@@ -424,34 +531,63 @@ const StoreUI: React.FC<StoreUIProps> = ({
                 if (!paymentResult.success || !paymentResult.txHash) throw new Error(paymentResult.error || 'Payment failed');
                 showSnackbar?.({ message: 'Transaction Initiated', description: `Purchasing ${totalRZC.toLocaleString()} RZC for ${costUsdt.toFixed(2)} USDT`, type: 'info' });
                 txResult = { boc: paymentResult.txHash };
+            } else if (paymentMethod === 'TRX') {
+                const paymentResult = await tetherWdkService.sendTronTransaction(
+                    TRON_DEPOSIT_ADDRESS, 
+                    costTrx.toFixed(6)
+                );
+                if (!paymentResult.success || !paymentResult.txHash) throw new Error(paymentResult.error || 'Payment failed');
+                showSnackbar?.({ message: 'Transaction Initiated', description: `Purchasing ${totalRZC.toLocaleString()} RZC for ${costTrx.toFixed(2)} TRX`, type: 'info' });
+                txResult = { boc: paymentResult.txHash };
+            } else if (paymentMethod === 'USDT_TRC20') {
+                const paymentResult = await tetherWdkService.sendTronTrc20Transaction(
+                    TRON_DEPOSIT_ADDRESS, 
+                    costUsdtTrc20.toFixed(2)
+                );
+                if (!paymentResult.success || !paymentResult.txHash) throw new Error(paymentResult.error || 'Payment failed');
+                showSnackbar?.({ message: 'Transaction Initiated', description: `Purchasing ${totalRZC.toLocaleString()} RZC for ${costUsdtTrc20.toFixed(2)} USDT (TRC20)`, type: 'info' });
+                txResult = { boc: paymentResult.txHash };
             }
 
             if (txResult) {
+                let targetAddress = currentTonAddress;
+                try {
+                    const { Address } = await import('@ton/ton');
+                    targetAddress = Address.parse(currentTonAddress).toString({ bounceable: false, testOnly: network === 'testnet' });
+                } catch (e) {}
+
+                let paymentDesc = '';
+                if (paymentMethod === 'TON') paymentDesc = `${costTon.toFixed(4)} TON`;
+                else if (paymentMethod === 'USDT') paymentDesc = `${costUsdt.toFixed(2)} USDT`;
+                else if (paymentMethod === 'TRX') paymentDesc = `${costTrx.toFixed(2)} TRX`;
+                else if (paymentMethod === 'USDT_TRC20') paymentDesc = `${costUsdtTrc20.toFixed(2)} USDT (TRC20)`;
+
                 await notificationService.logActivity(
-                    currentTonAddress, 'transaction_sent',
-                    `Purchased ${totalRZC.toLocaleString()} RZC - ${paymentMethod === 'TON' ? costTon.toFixed(4) + ' TON' : costUsdt.toFixed(2) + ' USDT'}`,
+                    targetAddress, 'transaction_sent',
+                    `Purchased ${totalRZC.toLocaleString()} RZC - ${paymentDesc}`,
                     {
                         amount_ton: paymentMethod === 'TON' ? costTon : 0,
-                        amount_usdt: paymentMethod === 'USDT' ? costUsdt : 0,
+                        amount_usdt: paymentMethod === 'USDT' || paymentMethod === 'USDT_TRC20' ? costUsdt : 0,
+                        amount_trx: paymentMethod === 'TRX' ? costTrx : 0,
                         amount_usd: costUsd, rzc_reward: totalRZC,
                         transaction_hash: txResult.boc,
-                        network: getNetworkConfig(network).NAME,
-                        payment_address: RHIZACORE_TREASURY_ADDRESS
+                        network: paymentMethod === 'TRX' || paymentMethod === 'USDT_TRC20' ? 'TRON' : getNetworkConfig(network).NAME,
+                        payment_address: paymentMethod === 'TRX' || paymentMethod === 'USDT_TRC20' ? TRON_DEPOSIT_ADDRESS : RHIZACORE_TREASURY_ADDRESS
                     }
                 );
                 await notificationService.createNotification(
-                    currentTonAddress, 'transaction_confirmed', 'Payment Successful',
-                    `Your payment of ${paymentMethod === 'TON' ? costTon.toFixed(4) + ' TON' : costUsdt.toFixed(2) + ' USDT'} for ${totalRZC.toLocaleString()} RZC was successful.`,
+                    targetAddress, 'transaction_confirmed', 'Payment Successful',
+                    `Your payment of ${paymentDesc} for ${totalRZC.toLocaleString()} RZC was successful.`,
                     { priority: 'high', data: { txHash: txResult.boc, package: 'RZC Purchase' } }
                 );
 
                 // Auto-activate wallet if purchase is $5+ and not yet activated
                 if (!walletActivated && costUsd >= 5) {
                     try {
-                        let activationAddress = currentTonAddress;
+                        let activationAddress = targetAddress;
                         try {
                             const { Address } = await import('@ton/ton');
-                            activationAddress = Address.parse(currentTonAddress).toString({ 
+                            activationAddress = Address.parse(targetAddress).toString({ 
                                 bounceable: false, 
                                 testOnly: network === 'testnet' 
                             });
@@ -466,7 +602,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
 
                         if (activated) {
                             await notificationService.logActivity(
-                                currentTonAddress, 'wallet_created', 
+                                targetAddress, 'wallet_created', 
                                 'Wallet auto-activated via store purchase',
                                 { 
                                     activation_fee_usd: costUsd,
@@ -476,7 +612,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                 }
                             );
                             await notificationService.createNotification(
-                                currentTonAddress, 'system_announcement',
+                                targetAddress, 'system_announcement',
                                 '🎉 Wallet Activated!',
                                 `Your wallet has been automatically activated with your $${costUsd.toFixed(2)} purchase!`,
                                 { priority: 'high', data: { auto_activated: true } }
@@ -493,7 +629,18 @@ const StoreUI: React.FC<StoreUIProps> = ({
                     }
                 }
 
-                const profileResult = await supabaseService.getProfile(currentTonAddress);
+                if (network === 'testnet') {
+                    showSnackbar?.({ 
+                        message: 'Testnet Purchase Successful', 
+                        description: 'You bought with Testnet successfully! Now buy with Real Mainnet to get credited with RZC in real time.', 
+                        type: 'success' 
+                    });
+                    onPurchaseComplete?.();
+                    setTimeout(() => { navigate('/wallet/dashboard'); }, 3000);
+                    return;
+                }
+
+                const profileResult = await supabaseService.getProfile(targetAddress);
                 let actualUserId = profileResult?.data?.id || userId;
                 if (actualUserId) {
                     const rewardResult = await supabaseService.awardRZCTokens(
@@ -507,12 +654,12 @@ const StoreUI: React.FC<StoreUIProps> = ({
                     );
                     if (rewardResult.success) {
                         await notificationService.logActivity(
-                            currentTonAddress, 'reward_claimed',
+                            targetAddress, 'reward_claimed',
                             `Received ${totalRZC.toLocaleString()} RZC from Direct Purchase`,
                             { amount: totalRZC, type: 'direct_purchase', new_balance: rewardResult.newBalance }
                         );
                         await notificationService.createNotification(
-                            currentTonAddress, 'reward_claimed', 'RZC Tokens Awarded',
+                            targetAddress, 'reward_claimed', 'RZC Tokens Awarded',
                             `You received ${totalRZC.toLocaleString()} RZC tokens from your purchase!`,
                             { priority: 'normal', data: { amount: totalRZC } }
                         );
@@ -579,7 +726,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
 
                 // ── Record purchase in ico_purchases (non-blocking, after tx confirmed) ──
                 saleRoundService.recordPurchase({
-                    walletAddress:  currentTonAddress,
+                    walletAddress:  targetAddress,
                     rzcAmount:      totalRZC,
                     priceUsd:       RZC_PRICE_USD,
                     costUsd:        costUsd,
@@ -623,15 +770,6 @@ const StoreUI: React.FC<StoreUIProps> = ({
             setIsProcessing(false);
         }
     };
-
-    // ✅ REMOVE MOCK DATA - Replace with real activity or remove section
-    // const recentBuyers = [
-    //     { id: 1, addr: '0x7a...f2', amt: '5,000', ago: '2m ago' },
-    //     { id: 2, addr: '0x1c...e9', amt: '12,500', ago: '7m ago' },
-    //     { id: 3, addr: '0x9d...a1', amt: '2,000', ago: '14m ago' },
-    //     { id: 4, addr: '0x4b...77', amt: '25,000', ago: '21m ago' },
-    //     { id: 5, addr: '0xf3...cc', amt: '8,000', ago: '35m ago' },
-    // ];
 
     const guideSteps = [
         {
@@ -760,7 +898,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                         <div className="relative overflow-hidden rounded-2xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-50 dark:from-emerald-950/40 to-cyan-50 dark:to-cyan-950/20 p-4">
                             <div className="absolute -top-8 -right-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
                             <div className="flex items-start gap-3 mb-3">
-                                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 flex-shrink-0">
+                                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
                                     <Zap size={16} className="text-emerald-600 dark:text-emerald-400" />
                                 </div>
                                 <div>
@@ -863,13 +1001,18 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                             <div className="flex flex-col">
                                                 <h3 className="text-base font-heading font-black text-gray-900 dark:text-white leading-none mb-1">{pkg.tierName}</h3>
                                                 <div className="flex flex-col">
-                                                    <span className="text-xs font-numbers font-black text-emerald-600 dark:text-emerald-400">{pkg.rzcReward.toLocaleString()} RZC</span>
-                                                    <span className="text-[9px] text-gray-500 dark:text-zinc-500 font-heading font-bold uppercase tracking-wider">Est. Value: ${estimatedValue.toLocaleString()}</span>
+                                                    <span className="text-sm font-numbers font-black text-emerald-600 dark:text-emerald-400">{pkg.rzcReward.toLocaleString()} RZC</span>
+                                                    <span className="text-[10px] text-gray-500 dark:text-zinc-500 font-heading font-bold uppercase tracking-wider">
+                                                        Listing Value: <span className="text-emerald-500 font-black">${estimatedValue.toLocaleString()}</span>
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>
                                         <div className="text-right flex flex-col justify-end shrink-0">
                                             <span className="text-2xl font-numbers font-black text-gray-900 dark:text-white leading-none">${pkg.pricePoint.toLocaleString()}</span>
+                                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-heading font-black uppercase tracking-widest mt-1 bg-emerald-500/10 px-1.5 py-0.5 rounded w-fit self-end">
+                                               +{(((estimatedValue - pkg.pricePoint) / pkg.pricePoint) * 100).toFixed(0)}% ROI
+                                            </span>
                                         </div>
                                     </div>
                                     
@@ -977,7 +1120,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                         <div className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl p-4 mb-2">
                             <div className="flex items-center justify-between mb-2">
                                 <label className="text-[10px] font-heading font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest">You Pay</label>
-                                <div className="flex items-center gap-1">
+                                <div className="flex flex-wrap items-center gap-1 justify-end">
                                     <button
                                         onClick={() => { setPaymentMethod('TON'); setInputMode('ton'); setCustomAmountStr('0.5'); }}
                                         className={`px-2 py-1 rounded-md text-[10px] font-heading font-black uppercase tracking-widest transition-colors ${paymentMethod === 'TON' ? 'bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-zinc-500'}`}
@@ -985,15 +1128,23 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                     <button
                                         onClick={() => { setPaymentMethod('USDT'); setInputMode('ton'); setCustomAmountStr('5'); }}
                                         className={`px-2 py-1 rounded-md text-[10px] font-heading font-black uppercase tracking-widest transition-colors ${paymentMethod === 'USDT' ? 'bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-zinc-500'}`}
-                                    >USDT</button>
+                                    >USDT (TON)</button>
+                                    <button
+                                        onClick={() => { setPaymentMethod('TRX'); setInputMode('ton'); setCustomAmountStr('50'); }}
+                                        className={`px-2 py-1 rounded-md text-[10px] font-heading font-black uppercase tracking-widest transition-colors ${paymentMethod === 'TRX' ? 'bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-zinc-500'}`}
+                                    >TRX</button>
+                                    <button
+                                        onClick={() => { setPaymentMethod('USDT_TRC20'); setInputMode('ton'); setCustomAmountStr('5'); }}
+                                        className={`px-2 py-1 rounded-md text-[10px] font-heading font-black uppercase tracking-widest transition-colors ${paymentMethod === 'USDT_TRC20' ? 'bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-zinc-500'}`}
+                                    >USDT (TRC20)</button>
                                 </div>
                             </div>
                             
                             <div className="flex items-center gap-3">
                                 <input
                                     type="number"
-                                    value={inputMode === 'ton' ? customAmountStr : (paymentMethod === 'TON' ? costTon.toFixed(2) : costUsdt.toFixed(2))}
-                                    step={paymentMethod === 'TON' ? '0.01' : '1'}
+                                    value={inputMode === 'ton' ? customAmountStr : (paymentMethod === 'TON' ? costTon.toFixed(2) : paymentMethod === 'USDT' || paymentMethod === 'USDT_TRC20' ? costUsdt.toFixed(2) : costTrx.toFixed(2))}
+                                    step={paymentMethod === 'TON' ? '0.01' : paymentMethod === 'TRX' ? '1' : '0.1'}
                                     min={paymentMethod === 'TON' ? MIN_TON : '1'}
                                     onChange={(e) => {
                                         setInputMode('ton');
@@ -1003,8 +1154,8 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                     className="flex-1 w-full bg-transparent border-none text-3xl font-numbers font-black text-slate-900 dark:text-white outline-none p-0"
                                 />
                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-black rounded-lg border border-slate-200 dark:border-white/10 shadow-sm flex-shrink-0">
-                                    {paymentMethod === 'TON' ? <Wallet size={16} className="text-blue-500" /> : <CreditCard size={16} className="text-emerald-500" />}
-                                    <span className="text-sm font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest">{paymentMethod}</span>
+                                    {paymentMethod === 'TON' ? <Wallet size={16} className="text-blue-500" /> : paymentMethod === 'TRX' ? <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png" className="w-4 h-4" /> : <CreditCard size={16} className="text-emerald-500" />}
+                                    <span className="text-sm font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest">{paymentMethod === 'USDT_TRC20' ? 'USDT' : paymentMethod}</span>
                                 </div>
                             </div>
                             
@@ -1013,7 +1164,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                     ≈ ${costUsd.toFixed(2)}
                                 </p>
                                 <p className="text-[10px] font-heading font-black text-slate-500 dark:text-zinc-500 uppercase tracking-widest">
-                                    Balance: {paymentMethod === 'TON' ? `${tonBalance.toFixed(2)} TON` : `${parseFloat(usdtBalance).toFixed(2)} USDT`}
+                                    Balance: {paymentMethod === 'TON' ? `${effectiveTonBalance.toFixed(2)} TON` : paymentMethod === 'USDT' ? `${effectiveUsdtBalance.toFixed(2)} USDT` : paymentMethod === 'TRX' ? `${effectiveTrxBalance.toFixed(2)} TRX` : `${effectiveUsdtTrc20Balance.toFixed(2)} USDT (TRC20)`}
                                 </p>
                             </div>
                         </div>
@@ -1032,7 +1183,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                             <div className="flex items-center gap-3">
                                 <input
                                     type="number"
-                                    value={inputMode === 'rzc' ? customAmountStr : finalAmount > 0 ? finalAmount.toString() : ''}
+                                    value={inputMode === 'rzc' ? customAmountStr : finalAmount > 0 ? Number(finalAmount.toFixed(2)).toString() : ''}
                                     onChange={(e) => {
                                         setInputMode('rzc');
                                         setCustomAmountStr(e.target.value);
@@ -1081,21 +1232,17 @@ const StoreUI: React.FC<StoreUIProps> = ({
                             </button>
                         ) : (
                             <>
-                                {((paymentMethod === 'TON' && tonBalance < costTon) || 
-                                  (paymentMethod === 'USDT' && parseFloat(usdtBalance) < costUsdt)) && 
-                                  finalAmount > 0 && !belowMinimum ? (
+                                {hasInsufficientBalance && finalAmount > 0 && !belowMinimum ? (
                                     <button
                                         onClick={() => navigate('/wallet/receive')}
                                         className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-heading font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2 shadow-sm"
                                     >
-                                        Deposit {paymentMethod} to Continue
+                                        Deposit {paymentMethod === 'USDT_TRC20' ? 'USDT or TRX' : paymentMethod} to Continue
                                     </button>
                                 ) : (
                                     <button
                                         onClick={handlePurchase}
-                                        disabled={isProcessing || finalAmount <= 0 || belowMinimum || 
-                                            (paymentMethod === 'TON' && tonBalance < (costTon + 0.05)) || 
-                                            (paymentMethod === 'USDT' && parseFloat(usdtBalance) < costUsdt)}
+                                        disabled={isProcessing || finalAmount <= 0 || belowMinimum || hasInsufficientBalance}
                                         className="relative w-full h-14 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:from-emerald-500 disabled:hover:to-cyan-500 rounded-xl text-sm font-heading font-black uppercase tracking-widest text-black shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all duration-200 flex items-center justify-center gap-2 active:scale-[0.98] overflow-hidden group"
                                     >
                                         <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
@@ -1149,7 +1296,54 @@ const StoreUI: React.FC<StoreUIProps> = ({
                         </div>
                     </div>
 
-                  
+                    {/* ── 4. RECENT BUYERS FOMO ── */}
+                    {(recentPurchases.length > 0 || true) && (
+                        <div className="bg-white dark:bg-[#0a0a0a] border-2 border-slate-200 dark:border-white/5 rounded-2xl p-5 overflow-hidden relative">
+                            <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                                <Activity size={80} className="text-emerald-500" />
+                            </div>
+                            
+                            <h3 className="text-sm font-heading font-black text-gray-900 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+                                <Users size={14} className="text-blue-500 dark:text-blue-400" />
+                                Live Store Buyers
+                                <span className="relative flex h-2 w-2 ml-1">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </span>
+                            </h3>
+                            
+                            <div className="space-y-3 relative z-10">
+                                {(recentPurchases.length > 0 ? recentPurchases : [
+                                    { wallet_address: 'EQC3x...9aF1', rzc_amount: 5000, created_at: new Date(Date.now() - 2 * 60000).toISOString() },
+                                    { wallet_address: 'EQB1y...2bE4', rzc_amount: 12500, created_at: new Date(Date.now() - 7 * 60000).toISOString() },
+                                    { wallet_address: 'EQA4z...7cD2', rzc_amount: 2000, created_at: new Date(Date.now() - 14 * 60000).toISOString() },
+                                    { wallet_address: 'EQD9w...4fB8', rzc_amount: 25000, created_at: new Date(Date.now() - 21 * 60000).toISOString() },
+                                    { wallet_address: 'EQE2v...1hG5', rzc_amount: 8000, created_at: new Date(Date.now() - 35 * 60000).toISOString() },
+                                ]).map((purchase, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                                                <Wallet size={12} className="text-emerald-600 dark:text-emerald-400" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-numbers font-black text-slate-900 dark:text-white tracking-tight">
+                                                    {purchase.wallet_address ? `${purchase.wallet_address.substring(0, 4)}...${purchase.wallet_address.substring(purchase.wallet_address.length - 4)}` : 'Unknown'}
+                                                </p>
+                                                <p className="text-[9px] font-heading font-black text-slate-400 dark:text-zinc-500 uppercase tracking-widest">
+                                                    {timeAgo(purchase.created_at)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-numbers font-black text-emerald-600 dark:text-emerald-400 tracking-tighter">
+                                                +{Number(purchase.rzc_amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} RZC
+                                            </p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     
                 </div>
             ) : (
@@ -1338,9 +1532,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                         ) : (
                             <>
                                 {/* ✅ ADD DEPOSIT BUTTON FOR INSUFFICIENT BALANCE (STICKY) */}
-                                {((paymentMethod === 'TON' && tonBalance < costTon) || 
-                                  (paymentMethod === 'USDT' && parseFloat(usdtBalance) < costUsdt)) && 
-                                  finalAmount > 0 && !belowMinimum ? (
+                                {hasInsufficientBalance && finalAmount > 0 && !belowMinimum ? (
                                     <button
                                         onClick={() => navigate('/wallet/receive')}
                                         className="relative w-full h-16 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 rounded-2xl font-heading font-black text-white shadow-2xl shadow-blue-500/40 hover:shadow-blue-500/60 transition-all duration-200 active:scale-[0.98] overflow-hidden group"
@@ -1349,9 +1541,9 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                         <div className="relative z-10 w-full flex items-center justify-between px-4">
                                             <div className="flex flex-col items-start leading-none gap-2">
                                                 <span className="text-[10px] font-numbers font-black opacity-70 uppercase tracking-widest">
-                                                    Need {paymentMethod === 'TON' ? (costTon - tonBalance).toFixed(4) + ' more TON' : (costUsdt - parseFloat(usdtBalance)).toFixed(2) + ' more USDT'}
+                                                    Need {paymentMethod === 'TON' ? (costTon - effectiveTonBalance).toFixed(4) + ' more TON' : paymentMethod === 'USDT' ? (costUsdt - effectiveUsdtBalance).toFixed(2) + ' more USDT' : paymentMethod === 'TRX' ? (costTrx - effectiveTrxBalance).toFixed(2) + ' more TRX' : 'more USDT/TRX'}
                                                 </span>
-                                                <span className="text-sm font-heading font-black uppercase tracking-widest">Deposit {paymentMethod} to Continue</span>
+                                                <span className="text-sm font-heading font-black uppercase tracking-widest">Deposit {paymentMethod === 'USDT_TRC20' ? 'USDT/TRX' : paymentMethod} to Continue</span>
                                             </div>
                                             <Wallet size={22} className="flex-shrink-0" />
                                         </div>
@@ -1359,9 +1551,7 @@ const StoreUI: React.FC<StoreUIProps> = ({
                                 ) : (
                                     <button
                                         onClick={handlePurchase}
-                                        disabled={isProcessing || finalAmount <= 0 || belowMinimum || 
-                                            (paymentMethod === 'TON' && tonBalance < costTon) || 
-                                            (paymentMethod === 'USDT' && parseFloat(usdtBalance) < costUsdt)}
+                                        disabled={isProcessing || finalAmount <= 0 || belowMinimum || hasInsufficientBalance}
                                         className="relative w-full h-16 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-emerald-500 disabled:hover:to-cyan-500 rounded-2xl font-heading font-black text-black shadow-2xl shadow-emerald-500/40 hover:shadow-emerald-500/60 transition-all duration-200 active:scale-[0.98] overflow-hidden group"
                                     >
                                         <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />

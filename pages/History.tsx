@@ -49,20 +49,35 @@ const History: React.FC = () => {
   const { network, address, currentEvmChain } = useWallet();
 
   // Chain-aware explorer URL
-  const getExplorerLink = (hash: string, asset: string) => {
+  const getExplorerLink = (hash: string, asset: string, comment?: string) => {
     if (asset === 'BTC') return `https://mempool.space/tx/${hash}`;
     
-    const EVM_ASSETS = ['ETH', 'ETH/POLYGON', 'ETHEREUM', 'POLYGON', 'BSC', 'ARBITRUM', 'AVALANCHE', 'SEPOLIA'];
+    const EVM_ASSETS = ['ETH', 'ETH/POLYGON', 'ETHEREUM', 'POLYGON', 'BSC', 'ARBITRUM', 'AVALANCHE', 'SEPOLIA', 'BNB', 'MATIC', 'USDT', 'USDC'];
     if (EVM_ASSETS.includes(asset.toUpperCase())) {
       const explorers: Record<string, string> = {
         ethereum: 'https://etherscan.io/tx', polygon: 'https://polygonscan.com/tx',
         arbitrum: 'https://arbiscan.io/tx', bsc: 'https://bscscan.com/tx',
         avalanche: 'https://snowtrace.io/tx', sepolia: 'https://sepolia.etherscan.io/tx',
       };
-      const chainKey = asset.toLowerCase() === 'bsc' ? 'bsc' : 
-                       asset.toLowerCase() === 'polygon' ? 'polygon' :
-                       asset.toLowerCase() === 'arbitrum' ? 'arbitrum' :
-                       asset.toLowerCase() === 'avalanche' ? 'avalanche' : currentEvmChain;
+      const assetLower = asset.toLowerCase();
+      const commentLower = comment?.toLowerCase() || '';
+      let chainKey = currentEvmChain;
+      
+      if (assetLower === 'bsc' || assetLower === 'bnb') {
+        chainKey = 'bsc';
+      } else if (assetLower === 'polygon' || assetLower === 'matic') {
+        chainKey = 'polygon';
+      } else if (assetLower === 'arbitrum') {
+        chainKey = 'arbitrum';
+      } else if (assetLower === 'avalanche') {
+        chainKey = 'avalanche';
+      } else if (commentLower.includes('bsc') || commentLower.includes('binance')) {
+        chainKey = 'bsc';
+      } else if (commentLower.includes('polygon') || commentLower.includes('matic') || commentLower.includes('amoy')) {
+        chainKey = 'polygon';
+      } else if (commentLower.includes('ethereum') || commentLower.includes('sepolia') || commentLower.includes('eth')) {
+        chainKey = 'ethereum';
+      }
       return `${explorers[chainKey] ?? 'https://etherscan.io/tx'}/${hash}`;
     }
     return getTransactionUrl(hash, network);
@@ -71,11 +86,12 @@ const History: React.FC = () => {
   // Fee label per asset
   const getFeeLabel = (asset: string) => {
     if (asset === 'BTC') return 'BTC';
-    const EVM_ASSETS = ['ETH', 'ETH/POLYGON', 'ETHEREUM', 'POLYGON', 'BSC', 'ARBITRUM', 'AVALANCHE', 'SEPOLIA'];
+    const EVM_ASSETS = ['ETH', 'ETH/POLYGON', 'ETHEREUM', 'POLYGON', 'BSC', 'ARBITRUM', 'AVALANCHE', 'SEPOLIA', 'BNB', 'MATIC', 'USDT', 'USDC'];
     if (EVM_ASSETS.includes(asset.toUpperCase())) {
-      if (asset.toUpperCase() === 'BSC') return 'BNB';
-      if (asset.toUpperCase() === 'POLYGON') return 'MATIC';
-      if (asset.toUpperCase() === 'AVALANCHE') return 'AVAX';
+      const assetLower = asset.toLowerCase();
+      if (assetLower === 'bsc' || assetLower === 'bnb') return 'BNB';
+      if (assetLower === 'polygon' || assetLower === 'matic') return 'MATIC';
+      if (assetLower === 'avalanche') return 'AVAX';
       return 'ETH';
     }
     return 'TON';
@@ -573,7 +589,7 @@ const History: React.FC = () => {
                         {/* View in Explorer */}
                         {tx.hash && tx.asset !== 'RZC' && (
                           <button
-                            onClick={() => window.open(getExplorerLink(tx.hash!, tx.asset), '_blank')}
+                            onClick={() => window.open(getExplorerLink(tx.hash!, tx.asset, tx.comment), '_blank')}
                             className="w-full mt-1 sm:mt-2 py-2.5 px-4 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95"
                           >
                             <ExternalLink size={14} />

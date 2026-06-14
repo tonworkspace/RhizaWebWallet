@@ -16,7 +16,7 @@ const STEPS = ['Select Type', 'Backup Phrase', 'Set Password', 'Verify Backup', 
 
 const CreateWallet: React.FC = () => {
   const navigate = useNavigate();
-  const { login, isLoggedIn } = useWallet();
+  const { login, isLoggedIn, network, switchNetwork } = useWallet();
   const { showToast } = useToast();
   const [searchParams] = useSearchParams();
   const referralCode = searchParams.get('ref');
@@ -67,6 +67,21 @@ const CreateWallet: React.FC = () => {
         // Fallback: autocomplete will still work from mnemonic words themselves
       });
   }, []);
+
+  // Enforce Mainnet network for wallet creation
+  useEffect(() => {
+    const enforceMainnet = async () => {
+      if (network !== 'mainnet') {
+        try {
+          await switchNetwork('mainnet');
+          showToast('Switched network to Mainnet for wallet creation', 'info');
+        } catch (e) {
+          console.error('Failed to switch to mainnet:', e);
+        }
+      }
+    };
+    enforceMainnet();
+  }, [network, switchNetwork, showToast]);
 
   // ─── Validate referral code ───────────────────────────────────────────────
   useEffect(() => {
@@ -253,21 +268,19 @@ const CreateWallet: React.FC = () => {
           if (referralResult.success && referrerId) {
             await supabaseService.incrementReferralCount(referrerId);
             await supabaseService.updateReferralRank(referrerId);
-            const referralBonus = await rzcRewardService.awardReferralBonus(referrerId, profileResult.data.id, walletAddress);
-            if (referralBonus.success) {
-              try {
-                const { notificationService } = await import('../services/notificationService');
-                const referrerProfile = await supabaseService.getProfileById(referrerId);
-                if (referrerProfile.success && referrerProfile.data) {
-                  const msg = referralBonus.milestoneReached
-                    ? `New referral! You earned ${referralBonus.amount} RZC + ${referralBonus.milestoneBonus} RZC milestone bonus! 🎉`
-                    : `New referral! You earned ${referralBonus.amount} RZC.`;
-                  await notificationService.createNotification(referrerProfile.data.wallet_address, 'referral_joined', 'New Referral! 🎉', msg,
-                    { data: { referral_code: referralCode, new_user_address: walletAddress, bonus_amount: referralBonus.amount || 25 }, priority: 'high' }
-                  );
-                }
-              } catch {}
+          // Referral bonus removed here to prevent manipulation. 
+          // Referrers now earn RZC from their downline's actual activity (e.g., purchases/commissions).
+          try {
+            const { notificationService } = await import('../services/notificationService');
+            const referrerProfile = await supabaseService.getProfileById(referrerId);
+            if (referrerProfile.success && referrerProfile.data) {
+              await notificationService.createNotification(
+                referrerProfile.data.wallet_address, 'referral_joined', 'New Referral! 🎉', 
+                `Someone just joined using your referral link! You'll earn RZC and TON commissions when they activate or purchase packages.`,
+                { priority: 'normal' }
+              );
             }
+          } catch {}
           }
 
           await supabaseService.trackEvent('wallet_created', {

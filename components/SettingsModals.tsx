@@ -9,9 +9,11 @@ import {
   AlertCircle,
   Check,
   Copy,
-  Timer,
   LogOut,
-  Trash2
+  Trash2,
+  Wrench,
+  RefreshCw,
+  Timer
 } from 'lucide-react';
 import { useSettingsModal } from '../context/SettingsModalContext';
 import { useWallet } from '../context/WalletContext';
@@ -21,9 +23,11 @@ import { WalletManager } from '../utils/walletManager';
 const SettingsModals: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { logout } = useWallet();
+  const { logout, refreshData, reinitializeWdkEvm } = useWallet();
   const { showToast } = useToast();
-  
+
+  const [isFixing, setIsFixing] = React.useState(false);
+
   const {
     exportMode,
     exportPassword,
@@ -35,10 +39,12 @@ const SettingsModals: React.FC = () => {
     countdown,
     showLogoutConfirm,
     showDeleteConfirm,
+    showAutoFixConfirm,
     setExportPassword,
     setExportPasswordVisible,
     setShowLogoutConfirm,
     setShowDeleteConfirm,
+    setShowAutoFixConfirm,
     closeExportModal,
     handleConfirmExport,
     handleCopyWords,
@@ -61,6 +67,30 @@ const SettingsModals: React.FC = () => {
     navigate('/onboarding');
     showToast(t('settings.walletDeleted'), 'success');
     setShowDeleteConfirm(false);
+  };
+
+  const handleAutoFix = async () => {
+    setIsFixing(true);
+    try {
+      // Correct any address format prefixes (EQ/UQ/0Q) for the current network setting
+      await WalletManager.sanitizeAndFixAddresses();
+
+      if (activeWallet?.type === 'secondary') {
+        // Restart the WDK background service
+        await reinitializeWdkEvm();
+      }
+
+      // Force aggressive refresh skipping normal profile/cache bounds
+      await refreshData(false, true);
+
+      showToast('Wallet successfully re-synced and fixed!', 'success');
+    } catch (err) {
+      console.error('Auto fix error:', err);
+      showToast('Encountered an issue while fixing wallet.', 'error');
+    } finally {
+      setIsFixing(false);
+      setShowAutoFixConfirm(false);
+    }
   };
 
   return (
@@ -255,6 +285,43 @@ const SettingsModals: React.FC = () => {
                 className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all"
               >
                 {t('settings.deleteWallet')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto Fix Modal */}
+      {showAutoFixConfirm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-sm bg-white dark:bg-[#0a0a0a] rounded-3xl border-2 border-gray-300 dark:border-white/10 shadow-2xl p-6 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center mx-auto mb-4">
+              <Wrench size={28} className="text-blue-500 dark:text-blue-400" />
+            </div>
+            <h3 className="text-xl font-heading font-black text-slate-900 dark:text-white uppercase tracking-widest mb-2">
+              Auto Fix Wallet
+            </h3>
+            <p className="text-sm font-body text-slate-500 dark:text-gray-400 mb-6 leading-relaxed">
+              This will force a hard re-sync with the blockchain, restart multi-chain services, and fix potential address formatting issues. Use this if your balances aren't displaying correctly.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowAutoFixConfirm(false)}
+                disabled={isFixing}
+                className="flex-1 py-3 px-4 rounded-xl font-heading font-black text-xs uppercase tracking-widest bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAutoFix}
+                disabled={isFixing}
+                className="flex-1 py-3 px-4 rounded-xl font-heading font-black text-xs uppercase tracking-widest bg-blue-500 hover:bg-blue-600 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isFixing ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" /> Fixing...
+                  </>
+                ) : 'Run Fix'}
               </button>
             </div>
           </div>

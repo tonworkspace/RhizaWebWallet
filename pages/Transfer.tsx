@@ -23,47 +23,31 @@ import { useTransactions } from '../hooks/useTransactions';
 import { getJettonTransaction, estimateJettonTransferFee } from '../utility/jettonTransfer';
 import { toDecimals } from '../utility/decimals';
 import { Address } from '@ton/core';
-import { CHAIN_META, getTransactionUrl } from '../constants';
+import { CHAIN_META, getTransactionUrl, TON_USDT_MASTER_CONTRACT, TON_JETTON_GAS_DEFAULT } from '../constants';
 import { tetherWdkService } from '../services/tetherWdkService';
+import { useAssetSelector } from '../context/AssetSelectorContext';
 
 const Transfer: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  const { balance, network, jettons, address, refreshData, multiChainBalances, setIsNetworkModalOpen, isNetworkModalOpen, currentEvmChain } = useWallet();
+  const { openAssetSelector } = useAssetSelector();
+  const { balance, network, jettons, address, refreshData, multiChainBalances, setIsNetworkModalOpen, isNetworkModalOpen, currentEvmChain, addPendingTransaction, switchEvmChain } = useWallet();
 
+  const activeWallet = WalletManager.getActiveWallet();
   const allWallets = WalletManager.getWallets();
   const multiChainWallet = allWallets.find(w => w.type === 'secondary');
-  // Show multi-chain options whenever a secondary wallet exists — regardless of which wallet is active
-  const isMultiChainActive = !!multiChainWallet;
-  const multiChainAddresses = multiChainWallet && multiChainWallet.addresses ? {
-    evmAddress: multiChainWallet.addresses.evm,
-    tonAddress: multiChainWallet.addresses.ton,
-    btcAddress: multiChainWallet.addresses.btc,
-    solAddress: multiChainWallet.addresses.sol,
-    tronAddress: multiChainWallet.addresses.tron
+  // Show multi-chain options whenever a secondary wallet exists, or the active wallet is primary
+  const isMultiChainActive = !!multiChainWallet || activeWallet?.type === 'primary';
+  
+  const walletForAddresses = multiChainWallet || activeWallet;
+  const multiChainAddresses = walletForAddresses && walletForAddresses.addresses ? {
+    evmAddress: walletForAddresses.addresses.evm,
+    tonAddress: walletForAddresses.addresses.ton,
+    btcAddress: walletForAddresses.addresses.btc,
+    solAddress: walletForAddresses.addresses.sol,
+    tronAddress: walletForAddresses.addresses.tron
   } : null;
-
-  // Block explorer URL for the active EVM chain
-  const EVM_EXPLORERS: Record<string, string> = {
-    ethereum: 'https://etherscan.io/tx',
-    polygon: 'https://polygonscan.com/tx',
-    arbitrum: 'https://arbiscan.io/tx',
-    bsc: 'https://bscscan.com/tx',
-    avalanche: 'https://snowtrace.io/tx',
-    plasma: 'https://etherscan.io/tx',
-    stable: 'https://etherscan.io/tx',
-    sepolia: 'https://sepolia.etherscan.io/tx',
-  };
-  const explorerTxUrl = EVM_EXPLORERS[currentEvmChain] ?? 'https://etherscan.io/tx';
-
-  // USDT contract addresses per chain
-  const USDT_CONTRACTS: Record<string, { address: string; decimals: number }> = {};
-  const usdtContract = { address: '', decimals: 6 };
-
-  // Dynamic native EVM token symbol (ETH / BNB / MATIC / AVAX etc.)
-  const nativeSymbol = 'ETH';
-  const chainName = 'EVM';
 
   const { showToast } = useToast();
   const { refreshTransactions } = useTransactions();
@@ -72,6 +56,7 @@ const Transfer: React.FC = () => {
   const locationState = location.state as any;
   const isJettonTransfer = locationState?.asset === 'JETTON';
   const isRzcTransfer = locationState?.asset === 'RZC';
+  const isUsdtTransfer = locationState?.asset === 'USDT';
   const jettonData = isJettonTransfer ? {
     address: locationState.jettonAddress,
     name: locationState.jettonName,
@@ -89,26 +74,62 @@ const Transfer: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [txHash, setTxHash] = useState('');
   const [isSendingAll, setIsSendingAll] = useState(false);
-  const [showAssetSelector, setShowAssetSelector] = useState(false);
   // Live fee estimate state — fetched from quoteSend* before the confirm step
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null);
   const [isFetchingFee, setIsFetchingFee] = useState(false);
-  const initWallet = (): 'primary' | 'multichain-ton' | 'multichain-tron' => {
+
+  const initWallet = (): 'primary' | 'multichain-ton' | 'multichain-tron' | 'multichain-tron-usdt' | 'multichain-eth-usdt' | 'multichain-bsc-usdt' | 'multichain-sol' | 'multichain-eth' | 'multichain-bsc' | 'multichain-polygon' | 'multichain-btc' => {
     const a = (location.state as any)?.asset;
+    if (a === 'TRX') return 'multichain-tron';
+    if (a === 'BTC') return 'multichain-btc';
+    if (a === 'SOL') return 'multichain-sol';
+    if (a === 'ETH') return 'multichain-eth';
+    if (a === 'MATIC' || a === 'EVM' || a === 'POLYGON') return 'multichain-polygon';
+    if (a === 'BNB' || a === 'BSC') return 'multichain-bsc';
+    if (a === 'USDT' || a === 'JETTON') {
+      return 'primary';
+    }
     const activeWalletType = localStorage.getItem('rhiza_active_wallet_type');
     if (activeWalletType === 'secondary') return 'multichain-ton';
     return 'primary';
   };
-  const [selectedWallet, setSelectedWallet] = useState<'primary' | 'multichain-ton' | 'multichain-tron'>(initWallet);
+  const [selectedWallet, setSelectedWallet] = useState<'primary' | 'multichain-ton' | 'multichain-tron' | 'multichain-tron-usdt' | 'multichain-eth-usdt' | 'multichain-bsc-usdt' | 'multichain-sol' | 'multichain-eth' | 'multichain-bsc' | 'multichain-polygon' | 'multichain-btc'>(initWallet() as any);
   const [recipientInfo, setRecipientInfo] = useState<{ valid: boolean; name?: string; walletAddress?: string; error?: string } | null>(null);
   const [isValidatingRecipient, setIsValidatingRecipient] = useState(false);
   const [wdkLocked, setWdkLocked] = useState(false);
 
+  // Smart Default for USDT: pick the chain with the highest balance
+  useEffect(() => {
+    if (isUsdtTransfer && multiChainBalances) {
+      const tonUsdtBal = parseFloat(multiChainBalances.usdt || '0');
+      const tronUsdtBal = parseFloat(multiChainBalances.tronUsdt || '0');
+      const ethUsdtBal = parseFloat(multiChainBalances.ethUsdt || '0');
+      const bscUsdtBal = parseFloat(multiChainBalances.bscUsdt || '0');
+
+      const options = [
+        { id: 'primary', val: tonUsdtBal },
+        { id: 'multichain-tron-usdt', val: tronUsdtBal },
+        { id: 'multichain-eth-usdt', val: ethUsdtBal },
+        { id: 'multichain-bsc-usdt', val: bscUsdtBal }
+      ];
+
+      // Sort balances descending
+      options.sort((a, b) => b.val - a.val);
+
+      const highest = options.find(o => o.val > 0);
+      if (highest) {
+        setSelectedWallet(highest.id as any);
+      } else {
+        setSelectedWallet('primary');
+      }
+    }
+  }, [isUsdtTransfer, multiChainBalances]);
+
   // Check WDK initialization state when a multi-chain wallet is selected
   useEffect(() => {
-    if (selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-tron') {
+    if (selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-tron' || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon' || selectedWallet === 'multichain-btc') {
       import('../services/tetherWdkService').then(({ tetherWdkService }) => {
-        setWdkLocked(!tetherWdkService.isInitialized());
+        setWdkLocked(!tetherWdkService.isUnlocked());
       });
     } else {
       setWdkLocked(false);
@@ -124,12 +145,56 @@ const Transfer: React.FC = () => {
       if (selectedWallet === 'multichain-ton') {
         const q = await tetherWdkService.quoteSendTonTransaction(recipient, amount, comment || undefined);
         setFeeEstimate(q ? `${q.feeTon} TON` : '~0.01 TON');
+      } else if (selectedWallet === 'multichain-tron-usdt') {
+        const q = await tetherWdkService.quoteSendTronTrc20Transaction(recipient, amount);
+        setFeeEstimate(q && q.feeTrx ? `~${q.feeTrx} TRX` : '~15.0 TRX');
+      } else if (selectedWallet === 'multichain-eth-usdt') {
+        const q = await tetherWdkService.quoteSendEvmTokenTransaction(recipient, amount, 'ethereum');
+        setFeeEstimate(q && q.feeEvm ? `~${q.feeEvm} ETH` : '~0.005 ETH');
+      } else if (selectedWallet === 'multichain-bsc-usdt') {
+        const q = await tetherWdkService.quoteSendEvmTokenTransaction(recipient, amount, 'bsc');
+        setFeeEstimate(q && q.feeEvm ? `~${q.feeEvm} BNB` : '~0.005 BNB');
+      } else if (selectedWallet === 'multichain-tron') {
+        setFeeEstimate(`~1.5 TRX`);
+      } else if (selectedWallet === 'multichain-sol') {
+        const q = await tetherWdkService.quoteSendSolTransaction(recipient, amount);
+        setFeeEstimate(q && q.feeSol ? `~${q.feeSol} SOL` : '~0.000005 SOL');
+      } else if (selectedWallet === 'multichain-eth') {
+        const q = await tetherWdkService.quoteSendEvmTransaction(recipient, amount, 'ethereum');
+        setFeeEstimate(q && q.feeEvm ? `~${q.feeEvm} ETH` : '~0.005 ETH');
+      } else if (selectedWallet === 'multichain-bsc') {
+        const q = await tetherWdkService.quoteSendEvmTransaction(recipient, amount, 'bsc');
+        setFeeEstimate(q && q.feeEvm ? `~${q.feeEvm} BNB` : '~0.005 BNB');
+      } else if (selectedWallet === 'multichain-polygon') {
+        const q = await tetherWdkService.quoteSendEvmTransaction(recipient, amount, 'polygon');
+        setFeeEstimate(q && q.feeEvm ? `~${q.feeEvm} MATIC` : '~0.005 MATIC');
+      } else if (selectedWallet === 'multichain-btc') {
+        const q = await tetherWdkService.quoteSendBtcTransaction(recipient, amount);
+        setFeeEstimate(q && q.feeBtc ? `~${q.feeBtc} BTC` : '~0.00005 BTC');
       } else {
         setFeeEstimate(`~${estimatedFee.toFixed(4)} TON`);
       }
     } catch {
       // Fall back to static estimates on error
-      setFeeEstimate('~0.01 TON');
+      if (selectedWallet === 'multichain-tron-usdt') {
+        setFeeEstimate('~15.0 TRX');
+      } else if (selectedWallet === 'multichain-eth-usdt') {
+        setFeeEstimate('~0.005 ETH');
+      } else if (selectedWallet === 'multichain-bsc-usdt') {
+        setFeeEstimate('~0.005 BNB');
+      } else if (selectedWallet === 'multichain-tron') {
+        setFeeEstimate('~1.5 TRX');
+      } else if (selectedWallet === 'multichain-sol') {
+        setFeeEstimate('~0.000005 SOL');
+      } else if (selectedWallet === 'multichain-eth') {
+        setFeeEstimate('~0.005 ETH');
+      } else if (selectedWallet === 'multichain-bsc') {
+        setFeeEstimate('~0.005 BNB');
+      } else if (selectedWallet === 'multichain-polygon') {
+        setFeeEstimate('~0.005 MATIC');
+      } else {
+        setFeeEstimate('~0.01 TON');
+      }
     } finally {
       setIsFetchingFee(false);
     }
@@ -142,27 +207,61 @@ const Transfer: React.FC = () => {
   const rzcVerified = true;
   const canSendRzc = true;
 
+  const usdtJetton = jettons?.find((j: any) => j.jetton.symbol === 'USDT');
+
   const currentBalance = isRzcTransfer
     ? rzcBalance
     : isJettonTransfer && jettonData
       ? parseFloat(toDecimals(BigInt(jettonData.balance), jettonData.decimals))
-      : selectedWallet === 'multichain-tron'
-        ? parseFloat(multiChainBalances?.tron || '0')
-        : selectedWallet === 'multichain-ton'
-          ? parseFloat(multiChainBalances?.ton || '0')
-          : parseFloat(balance || '0');
+      : selectedWallet === 'multichain-tron-usdt'
+        ? parseFloat(multiChainBalances?.tronUsdt || '0')
+        : selectedWallet === 'multichain-eth-usdt'
+          ? parseFloat(multiChainBalances?.ethUsdt || '0')
+          : selectedWallet === 'multichain-bsc-usdt'
+            ? parseFloat(multiChainBalances?.bscUsdt || '0')
+            : isUsdtTransfer
+              ? (usdtJetton ? parseFloat(toDecimals(BigInt(usdtJetton.balance), usdtJetton.jetton.decimals)) : 0)
+              : selectedWallet === 'multichain-tron'
+                ? parseFloat(multiChainBalances?.tron || '0')
+                : selectedWallet === 'multichain-sol'
+                  ? parseFloat(multiChainBalances?.sol || '0')
+                  : selectedWallet === 'multichain-btc'
+                    ? parseFloat(multiChainBalances?.btc || '0')
+                    : selectedWallet === 'multichain-eth'
+                      ? parseFloat(multiChainBalances?.eth || '0')
+                      : selectedWallet === 'multichain-bsc'
+                        ? parseFloat(multiChainBalances?.bnb || '0')
+                        : selectedWallet === 'multichain-polygon'
+                          ? parseFloat(multiChainBalances?.evm || '0')
+                          : selectedWallet === 'multichain-ton'
+                            ? parseFloat(multiChainBalances?.ton || '0')
+                        : parseFloat(balance || '0');
 
   const sendAmount = parseFloat(amount || '0');
-  const estimatedFee = isJettonTransfer ? parseFloat(estimateJettonTransferFee()) : isRzcTransfer ? 0 : 0.01;
+  const estimatedFee = (isJettonTransfer || (isUsdtTransfer && selectedWallet !== 'multichain-tron-usdt' && selectedWallet !== 'multichain-eth-usdt' && selectedWallet !== 'multichain-bsc-usdt')) ? parseFloat(estimateJettonTransferFee()) : isRzcTransfer ? 0 : 0.01;
   const tonBalance = parseFloat(balance || '0');
+  const tronBalance = parseFloat(multiChainBalances?.tron || '0');
+  const ethBalance = parseFloat(multiChainBalances?.eth || '0');
+  const bscBalance = parseFloat(multiChainBalances?.bnb || '0');
+  const parsedTrxFee = feeEstimate ? parseFloat(feeEstimate.replace(/[^\d.]/g, '')) || 15.0 : 15.0;
+  const parsedEvmFee = feeEstimate ? parseFloat(feeEstimate.replace(/[^\d.]/g, '')) || 0.005 : 0.005;
+  const hasEnoughTrxForGas = tronBalance >= parsedTrxFee;
+  const hasEnoughEvmGasForToken =
+    selectedWallet === 'multichain-eth-usdt'
+      ? ethBalance >= parsedEvmFee
+      : selectedWallet === 'multichain-bsc-usdt'
+        ? bscBalance >= parsedEvmFee
+        : true;
 
   // For jettons, we need TON for gas but send jettons
   // For RZC, no gas fees (internal transfer)
   const totalRequired = isRzcTransfer
     ? sendAmount // Just RZC amount, no fees
-    : isJettonTransfer
-      ? sendAmount // Just the jetton amount
-      : sendAmount + estimatedFee; // TON amount + fee
+    : (selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt')
+      ? sendAmount
+      : (isJettonTransfer || isUsdtTransfer)
+        ? sendAmount // Just the jetton/usdt amount
+        : sendAmount + estimatedFee; // TON amount + fee
 
   const hasEnoughTonForGas = isRzcTransfer ? true : tonBalance >= estimatedFee;
   const isLargeTransaction = sendAmount > currentBalance * 0.5;
@@ -172,8 +271,19 @@ const Transfer: React.FC = () => {
       setAmount(currentBalance.toString());
     } else if (isJettonTransfer) {
       setAmount(currentBalance.toFixed(jettonData?.decimals || 9));
+    } else if (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') {
+      setAmount(currentBalance.toFixed(6));
     } else if (selectedWallet === 'multichain-tron') {
       const max = Math.max(0, currentBalance - 1.5);
+      setAmount(max.toFixed(6));
+    } else if (selectedWallet === 'multichain-sol') {
+      const max = Math.max(0, currentBalance - 0.000005);
+      setAmount(max.toFixed(6));
+    } else if (selectedWallet === 'multichain-btc') {
+      const max = Math.max(0, currentBalance - 0.00005);
+      setAmount(max.toFixed(8));
+    } else if (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon') {
+      const max = Math.max(0, currentBalance - 0.005);
       setAmount(max.toFixed(6));
     } else {
       // TON: leave 0.05 TON for gas
@@ -195,14 +305,45 @@ const Transfer: React.FC = () => {
 
     try {
       // Guard: ensure WDK is initialized for multi-chain sends
-      if (selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-tron') {
+      if (selectedWallet === 'multichain-ton' || selectedWallet === 'multichain-tron' || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt' || selectedWallet === 'multichain-sol' || selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon' || selectedWallet === 'multichain-btc') {
         const { tetherWdkService } = await import('../services/tetherWdkService');
-        if (!tetherWdkService.isInitialized()) {
+        if (!tetherWdkService.isUnlocked()) {
           setIsSendingAll(false);
           showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
           navigate('/wallet/multi-chain');
           return;
         }
+      }
+
+      // ── Multi-chain EVM USDT Send All ──────────────────────────────────────────
+      if (selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const sendAllAmount = currentBalance;
+        if (sendAllAmount <= 0) throw new Error('Insufficient USDT balance');
+        const explicitChain = selectedWallet === 'multichain-eth-usdt' ? 'ethereum' : 'bsc';
+        const result = await tetherWdkService.sendEvmTokenTransaction(recipient, sendAllAmount.toFixed(6), explicitChain);
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast(`All USDT sent successfully on ${explicitChain === 'ethereum' ? 'Ethereum' : 'BSC'}!`, 'success');
+          setTimeout(() => { refreshData(); }, 1500);
+        } else { throw new Error(result.error || 'USDT transaction failed'); }
+        return;
+      }
+
+      // ── Multi-chain TRON USDT Send All ──────────────────────────────────────────
+      if (selectedWallet === 'multichain-tron-usdt') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const sendAllAmount = currentBalance;
+        if (sendAllAmount <= 0) throw new Error('Insufficient USDT balance');
+        const result = await tetherWdkService.sendTronTrc20Transaction(recipient, sendAllAmount.toFixed(6));
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast('All USDT sent successfully!', 'success');
+          setTimeout(() => { refreshData(); }, 1500);
+        } else { throw new Error(result.error || 'USDT transaction failed'); }
+        return;
       }
 
       // ── Multi-chain TRON Send All ──────────────────────────────────────────
@@ -218,6 +359,57 @@ const Transfer: React.FC = () => {
           showToast('All TRX sent successfully!', 'success');
           setTimeout(() => { refreshData(); }, 1500);
         } else { throw new Error(result.error || 'TRX transaction failed'); }
+        return;
+      }
+
+      // ── Multi-chain SOL Send All ──────────────────────────────────────────
+      if (selectedWallet === 'multichain-sol') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const gasReserve = 0.000005;
+        const sendAllAmount = Math.max(0, currentBalance - gasReserve);
+        if (sendAllAmount <= 0) throw new Error('Insufficient SOL balance for gas fees');
+        const result = await tetherWdkService.sendSolTransaction(recipient, sendAllAmount.toFixed(6));
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast('All SOL sent successfully!', 'success');
+          setTimeout(() => { refreshData(); }, 1500);
+        } else { throw new Error(result.error || 'SOL transaction failed'); }
+        return;
+      }
+
+      // ── Multi-chain BTC Send All ──────────────────────────────────────────
+      if (selectedWallet === 'multichain-btc') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const gasReserve = 0.00005;
+        const sendAllAmount = Math.max(0, currentBalance - gasReserve);
+        if (sendAllAmount <= 0) throw new Error('Insufficient BTC balance for gas fees');
+        const result = await tetherWdkService.sendBtcTransaction(recipient, sendAllAmount.toFixed(8));
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast('All BTC sent successfully!', 'success');
+          setTimeout(() => { refreshData(); }, 1500);
+        } else { throw new Error(result.error || 'BTC transaction failed'); }
+        return;
+      }
+
+      // ── Multi-chain EVM Send All ──────────────────────────────────────────
+      if (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        const gasReserve = 0.005;
+        const sendAllAmount = Math.max(0, currentBalance - gasReserve);
+        if (sendAllAmount <= 0) throw new Error('Insufficient EVM balance for gas fees');
+        
+        const explicitChain = selectedWallet === 'multichain-eth' ? 'ethereum' : selectedWallet === 'multichain-bsc' ? 'bsc' : 'polygon';
+        const result = await tetherWdkService.sendEvmTransaction(recipient, sendAllAmount.toFixed(6), explicitChain);
+        
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast(`All ${selectedWallet === 'multichain-eth' ? 'ETH' : selectedWallet === 'multichain-bsc' ? 'BNB' : 'MATIC'} sent successfully!`, 'success');
+          setTimeout(() => { refreshData(); }, 1500);
+        } else { throw new Error(result.error || 'EVM transaction failed'); }
         return;
       }
 
@@ -242,11 +434,11 @@ const Transfer: React.FC = () => {
       const sendAllAmount = Math.max(0, currentBalance - gasReserve);
       if (sendAllAmount <= 0) throw new Error('Insufficient balance for gas fees');
 
-      // WDK fallback: if primary tonWalletService isn't initialized but WDK is, use WDK
-      const useWdkForPrimary = !tonWalletService.isInitialized() && tetherWdkService.isInitialized();
-      const result = useWdkForPrimary
-        ? await tetherWdkService.sendTonTransaction(recipient, sendAllAmount.toFixed(4), comment || undefined)
-        : await tonWalletService.sendTransaction(recipient, sendAllAmount.toFixed(4), comment || undefined);
+      if (!tonWalletService.isInitialized()) {
+        throw new Error('Primary wallet not initialized');
+      }
+
+      const result = await tonWalletService.sendTransaction(recipient, sendAllAmount.toFixed(4), comment || undefined);
 
       if (result.success) {
         setStatus('success');
@@ -303,12 +495,46 @@ const Transfer: React.FC = () => {
     }
 
     // TRON Address Validation
-    if (selectedWallet === 'multichain-tron') {
+    if (selectedWallet === 'multichain-tron' || selectedWallet === 'multichain-tron-usdt') {
       const tronAddressRegex = /^T[a-zA-Z1-9]{33}$/;
       if (tronAddressRegex.test(recipient.trim())) {
         setRecipientInfo({ valid: true });
       } else {
         setRecipientInfo({ valid: false, error: 'Invalid TRON address format (must start with T)' });
+      }
+      return;
+    }
+
+    // SOL Address Validation
+    if (selectedWallet === 'multichain-sol') {
+      const solAddressRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+      if (solAddressRegex.test(recipient.trim())) {
+        setRecipientInfo({ valid: true });
+      } else {
+        setRecipientInfo({ valid: false, error: 'Invalid Solana address' });
+      }
+      return;
+    }
+
+    // BTC Address Validation
+    if (selectedWallet === 'multichain-btc') {
+      // Basic BTC P2PKH/P2SH/Bech32 validation
+      const btcAddressRegex = /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$|^bc1[a-z0-9]{39,59}$/;
+      if (btcAddressRegex.test(recipient.trim())) {
+        setRecipientInfo({ valid: true });
+      } else {
+        setRecipientInfo({ valid: false, error: 'Invalid Bitcoin address' });
+      }
+      return;
+    }
+
+    // EVM Address Validation
+    if (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') {
+      const evmAddressRegex = /^0x[a-fA-F0-9]{40}$/;
+      if (evmAddressRegex.test(recipient.trim())) {
+        setRecipientInfo({ valid: true });
+      } else {
+        setRecipientInfo({ valid: false, error: 'Invalid EVM address' });
       }
       return;
     }
@@ -351,6 +577,15 @@ const Transfer: React.FC = () => {
           setTxHash(result.transactionId || '');
           showToast('RZC sent successfully!', 'success');
 
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.transactionId || '',
+              symbol: 'RZC',
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
+
           // Refresh wallet data and transactions
           setTimeout(() => {
             refreshData();
@@ -378,23 +613,25 @@ const Transfer: React.FC = () => {
         let result;
         if (selectedWallet === 'multichain-ton') {
           const { tetherWdkService } = await import('../services/tetherWdkService');
-          if (!tetherWdkService.isInitialized()) {
+          if (!tetherWdkService.isUnlocked()) {
             throw new Error('Multi-chain wallet is locked');
           }
+          // WDK resolves the user's jetton wallet address internally from TonCenter V3,
+          // so we pass the master contract address (jettonData.address), NOT walletAddress.
           result = await tetherWdkService.sendJettonTransaction(
-            jettonData.walletAddress,
+            jettonData.address,        // Jetton master contract address
             recipient,
             amountBigInt,
-            '0.01', // forward amount
+            TON_JETTON_GAS_DEFAULT, // forward amount — WDK uses 0.05 TON as gas
             comment || undefined
           );
         } else {
-          // Send via native wallet service
+          // Primary wallet: tonWalletService expects the pre-resolved per-wallet address
           result = await tonWalletService.sendJettonTransaction(
-            jettonData.walletAddress,
+            jettonData.walletAddress,  // User's jetton wallet contract address
             recipient,
             amountBigInt,
-            '0.01', // forward amount
+            TON_JETTON_GAS_DEFAULT, // forward amount
             comment || undefined
           );
         }
@@ -403,6 +640,15 @@ const Transfer: React.FC = () => {
           setStatus('success');
           setTxHash(result.txHash || '');
           showToast(`${jettonData.symbol} sent successfully!`, 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: jettonData.symbol,
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
 
           // Refresh wallet data and transactions (delay for blockchain indexing)
           setTimeout(() => {
@@ -414,34 +660,181 @@ const Transfer: React.FC = () => {
         }
       }
       // TRON Transfer
-      else if (selectedWallet === 'multichain-tron') {
+      else if (selectedWallet === 'multichain-tron' || selectedWallet === 'multichain-tron-usdt') {
         const { tetherWdkService } = await import('../services/tetherWdkService');
-        if (!tetherWdkService.isInitialized()) {
+        if (!tetherWdkService.isUnlocked()) {
           setStatus('error');
           setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
           showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
           setTimeout(() => navigate('/wallet/multi-chain'), 2000);
           return;
         }
-        const result = await tetherWdkService.sendTronTransaction(recipient, amount);
+
+        let result;
+        if (selectedWallet === 'multichain-tron-usdt') {
+          result = await tetherWdkService.sendTronTrc20Transaction(recipient, amount);
+        } else {
+          result = await tetherWdkService.sendTronTransaction(recipient, amount);
+        }
+
         if (result.success) {
           setStatus('success');
           setTxHash(result.txHash || '');
-          showToast('TRX transaction sent successfully!', 'success');
+          showToast(`${selectedWallet === 'multichain-tron-usdt' ? 'USDT' : 'TRX'} transaction sent successfully!`, 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: selectedWallet === 'multichain-tron-usdt' ? 'USDT' : 'TRX',
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
+
           setTimeout(() => { refreshData(); }, 1500);
         } else {
-          throw new Error(result.error || 'TRX transaction failed');
+          throw new Error(result.error || `${selectedWallet === 'multichain-tron-usdt' ? 'USDT' : 'TRX'} transaction failed`);
+        }
+      }
+      // SOL Transfer
+      else if (selectedWallet === 'multichain-sol') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        if (!tetherWdkService.isUnlocked()) {
+          setStatus('error');
+          setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
+          showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
+          setTimeout(() => navigate('/wallet/multi-chain'), 2000);
+          return;
+        }
+
+        const result = await tetherWdkService.sendSolTransaction(recipient, amount);
+
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast(`SOL transaction sent successfully!`, 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: 'SOL',
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
+
+          setTimeout(() => { refreshData(); }, 1500);
+        } else {
+          throw new Error(result.error || `SOL transaction failed`);
+        }
+      }
+      // BTC Transfer
+      else if (selectedWallet === 'multichain-btc') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        if (!tetherWdkService.isUnlocked()) {
+          setStatus('error');
+          setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
+          showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
+          setTimeout(() => navigate('/wallet/multi-chain'), 2000);
+          return;
+        }
+
+        const result = await tetherWdkService.sendBtcTransaction(recipient, amount);
+
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast(`BTC transaction sent successfully!`, 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: 'BTC',
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
+
+          setTimeout(() => { refreshData(); }, 1500);
+        } else {
+          throw new Error(result.error || `BTC transaction failed`);
+        }
+      }
+      // EVM Transfer
+      else if (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        if (!tetherWdkService.isUnlocked()) {
+          setStatus('error');
+          setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
+          showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
+          setTimeout(() => navigate('/wallet/multi-chain'), 2000);
+          return;
+        }
+
+        const explicitChain = selectedWallet === 'multichain-eth' ? 'ethereum' : selectedWallet === 'multichain-bsc' ? 'bsc' : 'polygon';
+        const result = await tetherWdkService.sendEvmTransaction(recipient, amount, explicitChain);
+
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          const symbol = selectedWallet === 'multichain-eth' ? 'ETH' : selectedWallet === 'multichain-bsc' ? 'BNB' : 'MATIC';
+          showToast(`${symbol} transaction sent successfully!`, 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: symbol,
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
+
+          setTimeout(() => { refreshData(); }, 1500);
+        } else {
+          throw new Error(result.error || `EVM transaction failed`);
+        }
+      }
+      // EVM USDT Transfer
+      else if (selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') {
+        const { tetherWdkService } = await import('../services/tetherWdkService');
+        if (!tetherWdkService.isUnlocked()) {
+          setStatus('error');
+          setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
+          showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
+          setTimeout(() => navigate('/wallet/multi-chain'), 2000);
+          return;
+        }
+
+        const explicitChain = selectedWallet === 'multichain-eth-usdt' ? 'ethereum' : 'bsc';
+        const result = await tetherWdkService.sendEvmTokenTransaction(recipient, amount, explicitChain);
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast(`USDT transaction sent successfully on ${explicitChain === 'ethereum' ? 'Ethereum' : 'BSC'}!`, 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: 'USDT',
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
+
+          setTimeout(() => { refreshData(); }, 1500);
+        } else {
+          throw new Error(result.error || `USDT transaction failed`);
         }
       }
       // TON Transfer
       else if (!locationState?.asset || locationState?.asset === 'TON') {
         let result;
-        
+
         if (selectedWallet === 'multichain-ton') {
           const { tetherWdkService } = await import('../services/tetherWdkService');
-          
+
           // Guard: ensure WDK is initialized
-          if (!tetherWdkService.isInitialized()) {
+          if ((!tetherWdkService.isUnlocked() || !tetherWdkService.hasStoredWallet())) {
             setStatus('error');
             setErrorMessage('Multi-chain wallet needs to be unlocked. Please go to Multi-Chain Hub and enter your password.');
             showToast('Wallet locked — unlock in Multi-Chain Hub', 'error');
@@ -455,17 +848,25 @@ const Transfer: React.FC = () => {
             comment || undefined
           );
         } else {
-          // WDK fallback: if primary tonWalletService isn't initialized but WDK is, use WDK
-          const useWdkForPrimary = !tonWalletService.isInitialized() && tetherWdkService.isInitialized();
-          result = useWdkForPrimary
-            ? await tetherWdkService.sendTonTransaction(recipient, amount, comment || undefined)
-            : await tonWalletService.sendTransaction(recipient, amount, comment || undefined);
+          if (!tonWalletService.isInitialized()) {
+            throw new Error('Primary wallet not initialized');
+          }
+          result = await tonWalletService.sendTransaction(recipient, amount, comment || undefined);
         }
 
         if (result.success) {
           setStatus('success');
           setTxHash(result.txHash || '');
           showToast('Transaction sent successfully!', 'success');
+
+          if (addPendingTransaction) {
+            addPendingTransaction({
+              hash: result.txHash || '',
+              symbol: 'TON',
+              amount: parseFloat(amount).toString(),
+              type: 'send'
+            });
+          }
 
           // Refresh wallet data and transactions (delay for blockchain indexing)
           setTimeout(() => {
@@ -476,6 +877,42 @@ const Transfer: React.FC = () => {
           setStatus('error');
           setErrorMessage(result.error || 'Transaction failed');
           showToast(result.error || 'Transaction failed', 'error');
+        }
+      }
+      // USDT Jetton Transfer — route through Jetton path with known master contract
+      else if (locationState?.asset === 'USDT') {
+        if (!address) throw new Error('Wallet not connected');
+
+        const { fromDecimals } = await import('../utility/decimals');
+        const amountBigInt = fromDecimals(amount, 6); // USDT uses 6 decimals
+
+        let result;
+        if (selectedWallet === 'multichain-ton') {
+          const { tetherWdkService } = await import('../services/tetherWdkService');
+          if (!tetherWdkService.isUnlocked()) {
+            throw new Error('Multi-chain wallet is locked — unlock in Multi-Chain Hub');
+          }
+          result = await tetherWdkService.sendJettonTransaction(
+            TON_USDT_MASTER_CONTRACT, recipient, amountBigInt, TON_JETTON_GAS_DEFAULT, comment || undefined
+          );
+        } else {
+          // Primary wallet: resolve user's USDT jetton wallet address
+          if (!tonWalletService.isInitialized()) {
+            throw new Error('Primary wallet not initialized');
+          }
+          result = await tonWalletService.sendJettonTransaction(TON_USDT_MASTER_CONTRACT, recipient, amountBigInt, TON_JETTON_GAS_DEFAULT, comment || undefined);
+        }
+
+        if (result.success) {
+          setStatus('success');
+          setTxHash(result.txHash || '');
+          showToast('USDT sent successfully!', 'success');
+          if (addPendingTransaction) {
+            addPendingTransaction({ hash: result.txHash || '', symbol: 'USDT', amount: parseFloat(amount).toString(), type: 'send' });
+          }
+          setTimeout(() => { refreshData(); refreshTransactions(3000); }, 1500);
+        } else {
+          throw new Error(result.error || 'USDT transfer failed');
         }
       } else {
         throw new Error(`${locationState?.asset} transfers are not currently supported in this view.`);
@@ -492,11 +929,21 @@ const Transfer: React.FC = () => {
     ? (recipientInfo?.valid === true || recipient.length > 20) && sendAmount > 0 && sendAmount <= currentBalance
     : selectedWallet === 'multichain-ton'
       ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-      : selectedWallet === 'multichain-tron'
-        ? recipient.length > 30 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
-        : isJettonTransfer
-          ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && hasEnoughTonForGas
-          : recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
+      : (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon')
+        ? recipient.length >= 42 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
+        : selectedWallet === 'multichain-sol'
+          ? recipient.length >= 32 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
+          : selectedWallet === 'multichain-tron-usdt'
+            ? recipient.length > 30 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked && hasEnoughTrxForGas
+            : selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt'
+              ? recipient.length >= 42 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked && hasEnoughEvmGasForToken
+              : selectedWallet === 'multichain-tron'
+                ? recipient.length > 30 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
+                : selectedWallet === 'multichain-btc'
+                  ? recipient.length > 25 && sendAmount > 0 && sendAmount <= currentBalance && !wdkLocked
+                  : isJettonTransfer
+                    ? recipient.length > 20 && sendAmount > 0 && sendAmount <= currentBalance && hasEnoughTonForGas
+                    : recipient.length > 20 && sendAmount > 0 && totalRequired <= currentBalance;
 
   return (
     <div className="max-w-xl mx-auto space-y-6 sm:space-y-8 page-enter pb-8 sm:pb-12 px-3 sm:px-4 md:px-0">
@@ -523,667 +970,412 @@ const Transfer: React.FC = () => {
             <div className="w-full p-3.5 rounded-xl bg-white/5 border border-amber-500/20 space-y-2 text-left">
               <p className="text-[11px] font-heading font-black text-amber-300 uppercase tracking-widest leading-relaxed">What this means</p>
               <ul className="space-y-1.5">
-                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0">•</span>
-                  Your RZC balance is safe and fully intact
-                </li>
-                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0">•</span>
-                  All balances are being audited to ensure accuracy
-                </li>
-                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0">•</span>
-                  Transfers will resume automatically once verification is complete
-                </li>
+                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2"><span className="mt-0.5 flex-shrink-0">•</span>Your RZC balance is safe and fully intact</li>
+                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2"><span className="mt-0.5 flex-shrink-0">•</span>All balances are being audited to ensure accuracy</li>
+                <li className="text-[11px] text-amber-400/80 font-medium flex items-start gap-2"><span className="mt-0.5 flex-shrink-0">•</span>Transfers will resume automatically once verification is complete</li>
               </ul>
             </div>
-            <button
-              onClick={() => navigate('/wallet/assets')}
-              className="w-full py-3.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-heading font-black text-xs uppercase tracking-widest transition-all active:scale-95"
-            >
-              Back to Assets
-            </button>
+            <button onClick={() => navigate('/wallet/assets')} className="w-full py-3.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-heading font-black text-xs uppercase tracking-widest transition-all active:scale-95">Back to Assets</button>
           </div>
         </div>
       )}
 
+      {/* ─── FORM STEP ─────────────────────────────────────────── */}
       {(!isRzcTransfer || canSendRzc) && step === 'form' && (
-        <div className="space-y-5 sm:space-y-6">
-          <div className="luxury-card p-6 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] space-y-6 sm:space-y-8">
-            <div className="space-y-2.5 sm:space-y-3">
-              <label className="text-[10px] font-heading font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Sending Asset</label>
+        <div className="space-y-4">
 
-              {/* Professional Asset Trigger Card */}
-              <button
-                onClick={() => setShowAssetSelector(!showAssetSelector)}
-                className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between hover:bg-white/8 hover:border-white/20 transition-all active:scale-[0.99] group"
-              >
-                <div className="flex items-center gap-3.5">
-                  {/* Live Logo */}
-                  <div className="w-11 h-11 rounded-full overflow-hidden bg-white/5 border border-white/10 flex items-center justify-center shrink-0 shadow-sm">
-                    {isRzcTransfer ? (
-                      <span className="text-xl text-[#00FF88]">⚡</span>
-                    ) : isJettonTransfer && jettonData ? (
-                      <div className="w-full h-full bg-violet-500/20 flex items-center justify-center text-xs font-black text-violet-300">{(jettonData.symbol || '').slice(0, 2)}</div>
-                    ) : (
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png" className="w-full h-full object-cover" alt="TON" />
-                    )}
-                  </div>
-                  <div className="text-left">
-                    <div className="font-heading font-black text-sm text-white uppercase tracking-widest leading-tight">
-                      {isRzcTransfer ? 'RhizaCore Token'
-                        : isJettonTransfer && jettonData ? jettonData.name
-                          : selectedWallet === 'multichain-ton' ? 'Toncoin (W5)'
-                            : 'Toncoin'}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] font-numbers font-bold text-gray-500 tracking-widest">
-                        {isRzcTransfer ? currentBalance.toLocaleString() : currentBalance.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)}
-                        {' '}
-                        {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol
-                          : 'TON'}
-                      </span>
-                      <span className="text-[8px] font-heading font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border
-                        text-gray-500 border-white/10">
-                        {isRzcTransfer ? 'Community'
-                          : isJettonTransfer ? 'Jetton'
-                            : selectedWallet === 'multichain-ton' ? 'W5'
-                              : 'Native'}
-                      </span>
-                    </div>
-                  </div>
+          {/* ── Asset / Wallet Selector ── */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-heading font-black uppercase tracking-[0.18em] text-gray-500 ml-1">Asset</label>
+            <button
+              onClick={() => openAssetSelector({
+                activeWalletId: selectedWallet,
+                activeEvmChain: currentEvmChain,
+                onSelect: async ({ walletId, evmChain, jetton, isRzc }) => {
+                  if (jetton) {
+                    setSelectedWallet('primary');
+                    navigate('/wallet/transfer', {
+                      state: {
+                        asset: 'JETTON',
+                        jettonAddress: jetton.address,
+                        jettonName: jetton.name,
+                        jettonSymbol: jetton.symbol,
+                        jettonDecimals: jetton.decimals,
+                        jettonBalance: jetton.balance,
+                        jettonWalletAddress: jetton.walletAddress,
+                      }
+                    });
+                    return;
+                  }
+                  if (isRzc) {
+                    setSelectedWallet('primary');
+                    navigate('/wallet/transfer', { state: { asset: 'RZC' } });
+                    return;
+                  }
+                  setSelectedWallet(walletId as any);
+                }
+              })}
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between hover:bg-white/8 hover:border-white/20 transition-all active:scale-[0.99] group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                  {isRzcTransfer ? (
+                    <span className="text-base text-[#00FF88]">⚡</span>
+                  ) : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png" className="w-full h-full object-cover" alt="USDT" />
+                  ) : selectedWallet === 'multichain-sol' ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png" className="w-full h-full object-cover" alt="SOL" />
+                  ) : selectedWallet === 'multichain-btc' ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png" className="w-full h-full object-cover" alt="BTC" />
+                  ) : selectedWallet === 'multichain-tron' ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png" className="w-full h-full object-cover" alt="TRX" />
+                  ) : selectedWallet === 'multichain-polygon' ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png" className="w-full h-full object-cover" alt="MATIC" />
+                  ) : selectedWallet === 'multichain-bsc' ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png" className="w-full h-full object-cover" alt="BNB" />
+                  ) : selectedWallet === 'multichain-eth' ? (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png" className="w-full h-full object-cover" alt="ETH" />
+                  ) : isJettonTransfer && jettonData ? (
+                    <div className="w-full h-full bg-violet-500/20 flex items-center justify-center text-xs font-black text-violet-300">{(jettonData.symbol || '').slice(0, 2)}</div>
+                  ) : (
+                    <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png" className="w-full h-full object-cover" alt="TON" />
+                  )}
                 </div>
-                <ChevronDown size={16} className={`text-gray-500 transition-transform duration-200 ${showAssetSelector ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* Show wallet address for multi-chain wallets */}
-              {selectedWallet === 'multichain-ton' && multiChainAddresses && (
-                <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl space-y-2">
-                  <p className="text-[9px] font-heading font-black uppercase tracking-widest text-violet-400">Sending From</p>
-                  <p className="text-xs font-mono text-violet-300 break-all">
-                    {multiChainAddresses.tonAddress}
+                <div className="text-left">
+                  <p className="font-heading font-black text-sm text-white leading-tight">
+                    {isRzcTransfer ? 'RhizaCore Token'
+                      : isJettonTransfer && jettonData ? jettonData.name
+                        : selectedWallet === 'multichain-tron-usdt' ? 'Tether USDT (TRON)'
+                          : selectedWallet === 'multichain-eth-usdt' ? 'Tether USDT (Ethereum)'
+                            : selectedWallet === 'multichain-bsc-usdt' ? 'Tether USDT (BSC)'
+                              : isUsdtTransfer ? 'Tether USDT'
+                                : selectedWallet === 'multichain-eth' ? 'Ethereum'
+                                  : selectedWallet === 'multichain-bsc' ? 'BNB Smart Chain'
+                                    : selectedWallet === 'multichain-polygon' ? 'Polygon (MATIC)'
+                                      : selectedWallet === 'multichain-sol' ? 'Solana'
+                                    : selectedWallet === 'multichain-btc' ? 'Bitcoin'
+                                      : selectedWallet === 'multichain-ton' ? 'Toncoin (W5)'
+                                        : selectedWallet === 'multichain-tron' ? 'TRON'
+                                          : 'Toncoin'}
+                  </p>
+                  <p className="text-[10px] text-gray-500 font-mono">
+                    {isRzcTransfer ? currentBalance.toLocaleString() : currentBalance.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 2 : selectedWallet === 'multichain-btc' ? 6 : 4)}{' '}
+                    {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 'USDT' : selectedWallet === 'multichain-eth' ? 'ETH' : selectedWallet === 'multichain-bsc' ? 'BNB' : selectedWallet === 'multichain-polygon' ? 'MATIC' : selectedWallet === 'multichain-sol' ? 'SOL' : selectedWallet === 'multichain-btc' ? 'BTC' : selectedWallet === 'multichain-tron' ? 'TRX' : 'TON'} available
                   </p>
                 </div>
-              )}
+              </div>
+              <ChevronDown size={15} className="text-gray-500" />
+            </button>
 
-              {/* WDK locked warning */}
-              {wdkLocked && selectedWallet === 'multichain-ton' && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Lock size={14} className="text-amber-400 flex-shrink-0" />
-                    <p className="text-[10px] font-heading font-bold text-amber-300">Multi-chain wallet locked. Unlock to send.</p>
-                  </div>
-                  <button
-                    onClick={() => navigate('/wallet/multi-chain')}
-                    className="text-[9px] font-heading font-black text-amber-400 uppercase tracking-widest hover:text-amber-300 whitespace-nowrap"
-                  >
-                    Unlock →
-                  </button>
+            {/* WDK locked warning — compact */}
+            {wdkLocked && (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg mt-1">
+                <div className="flex items-center gap-2">
+                  <Lock size={12} className="text-amber-400 shrink-0" />
+                  <p className="text-[10px] font-heading font-bold text-amber-300">Wallet locked — unlock to send</p>
                 </div>
-              )}
+                <button onClick={() => navigate('/wallet/multi-chain')} className="text-[9px] font-heading font-black text-amber-400 uppercase tracking-widest hover:text-amber-300 whitespace-nowrap">Unlock →</button>
+              </div>
+            )}
 
-              {/* FULL-SCREEN ASSET SELECTOR MODAL */}
-              {showAssetSelector && (
-                <>
-                  {/* Backdrop */}
-                  <div
-                    className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-                    onClick={() => setShowAssetSelector(false)}
-                  />
-                  {/* Sheet */}
-                  <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0d0d0d] border-t border-white/10 rounded-t-[2rem] shadow-2xl max-h-[80vh] flex flex-col animate-in slide-in-from-bottom duration-300">
-                    {/* Handle + Header */}
-                    <div className="flex flex-col items-center pt-3 pb-4 px-5 border-b border-white/5 shrink-0">
-                      <div className="w-10 h-1 bg-white/20 rounded-full mb-4" />
-                      <div className="flex items-center justify-between w-full">
-                        <h3 className="text-base font-heading font-black text-white uppercase tracking-widest">Select Asset</h3>
-                        <button onClick={() => setShowAssetSelector(false)} className="text-gray-500 hover:text-white transition-colors text-xs font-heading font-bold uppercase tracking-widest leading-relaxed">Close</button>
-                      </div>
-                    </div>
+            {/* From address — only for multichain-ton */}
+            {selectedWallet === 'multichain-ton' && multiChainAddresses && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/10 border border-violet-500/20 rounded-lg mt-1">
+                <p className="text-[9px] font-heading font-black uppercase tracking-widest text-violet-400 shrink-0">From</p>
+                <p className="text-[10px] font-mono text-violet-300 truncate">{multiChainAddresses.tonAddress}</p>
+              </div>
+            )}
+          </div>
 
-                    {/* Scrollable Content */}
-                    <div className="overflow-y-auto flex-1 pb-8">
+          {/* ── Main Form Card ── */}
 
-                      {/* ── Primary Assets ── */}
-                      <div className="px-5 pt-4 pb-1">
-                        <p className="text-[9px] font-heading font-black uppercase tracking-[0.2em] text-gray-500">Primary Wallet</p>
-                      </div>
-
-                      {/* TON */}
-                      <button
-                        onClick={() => { setSelectedWallet('primary'); navigate('/wallet/transfer', { state: { asset: 'TON' } }); setShowAssetSelector(false); }}
-                        className={`w-full px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-all ${!isRzcTransfer && !isJettonTransfer && selectedWallet === 'primary' ? 'bg-white/5' : ''
-                          }`}
-                      >
-                        <div className="w-11 h-11 rounded-full overflow-hidden border border-white/10 shrink-0">
-                          <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png" className="w-full h-full object-cover" alt="TON" />
-                        </div>
-                        <div className="flex-1 text-left">
-                          <p className="text-sm font-heading font-bold text-white uppercase tracking-widest">Toncoin</p>
-                          <p className="text-xs font-heading font-bold text-gray-500 tracking-widest">TON · Native Network</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-numbers font-bold text-white tracking-widest">{parseFloat(balance || '0').toFixed(4)}</p>
-                          <p className="text-[10px] font-heading font-bold text-gray-600 tracking-widest">TON</p>
-                        </div>
-                      </button>
-
-                      {/* RZC */}
-                      {userProfile && (
-                        canSendRzc ? (
-                          <button
-                            onClick={() => { setSelectedWallet('primary'); navigate('/wallet/transfer', { state: { asset: 'RZC' } }); setShowAssetSelector(false); }}
-                            className="w-full px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-all"
-                          >
-                            <div className="w-11 h-11 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                              <span className="text-xl text-[#00FF88]">⚡</span>
-                            </div>
-                            <div className="flex-1 text-left">
-                              <p className="text-sm font-heading font-bold text-white uppercase tracking-widest">RhizaCore Token</p>
-                              <p className="text-xs font-heading font-bold text-gray-500 tracking-widest">RZC · Community</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-numbers font-bold text-white tracking-widest">{rzcBalance.toLocaleString()}</p>
-                              <p className="text-[10px] font-heading font-bold text-gray-600 tracking-widest">RZC</p>
-                            </div>
-                          </button>
-                        ) : (
-                          <div className="w-full px-5 py-3.5 flex items-center gap-4 opacity-40 cursor-not-allowed">
-                            <div className="w-11 h-11 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
-                              <span className="text-xl">⚡</span>
-                            </div>
-                            <div className="flex-1 text-left">
-                              <p className="text-sm font-bold text-white">RhizaCore Token</p>
-                              <p className="text-xs text-gray-500">Verification required</p>
-                            </div>
-                            <Lock size={14} className="text-amber-500" />
-                          </div>
-                        )
-                      )}
-
-                      {/* ── Multi-Chain ── */}
-                      {isMultiChainActive && multiChainAddresses ? (
-                        <>
-                          <div className="px-5 pt-5 pb-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-[9px] font-heading font-black uppercase tracking-[0.2em] text-violet-400">Multi-Chain Hub</p>
-                              <div className="flex-1 h-px bg-violet-500/20" />
-                            </div>
-                          </div>
-                          {([
-                            { id: 'multichain-ton' as const, name: 'Toncoin W5', sub: 'TON · Multi-Chain', symbol: 'TON', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png', bal: parseFloat(multiChainBalances?.ton || '0').toFixed(4) },
-                            { id: 'multichain-tron' as const, name: 'TRON Mainnet', sub: 'TRX · Multi-Chain', symbol: 'TRX', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png', bal: parseFloat(multiChainBalances?.tron || '0').toFixed(4) },
-                          ]).map(asset => (
-                            <button
-                              key={asset.id}
-                              onClick={() => { setSelectedWallet(asset.id); setShowAssetSelector(false); }}
-                              className={`w-full px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-all ${selectedWallet === asset.id ? 'bg-white/5' : ''
-                                }`}
-                            >
-                              <div className="w-11 h-11 rounded-full overflow-hidden border border-white/10 shrink-0">
-                                <img src={asset.logo} className="w-full h-full object-cover" alt={asset.symbol} />
-                              </div>
-                              <div className="flex-1 text-left">
-                                <p className="text-sm font-heading font-bold text-white uppercase tracking-widest">{asset.name}</p>
-                                <p className="text-xs font-heading font-bold text-gray-500 tracking-widest">{asset.sub}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-numbers font-bold text-white tracking-widest">{asset.bal}</p>
-                                <p className="text-[10px] font-heading font-bold text-gray-600 tracking-widest">{asset.symbol}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </>
-                      ) : (
-                        <div className="px-5 pt-4">
-                          <button
-                            onClick={() => { navigate('/wallet/multi-chain'); setShowAssetSelector(false); }}
-                            className="w-full p-4 rounded-2xl border-2 border-dashed border-violet-500/20 bg-violet-500/5 flex items-center gap-4 hover:bg-violet-500/10 transition-all"
-                          >
-                            <div className="w-11 h-11 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0 text-violet-400">
-                              🔗
-                            </div>
-                            <div className="text-left">
-                              <p className="text-sm font-heading font-bold text-violet-400 uppercase tracking-widest">Enable Multi-Chain Hub</p>
-                              <p className="text-xs font-heading font-bold text-gray-500 tracking-widest">BTC · ETH · USDT · W5</p>
-                            </div>
-                          </button>
-                        </div>
-                      )}
-
-                      {/* ── Jettons ── */}
-                      {jettons && jettons.length > 0 && (
-                        <>
-                          <div className="px-5 pt-5 pb-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-[9px] font-heading font-black uppercase tracking-[0.2em] text-emerald-500">Jetton Tokens</p>
-                              <div className="flex-1 h-px bg-emerald-500/20" />
-                            </div>
-                          </div>
-                          {jettons.map((jetton: any) => (
-                            <button
-                              key={jetton.jetton.address}
-                              onClick={() => {
-                                setSelectedWallet('primary');
-                                navigate('/wallet/transfer', {
-                                  state: {
-                                    asset: 'JETTON',
-                                    jettonAddress: jetton.jetton.address,
-                                    jettonName: jetton.jetton.name,
-                                    jettonSymbol: jetton.jetton.symbol,
-                                    jettonDecimals: jetton.jetton.decimals,
-                                    jettonBalance: jetton.balance,
-                                    jettonWalletAddress: jetton.wallet_address
-                                  }
-                                });
-                                setShowAssetSelector(false);
-                              }}
-                              className="w-full px-5 py-3.5 flex items-center gap-4 hover:bg-white/5 transition-all"
-                            >
-                              <div className="w-11 h-11 rounded-full overflow-hidden border border-white/10 shrink-0 bg-white/5">
-                                {jetton.jetton.image ? (
-                                  <img src={jetton.jetton.image} alt={jetton.jetton.symbol} className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-xs font-black text-gray-400">{jetton.jetton.symbol.slice(0, 2)}</div>
-                                )}
-                              </div>
-                              <div className="flex-1 text-left">
-                                <p className="text-sm font-heading font-bold text-white uppercase tracking-widest">{jetton.jetton.name}</p>
-                                <p className="text-xs font-heading font-bold text-gray-500 tracking-widest">{jetton.jetton.symbol} · TON Jetton</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-numbers font-bold text-white tracking-widest">{(Number(jetton.balance) / Math.pow(10, jetton.jetton.decimals || 9)).toFixed(2)}</p>
-                                <p className="text-[10px] font-heading font-bold text-gray-600 tracking-widest">{jetton.jetton.symbol}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="space-y-2.5 sm:space-y-3">
-              <label className="text-[10px] font-heading font-black uppercase tracking-[0.2em] text-gray-500 ml-2">{t('transfer.recipientAddress')}</label>
+          <div className="luxury-card rounded-2xl overflow-hidden">
+            {/* Recipient */}
+            <div className="p-4 space-y-1.5 border-b border-white/5">
+              <label className="text-[10px] font-heading font-black uppercase tracking-[0.18em] text-gray-500">{t('transfer.recipientAddress')}</label>
               <input
                 type="text"
                 value={recipient}
                 onChange={(e) => { setRecipient(e.target.value); setRecipientInfo(null); }}
                 onBlur={handleRecipientBlur}
                 placeholder={
-                  isRzcTransfer
-                    ? "@username or wallet address"
-                    : "EQ... or UQ... (TON address)"
+                  isRzcTransfer ? '@username or wallet address'
+                    : (selectedWallet === 'multichain-eth' || selectedWallet === 'multichain-bsc' || selectedWallet === 'multichain-polygon' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? '0x... (EVM address)'
+                      : selectedWallet === 'multichain-btc' ? 'bc1... or 1... (Bitcoin address)'
+                        : selectedWallet === 'multichain-sol' ? 'Solana address'
+                          : (selectedWallet === 'multichain-tron' || selectedWallet === 'multichain-tron-usdt') ? 'T... (TRON address)'
+                            : 'EQ... or UQ... (TON address)'
                 }
-                className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-numbers font-bold text-sm tracking-widest outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
+                className="w-full bg-transparent text-white font-mono text-sm outline-none placeholder:text-gray-700 py-1"
               />
-              {isValidatingRecipient && (
-                <p className="text-[9px] text-gray-500 ml-2 mt-1">Resolving recipient...</p>
-              )}
+              {isValidatingRecipient && <p className="text-[9px] text-gray-500">Resolving recipient...</p>}
               {recipientInfo && !isValidatingRecipient && (
                 recipientInfo.valid ? (
-                  <p className="text-[9px] text-[#00FF88] ml-2 mt-1 font-heading font-bold flex items-center gap-1 uppercase tracking-widest">
+                  <p className="text-[9px] text-[#00FF88] font-heading font-bold flex items-center gap-1 uppercase tracking-widest">
                     <span>✓</span>
-                    {isRzcTransfer
-                      ? (recipientInfo.name ? `@${recipientInfo.name}` : recipientInfo.walletAddress?.slice(0, 8) + '...')
-                      : 'Valid TON address'}
+                    {isRzcTransfer ? (recipientInfo.name ? `@${recipientInfo.name}` : recipientInfo.walletAddress?.slice(0, 8) + '...') : 'Valid address'}
                   </p>
                 ) : (
-                  <p className="text-[9px] text-red-400 ml-2 mt-1 font-heading font-bold uppercase tracking-widest">✗ {recipientInfo.error}</p>
+                  <p className="text-[9px] text-red-400 font-heading font-bold uppercase tracking-widest">✗ {recipientInfo.error}</p>
                 )
-              )}
-              {isRzcTransfer && (
-                <p className="text-[9px] text-gray-500 ml-2">
-                  💡 You can send to @username or wallet address (must be registered in RhizaCore)
-                </p>
-              )}
-              {!isRzcTransfer && !
-                  (selectedWallet === 'primary' || selectedWallet === 'multichain-ton') && (
-                <p className="text-[9px] font-heading font-bold text-gray-500 ml-2 uppercase tracking-widest">
-                  💡 Enter a TON wallet address (EQ..., UQ..., or kQ...)
-                </p>
               )}
             </div>
 
-            <div className="space-y-2.5 sm:space-y-3">
-              <div className="flex items-center justify-between ml-2">
-                <label className="text-[10px] font-heading font-black uppercase tracking-[0.2em] text-gray-500">{t('transfer.amount')}</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleMax}
-                    className="text-[9px] font-heading font-black text-[#00FF88] uppercase tracking-widest hover:opacity-70 active:scale-95 px-2 py-1 bg-[#00FF88]/10 rounded"
-                  >
-                    Send Max
-                  </button>
+            {/* Amount */}
+            <div className="p-4 space-y-1 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-heading font-black uppercase tracking-[0.18em] text-gray-500">{t('transfer.amount')}</label>
+                <div className="flex gap-1.5">
+                  <button onClick={handleMax} className="text-[9px] font-heading font-black text-[#00FF88] uppercase tracking-widest px-2 py-0.5 bg-[#00FF88]/10 rounded hover:bg-[#00FF88]/20 transition-colors">Max</button>
                   {!isRzcTransfer && !isJettonTransfer && (!locationState?.asset || locationState?.asset === 'TON') && (
-                    <button
-                      onClick={handleSendAll}
-                      disabled={!recipient.trim() || recipient.length < 40 || isSendingAll}
-                      className="text-[9px] font-heading font-black text-orange-400 uppercase tracking-widest hover:opacity-70 active:scale-95 px-2 py-1 bg-orange-500/10 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Send entire balance (gas fees calculated automatically)"
-                    >
-                      Send All
-                    </button>
+                    <button onClick={handleSendAll} disabled={!recipient.trim() || recipient.length < 40 || isSendingAll} className="text-[9px] font-heading font-black text-orange-400 uppercase tracking-widest px-2 py-0.5 bg-orange-500/10 rounded hover:bg-orange-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">All</button>
                   )}
                 </div>
               </div>
-              <div className="relative">
+              <div className="flex items-center gap-2 py-1">
                 <input
                   type="number"
-                  step={isJettonTransfer && jettonData ? `0.${'0'.repeat(jettonData.decimals - 1)}1` : "0.0001"}
+                  step={isJettonTransfer && jettonData ? `0.${'0'.repeat(jettonData.decimals - 1)}1` : '0.0001'}
                   min="0"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-numbers font-black text-xl sm:text-2xl outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-800 tracking-widest"
+                  className="flex-1 bg-transparent text-white font-mono font-bold text-2xl outline-none placeholder:text-gray-800"
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-heading font-black text-xs text-gray-500 uppercase tracking-widest pointer-events-none">
-                  {isRzcTransfer
-                    ? 'RZC'
-                    : isJettonTransfer && jettonData
-                      ? jettonData.symbol
-                      : 'TON'}
+                <span className="font-heading font-black text-xs text-gray-400 uppercase tracking-widest shrink-0">
+                  {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 'USDT' : selectedWallet === 'multichain-tron' ? 'TRX' : selectedWallet === 'multichain-eth' ? 'ETH' : selectedWallet === 'multichain-bsc' ? 'BNB' : selectedWallet === 'multichain-polygon' ? 'MATIC' : selectedWallet === 'multichain-sol' ? 'SOL' : selectedWallet === 'multichain-btc' ? 'BTC' : 'TON'}
                 </span>
               </div>
-              <p className="text-[9px] text-gray-500 ml-2">💡 "Send All" transfers your entire balance with gas fees calculated automatically</p>
             </div>
 
-            <div className="space-y-2.5 sm:space-y-3">
-              <label className="text-[10px] font-heading font-black uppercase tracking-[0.2em] text-gray-500 ml-2">{t('transfer.memo')}</label>
+            {/* Memo */}
+            <div className="p-4 space-y-1">
+              <label className="text-[10px] font-heading font-black uppercase tracking-[0.18em] text-gray-500">{t('transfer.memo')} <span className="text-gray-700 normal-case tracking-normal">(optional)</span></label>
               <input
                 type="text"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Attached message..."
-                className="w-full bg-black/40 border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-white font-heading font-bold text-sm tracking-widest outline-none focus:border-[#00FF88]/50 transition-all placeholder:text-gray-700"
+                placeholder="Message..."
+                className="w-full bg-transparent text-white font-mono text-sm outline-none placeholder:text-gray-700 py-1"
               />
             </div>
-
-            {/* Transaction Summary */}
-            {amount && sendAmount > 0 && (
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl sm:rounded-2xl p-4 sm:p-5 space-y-3">
-                <h4 className="text-[10px] font-heading font-black uppercase tracking-[0.2em] text-blue-300">Transaction Summary</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">{t('wallet.amount')}:</span>
-                    <span className="text-white font-numbers font-bold tracking-widest">
-                      {isRzcTransfer
-                        ? sendAmount.toLocaleString()
-                        : sendAmount.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)
-                      } {isRzcTransfer
-                        ? 'RZC'
-                        : isJettonTransfer && jettonData
-                          ? jettonData.symbol
-                           : 'TON'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">Network Fee:</span>
-                    <span className={`font-numbers font-bold tracking-widest ${isFetchingFee ? 'text-gray-400 animate-pulse' : 'text-[#00FF88]'}`}>
-                      {isFetchingFee
-                        ? 'Estimating...'
-                        : isRzcTransfer
-                          ? 'Free'
-                          : feeEstimate
-                            ? feeEstimate
-                            : `~${estimatedFee.toFixed(4)} TON`}
-                    </span>
-                  </div>
-                  {isJettonTransfer && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">TON Balance:</span>
-                      <span className={`font-numbers font-bold tracking-widest ${hasEnoughTonForGas ? 'text-[#00FF88]' : 'text-red-400'}`}>
-                        {tonBalance.toFixed(4)} TON
-                      </span>
-                    </div>
-                  )}
-                  {!isJettonTransfer && !isRzcTransfer && selectedWallet === 'primary' && (
-                    <>
-                      <div className="border-t border-blue-500/20 pt-2 mt-2">
-                        <div className="flex justify-between items-center font-heading font-bold uppercase tracking-widest leading-relaxed">
-                          <span className="text-blue-300">{t('transfer.total')}:</span>
-                          <span className="text-white font-numbers font-bold tracking-widest">{totalRequired.toFixed(4)} TON</span>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">Remaining Balance:</span>
-                        <span className={`font-numbers font-bold tracking-widest ${currentBalance - totalRequired >= 0 ? 'text-[#00FF88]' : 'text-red-400'}`}>
-                          {(currentBalance - totalRequired).toFixed(4)} TON
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  {selectedWallet === 'multichain-ton' && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">Remaining Balance:</span>
-                      <span className={`font-numbers font-bold tracking-widest ${currentBalance - sendAmount >= 0 ? 'text-[#00FF88]' : 'text-red-400'}`}>
-                        {(currentBalance - sendAmount).toFixed(4)} TON
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Large Transaction Warning */}
-            {isLargeTransaction && sendAmount > 0 && (
-              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl sm:rounded-2xl p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-heading font-black text-yellow-400 mb-1 uppercase tracking-widest">Large Transaction</p>
-                  <p className="text-xs font-heading font-bold text-yellow-300/80 uppercase tracking-widest leading-relaxed">You're sending more than 50% of your balance. Please double-check the recipient address.</p>
-                </div>
-              </div>
-            )}
-
-            {/* Insufficient TON for Gas Warning (Jettons only) */}
-            {isJettonTransfer && !hasEnoughTonForGas && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl sm:rounded-2xl p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-heading font-black text-red-400 mb-1 uppercase tracking-widest">Insufficient TON for Gas</p>
-                  <p className="text-xs font-heading font-bold text-red-300/80 uppercase tracking-widest leading-relaxed">
-                    You need {estimatedFee.toFixed(4)} TON for gas fees but only have {tonBalance.toFixed(4)} TON.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Insufficient Balance Warning */}
-            {amount && sendAmount > 0 && totalRequired > currentBalance && !isJettonTransfer && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl sm:rounded-2xl p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-heading font-black text-red-400 mb-1 uppercase tracking-widest">{t('errors.insufficientBalance')}</p>
-                  <p className="text-xs font-heading font-bold text-red-300/80 uppercase tracking-widest leading-relaxed">
-                    You need {totalRequired.toFixed(4)} TON (including fees) but only have {currentBalance.toFixed(4)} TON.
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
 
+          {/* ── Summary Row ── */}
+          {amount && sendAmount > 0 && (
+            <div className="luxury-card rounded-xl px-4 py-3 space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-500 font-heading font-bold uppercase tracking-widest">Amount</span>
+                <span className="text-white font-mono font-bold">
+                  {isRzcTransfer ? sendAmount.toLocaleString() : sendAmount.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 6 : 4)}{' '}
+                  {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 'USDT' : selectedWallet === 'multichain-tron' ? 'TRX' : 'TON'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-500 font-heading font-bold uppercase tracking-widest">Network Fee</span>
+                <span className={`font-mono font-bold ${isFetchingFee ? 'text-gray-400 animate-pulse' : 'text-[#00FF88]'}`}>
+                  {isFetchingFee ? 'Estimating...' : isRzcTransfer ? 'Free' : feeEstimate ? feeEstimate : `~${estimatedFee.toFixed(4)} TON`}
+                </span>
+              </div>
+              {!isJettonTransfer && !isRzcTransfer && selectedWallet === 'primary' && (
+                <div className="flex justify-between items-center text-xs border-t border-white/5 pt-2 mt-1">
+                  <span className="text-gray-400 font-heading font-bold uppercase tracking-widest">Total</span>
+                  <span className="text-white font-mono font-bold">{totalRequired.toFixed(4)} TON</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Warnings ── */}
+          {isLargeTransaction && sendAmount > 0 && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-heading font-black text-yellow-400 uppercase tracking-widest">Large Transaction</p>
+                <p className="text-[10px] text-yellow-300/80 mt-0.5">Sending more than 50% of your balance. Verify the recipient carefully.</p>
+              </div>
+            </div>
+          )}
+          {isJettonTransfer && !hasEnoughTonForGas && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-heading font-black text-red-400 uppercase tracking-widest">Insufficient TON for Gas</p>
+                <p className="text-[10px] text-red-300/80 mt-0.5">Need {estimatedFee.toFixed(4)} TON for fees, you have {tonBalance.toFixed(4)} TON.</p>
+              </div>
+            </div>
+          )}
+          {selectedWallet === 'multichain-tron-usdt' && !hasEnoughTrxForGas && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-heading font-black text-red-400 uppercase tracking-widest">Insufficient TRX for Gas</p>
+                <p className="text-[10px] text-red-300/80 mt-0.5">Need ~{parsedTrxFee.toFixed(1)} TRX, you have {tronBalance.toFixed(1)} TRX.</p>
+              </div>
+            </div>
+          )}
+          {(selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') && !hasEnoughEvmGasForToken && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-heading font-black text-red-400 uppercase tracking-widest">
+                  Insufficient {selectedWallet === 'multichain-eth-usdt' ? 'ETH' : 'BNB'} for Gas
+                </p>
+                <p className="text-[10px] text-red-300/80 mt-0.5">
+                  Need ~{parsedEvmFee.toFixed(4)} {selectedWallet === 'multichain-eth-usdt' ? 'ETH' : 'BNB'}, you have {selectedWallet === 'multichain-eth-usdt' ? ethBalance.toFixed(4) : bscBalance.toFixed(4)}.
+                </p>
+              </div>
+            </div>
+          )}
+          {amount && sendAmount > 0 && totalRequired > currentBalance && !isJettonTransfer && !isUsdtTransfer && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-heading font-black text-red-400 uppercase tracking-widest">{t('errors.insufficientBalance')}</p>
+                <p className="text-[10px] text-red-300/80 mt-0.5">Need {totalRequired.toFixed(4)} {selectedWallet === 'multichain-tron' ? 'TRX' : 'TON'} but have {currentBalance.toFixed(4)}.</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── CTA ── */}
           <button
             disabled={!isValid}
             onClick={handleNext}
-            className={`w-full p-5 sm:p-6 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 text-sm font-heading font-black uppercase tracking-widest transition-all ${isValid ? 'bg-[#00FF88] text-black shadow-3xl hover:scale-[1.02] active:scale-[0.98]' : 'bg-white/5 text-gray-600 cursor-not-allowed'
-              }`}
+            className={`w-full py-4 rounded-xl flex items-center justify-center gap-2 text-sm font-heading font-black uppercase tracking-widest transition-all ${isValid ? 'bg-[#00FF88] text-black shadow-lg hover:scale-[1.02] active:scale-[0.98]' : 'bg-white/5 text-gray-600 cursor-not-allowed'}`}
           >
-            Review Transaction <Send size={18} />
+            Review Transaction <Send size={16} />
           </button>
         </div>
       )}
 
+      {/* ─── CONFIRM STEP ──────────────────────────────────────── */}
       {(!isRzcTransfer || canSendRzc) && step === 'confirm' && (
-        <div className="space-y-6 sm:space-y-8 animate-in zoom-in-95 duration-300">
-          <div className="luxury-card p-8 sm:p-10 rounded-[2rem] sm:rounded-[3rem] space-y-6 sm:space-y-8">
-            <div className="text-center space-y-3 sm:space-y-4">
-              <p className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-[0.3em]">You are sending</p>
-              <h2 className="text-4xl sm:text-5xl font-numbers font-black text-[#00FF88] tracking-tight-custom">
-                {amount} <span className="text-lg sm:text-xl font-heading font-black text-white uppercase tracking-widest">
-                  {isRzcTransfer
-                    ? 'RZC'
-                    : isJettonTransfer && jettonData
-                      ? jettonData.symbol
-                      : 'TON'}
-                </span>
-              </h2>
-            </div>
-
-            <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6 border-t border-white/5">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500 font-heading font-bold uppercase tracking-widest leading-relaxed">{t('wallet.recipient')}</span>
-                <span className="text-white font-numbers font-bold text-xs truncate max-w-[150px] sm:max-w-[200px] tracking-widest">{recipient}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500 font-heading font-bold uppercase tracking-widest leading-relaxed">{t('wallet.amount')}</span>
-                <span className="text-white font-numbers font-bold tracking-widest">
-                  {isRzcTransfer
-                    ? sendAmount.toLocaleString()
-                    : sendAmount.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : 4)
-                  } {isRzcTransfer
-                    ? 'RZC'
-                    : isJettonTransfer && jettonData
-                      ? jettonData.symbol
-                        : 'TON'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500 font-heading font-bold uppercase tracking-widest leading-relaxed">{t('wallet.fee')}</span>
-                <span className={`font-numbers font-bold tracking-widest ${isFetchingFee ? 'text-gray-400 animate-pulse' : 'text-[#00FF88]'}`}>
-                  {isFetchingFee
-                    ? 'Estimating...'
-                    : isRzcTransfer
-                      ? 'Free'
-                      : feeEstimate
-                        ? feeEstimate
-                        : `~${estimatedFee.toFixed(4)} TON`}
-                </span>
-              </div>
-              {!isJettonTransfer && selectedWallet === 'primary' && !isRzcTransfer && (
-                <div className="border-t border-white/5 pt-3 mt-3">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">{t('wallet.total')}</span>
-                    <span className="text-white font-numbers font-bold tracking-widest">{totalRequired.toFixed(4)} TON</span>
-                  </div>
-                </div>
-              )}
-              {comment && (
-                <div className="flex justify-between items-center text-sm pt-2 border-t border-white/5">
-                  <span className="text-gray-500 font-bold">{t('wallet.memo')}</span>
-                  <span className="text-white italic text-xs truncate max-w-[150px] sm:max-w-[200px]">"{comment}"</span>
-                </div>
-              )}
-            </div>
-
-            <div className="p-3.5 sm:p-4 bg-white/5 rounded-xl sm:rounded-2xl flex items-center gap-2.5 sm:gap-3">
-              <Info size={16} className="text-blue-400 shrink-0" />
-              <p className="text-[10px] text-gray-500 font-medium">
-                Verify the address carefully. Transactions on TON are irreversible.
-              </p>
-            </div>
+        <div className="space-y-4 animate-in zoom-in-95 duration-300">
+          {/* Big Amount Display */}
+          <div className="luxury-card rounded-2xl p-6 text-center space-y-1">
+            <p className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-[0.25em]">You are sending</p>
+            <h2 className="text-4xl font-mono font-black text-[#00FF88]">
+              {amount}
+            </h2>
+            <p className="text-sm font-heading font-black text-white uppercase tracking-widest">
+              {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 'USDT' : selectedWallet === 'multichain-tron' ? 'TRX' : 'TON'}
+            </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:gap-4">
-            <button
-              onClick={handleConfirm}
-              className="w-full p-5 sm:p-6 bg-[#00FF88] text-black rounded-xl sm:rounded-2xl font-heading font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all"
-            >
-              Confirm & Disperse
-            </button>
-            <button
-              onClick={() => setStep('form')}
-              className="w-full p-3 sm:p-4 text-gray-500 font-heading font-black text-[10px] uppercase tracking-widest hover:text-white transition-colors active:scale-95"
-            >
-              Cancel & Edit
-            </button>
+          {/* Details */}
+          <div className="luxury-card rounded-2xl divide-y divide-white/5">
+            <div className="flex justify-between items-center px-4 py-3 text-xs">
+              <span className="text-gray-500 font-heading font-bold uppercase tracking-widest">{t('wallet.recipient')}</span>
+              <span className="text-white font-mono truncate max-w-[180px]">{recipient}</span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-3 text-xs">
+              <span className="text-gray-500 font-heading font-bold uppercase tracking-widest">{t('wallet.amount')}</span>
+              <span className="text-white font-mono font-bold">
+                {isRzcTransfer ? sendAmount.toLocaleString() : sendAmount.toFixed(isJettonTransfer && jettonData ? Math.min(jettonData.decimals, 4) : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 6 : 4)}{' '}
+                {isRzcTransfer ? 'RZC' : isJettonTransfer && jettonData ? jettonData.symbol : (isUsdtTransfer || selectedWallet === 'multichain-tron-usdt' || selectedWallet === 'multichain-eth-usdt' || selectedWallet === 'multichain-bsc-usdt') ? 'USDT' : selectedWallet === 'multichain-tron' ? 'TRX' : 'TON'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-3 text-xs">
+              <span className="text-gray-500 font-heading font-bold uppercase tracking-widest">Network Fee</span>
+              <span className={`font-mono font-bold ${isFetchingFee ? 'text-gray-400 animate-pulse' : 'text-[#00FF88]'}`}>
+                {isFetchingFee ? 'Estimating...' : isRzcTransfer ? 'Free' : feeEstimate ? feeEstimate : `~${estimatedFee.toFixed(4)} TON`}
+              </span>
+            </div>
+            {!isJettonTransfer && selectedWallet === 'primary' && !isRzcTransfer && (
+              <div className="flex justify-between items-center px-4 py-3 text-xs">
+                <span className="text-gray-400 font-heading font-bold uppercase tracking-widest">{t('wallet.total')}</span>
+                <span className="text-white font-mono font-bold">{totalRequired.toFixed(4)} TON</span>
+              </div>
+            )}
+            {comment && (
+              <div className="flex justify-between items-center px-4 py-3 text-xs">
+                <span className="text-gray-500 font-heading font-bold uppercase tracking-widest">{t('wallet.memo')}</span>
+                <span className="text-white font-mono italic truncate max-w-[180px]">"{comment}"</span>
+              </div>
+            )}
           </div>
+
+          {/* Warning */}
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-white/5 rounded-xl">
+            <Info size={14} className="text-blue-400 shrink-0" />
+            <p className="text-[10px] text-gray-500">Verify the address carefully. Blockchain transactions are irreversible.</p>
+          </div>
+
+          {/* Actions */}
+          <button
+            onClick={handleConfirm}
+            className="w-full py-4 bg-[#00FF88] text-black rounded-xl font-heading font-black text-sm uppercase tracking-widest shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            Confirm & Send
+          </button>
+          <button
+            onClick={() => setStep('form')}
+            className="w-full py-3 text-gray-500 font-heading font-black text-[10px] uppercase tracking-widest hover:text-white transition-colors active:scale-95"
+          >
+            ← Edit Transaction
+          </button>
         </div>
       )}
 
+      {/* ─── STATUS STEP ───────────────────────────────────────── */}
       {(!isRzcTransfer || canSendRzc) && step === 'status' && (
-        <div className="flex flex-col items-center justify-center py-20 space-y-8 animate-in fade-in duration-500">
+        <div className="flex flex-col items-center justify-center py-16 space-y-7 animate-in fade-in duration-500">
           {!status ? (
             <>
-              <div className="w-20 h-20 bg-[#00FF88]/10 rounded-[2.5rem] flex items-center justify-center relative">
-                <div className="absolute inset-0 border-4 border-[#00FF88] border-t-transparent rounded-[2.5rem] animate-spin" />
-                <Zap size={32} className="text-[#00FF88] animate-pulse" />
+              <div className="w-16 h-16 bg-[#00FF88]/10 rounded-full flex items-center justify-center relative">
+                <div className="absolute inset-0 border-[3px] border-[#00FF88] border-t-transparent rounded-full animate-spin" />
+                <Zap size={24} className="text-[#00FF88]" />
               </div>
-              <div className="text-center space-y-2">
-                <h2 className="text-2xl font-heading font-black text-white uppercase tracking-[0.1em]">{t('common.loading')}</h2>
-                <p className="text-gray-500 font-heading font-bold uppercase tracking-widest leading-relaxed text-xs">
-                  {selectedWallet === 'multichain-ton'
-                    ? 'Your transaction is being verified by TON validators (Multi-Chain Wallet).'
-                    : 'Your transaction is being verified by TON validators.'}
-                </p>
+              <div className="text-center space-y-1.5">
+                <h2 className="text-xl font-heading font-black text-white uppercase tracking-widest">Broadcasting</h2>
+                <p className="text-xs text-gray-500 font-heading font-bold uppercase tracking-widest">Waiting for network confirmation...</p>
               </div>
             </>
           ) : status === 'success' ? (
             <>
-              <div className="w-24 h-24 bg-emerald-500/10 rounded-full flex items-center justify-center text-emerald-500 scale-110 animate-bounce">
-                <CheckCircle2 size={64} />
+              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center text-emerald-400">
+                <CheckCircle2 size={48} />
               </div>
-              <div className="text-center space-y-4 max-w-md">
-                <h2 className="text-4xl font-heading font-black text-[#00FF88] uppercase tracking-[0.1em]">{t('common.success')}</h2>
-                <p className="text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed text-xs">
-                  {selectedWallet === 'multichain-ton'
-                    ? 'TON transfer complete from your Multi-Chain Wallet. The recipient will see the balance shortly.'
-                    : 'Asset dispersion complete. The recipient will see the balance shortly.'}
-                </p>
-                {txHash && (
-                  <div className="p-4 bg-white/5 rounded-xl">
-                    <p className="text-[10px] font-heading font-black text-gray-500 uppercase tracking-widest mb-2">Transaction ID</p>
-                    <p className="text-xs font-numbers font-bold text-[#00FF88] break-all tracking-widest">{txHash}</p>
-                    {(() => {
-                      let txLinkUrl = '';
-                      let linkName = 'Explorer';
-                      if (!isRzcTransfer) {
-                        try {
-                          txLinkUrl = getTransactionUrl(txHash, network);
-                          linkName = 'TonViewer';
-                        } catch (e) { }
-                      }
-
-                      if (!txLinkUrl) return null;
-
-                      return (
-                        <a
-                          href={txLinkUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 mt-2 text-xs text-violet-400 hover:text-violet-300 font-bold"
-                        >
-                          View on {linkName}
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-                        </a>
-                      );
-                    })()}
-                  </div>
-                )}
+              <div className="text-center space-y-2 max-w-xs">
+                <h2 className="text-2xl font-heading font-black text-[#00FF88] uppercase tracking-widest">Sent!</h2>
+                <p className="text-xs text-gray-400 font-heading font-bold uppercase tracking-widest leading-relaxed">Transaction confirmed. The recipient will see the balance shortly.</p>
               </div>
-              <button
-                onClick={() => navigate('/wallet/dashboard')}
-                className="px-12 py-5 bg-white text-black rounded-2xl font-heading font-black text-xs uppercase tracking-widest hover:bg-[#00FF88] transition-all shadow-2xl"
-              >
+              {txHash && (
+                <div className="w-full luxury-card rounded-xl px-4 py-3 space-y-2">
+                  <p className="text-[9px] font-heading font-black text-gray-500 uppercase tracking-widest">Transaction ID</p>
+                  <p className="text-xs font-mono text-[#00FF88] break-all">{txHash}</p>
+                  {(() => {
+                    let txLinkUrl = '';
+                    let linkName = 'Explorer';
+                    if (!isRzcTransfer) {
+                      try { txLinkUrl = getTransactionUrl(txHash, network); linkName = 'TonViewer'; } catch (e) { }
+                    }
+                    if (!txLinkUrl) return null;
+                    return (
+                      <a href={txLinkUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-violet-400 hover:text-violet-300 font-bold">
+                        View on {linkName}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+                      </a>
+                    );
+                  })()}
+                </div>
+              )}
+              <button onClick={() => navigate('/wallet/dashboard')} className="px-10 py-3.5 bg-white text-black rounded-xl font-heading font-black text-xs uppercase tracking-widest hover:bg-[#00FF88] transition-all">
                 Back to Dashboard
               </button>
             </>
           ) : (
             <>
-              <div className="w-24 h-24 bg-rose-500/10 rounded-full flex items-center justify-center text-rose-500">
-                <XCircle size={64} />
+              <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center text-rose-400">
+                <XCircle size={48} />
               </div>
-              <div className="text-center space-y-4 max-w-md">
-                <h2 className="text-2xl font-heading font-black text-rose-500 uppercase tracking-[0.1em]">{t('transfer.failed')}</h2>
-                <p className="text-gray-500 text-sm">
-                  {errorMessage || 'Network congestion or insufficient gas fees.'}
-                </p>
+              <div className="text-center space-y-2 max-w-xs">
+                <h2 className="text-xl font-heading font-black text-rose-400 uppercase tracking-widest">{t('transfer.failed')}</h2>
+                <p className="text-xs text-gray-500">{errorMessage || 'Network congestion or insufficient gas fees.'}</p>
               </div>
               <button
                 onClick={() => setStep('form')}
-                className="px-8 py-4 bg-white/10 text-white rounded-2xl font-heading font-black text-xs uppercase tracking-widest hover:bg-white/20 transition-all"
+                className="px-8 py-3.5 bg-white/10 text-white rounded-xl font-heading font-black text-xs uppercase tracking-widest hover:bg-white/20 transition-all"
               >
                 Try Again
               </button>

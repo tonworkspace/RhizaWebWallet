@@ -150,7 +150,7 @@ const Assets: React.FC = () => {
       const change = await getRzcChange24h();
       setRzcChange24h(change);
     };
-    
+
     fetchRzcChange();
     // Refresh every 5 minutes
     const interval = setInterval(fetchRzcChange, 300_000);
@@ -381,17 +381,17 @@ const Assets: React.FC = () => {
 
   const tonBalanceNum = (() => {
     if (isWdk) {
-        // Only W5 wallet balance
-        return multiChainBalances?.ton ? parseFloat(multiChainBalances.ton) : 0;
+      // Only W5 wallet balance
+      return multiChainBalances?.ton ? parseFloat(multiChainBalances.ton) : 0;
     } else {
-        // Native wallet balance
-        if (typeof tonBalance === 'number') return tonBalance;
-        if (typeof tonBalance === 'string') {
-          const cleaned = tonBalance.replace(/[^\d.]/g, '');
-          const parsed = parseFloat(cleaned);
-          return isNaN(parsed) ? 0 : parsed;
-        }
-        return 0;
+      // Native wallet balance
+      if (typeof tonBalance === 'number') return tonBalance;
+      if (typeof tonBalance === 'string') {
+        const cleaned = tonBalance.replace(/[^\d.]/g, '');
+        const parsed = parseFloat(cleaned);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      return 0;
     }
   })();
 
@@ -404,25 +404,37 @@ const Assets: React.FC = () => {
     return total + (num * (j.price?.usd || 0));
   }, 0);
 
-  const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * currentRzcPrice) + jettonsUsdValue;
+  const btcBalanceNum = multiChainBalances?.btc ? parseFloat(multiChainBalances.btc) : 0;
+  const solBalanceNum = multiChainBalances?.sol ? parseFloat(multiChainBalances.sol) : 0;
+  const tronBalanceNum = multiChainBalances?.tron ? parseFloat(multiChainBalances.tron) : 0;
+  const ethBalanceNum = multiChainBalances?.eth ? parseFloat(multiChainBalances.eth) : 0;
+  const bnbBalanceNum = multiChainBalances?.bnb ? parseFloat(multiChainBalances.bnb) : 0;
+
+  const btcUsdValue = btcBalanceNum * btcPrice;
+  const solUsdValue = solBalanceNum * solPrice;
+  const tronUsdValue = tronBalanceNum * tronPrice;
+  const ethUsdValue = ethBalanceNum * ethPrice;
+  const bnbUsdValue = bnbBalanceNum * bnbPrice;
+
+  const totalValue = (tonBalanceNum * tonPrice) + (rzcBalance * currentRzcPrice) + jettonsUsdValue + btcUsdValue + solUsdValue + tronUsdValue + ethUsdValue + bnbUsdValue;
 
   // Calculate true portfolio 24h change (weighted across all assets)
   const tonUsdValue = tonBalanceNum * tonPrice;
   const rzcUsdValue = rzcBalance * currentRzcPrice;
-  
+
   // Calculate 24h change for each asset
   const tonChange24h = tonUsdValue * (changePercent24h / 100);
   const rzcChange24hValue = rzcUsdValue * (rzcChange24h / 100); // ← Now uses calculated 24h change from price history
-  
+
   // Calculate jettons 24h change
   const jettonsChange24h = jettons.reduce((total, j) => {
     const num = Number(j.balance) / Math.pow(10, j.jetton.decimals);
     const jettonUsdValue = num * (j.price?.usd || 0);
-    
+
     // Get per-jetton change
     const symbol = j.jetton.symbol;
     let jettonChangePercent = 0;
-    
+
     if (symbol === 'USDT' || symbol === 'jUSDT') {
       jettonChangePercent = assetChanges.usdt;
     } else if (symbol === 'USDC' || symbol === 'jUSDC') {
@@ -430,12 +442,18 @@ const Assets: React.FC = () => {
     } else {
       jettonChangePercent = getJettonPriceChange(j.jetton.address);
     }
-    
+
     return total + (jettonUsdValue * (jettonChangePercent / 100));
   }, 0);
-  
+
+  const btcChange24h = btcUsdValue * ((assetChanges?.btc || 0) / 100);
+  const solChange24h = solUsdValue * ((assetChanges?.sol || 0) / 100);
+  const tronChange24h = tronUsdValue * ((assetChanges?.tron || 0) / 100);
+  const ethChange24h = ethUsdValue * ((assetChanges?.eth || 0) / 100);
+  const bnbChange24h = bnbUsdValue * ((assetChanges?.bnb || 0) / 100);
+
   // Total portfolio change
-  const totalChange24h = tonChange24h + rzcChange24hValue + jettonsChange24h;
+  const totalChange24h = tonChange24h + rzcChange24hValue + jettonsChange24h + btcChange24h + solChange24h + tronChange24h + ethChange24h + bnbChange24h;
   const portfolioChangePercent = totalValue > 0 ? (totalChange24h / totalValue) * 100 : 0;
 
   const evmChain = currentEvmChain;
@@ -470,135 +488,8 @@ const Assets: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-5 page-enter px-3 sm:px-4 md:px-0 pb-4">
-
-      {/* Currency dropdown — rendered at page level to escape overflow:hidden on the card */}
-      {showCurrencyMenu && (
-        <div className="assets-currency-selector fixed top-[160px] right-4 sm:right-auto z-[100] bg-white dark:bg-[#0a0a0a] border-2 border-gray-300 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden min-w-[110px] animate-in fade-in slide-in-from-top-2 duration-150">
-          {currencies.map(c => (
-            <button
-              key={c}
-              onClick={() => { setSelectedCurrency(c); setShowCurrencyMenu(false); }}
-              className={`w-full px-3 py-2.5 text-left text-xs font-bold transition-colors flex items-center justify-between gap-3 ${selectedCurrency === c
-                ? 'bg-emerald-100 dark:bg-primary/10 text-emerald-700 dark:text-primary'
-                : 'text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
-                }`}
-            >
-              <span>{c}</span>
-              {selectedCurrency === c && <span className="text-emerald-600 dark:text-primary">✓</span>}
-            </button>
-          ))}
-        </div>
-      )}
-      {/* Portfolio Header */}
-      <div className="relative group">
-        <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-200/50 to-cyan-200/50 dark:from-primary/20 dark:to-secondary/20 rounded-2xl sm:rounded-[2rem] blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-        <div className="relative bg-white dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-2 border-gray-300 dark:border-white/5 rounded-2xl sm:rounded-[2rem] overflow-hidden shadow-lg">
-          <div className="h-[3px] w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500" />
-          <div className="p-5 sm:p-6 pb-4">
-            <div className="flex items-start justify-between">
-              <div className="space-y-0.5 sm:space-y-1 flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 sm:gap-2 text-gray-600 dark:text-gray-500">
-                  <ShieldCheck size={12} className="text-emerald-600 dark:text-primary flex-shrink-0" />
-                  <span className="text-[10px] sm:text-[11px] font-heading font-bold uppercase tracking-widest truncate">Total Portfolio Value</span>
-                </div>
-                <h2 className="text-3xl sm:text-4xl font-numbers font-black tracking-tight text-gray-950 dark:text-white">
-                  {balanceVisible ? (
-                    <span className="inline-flex items-baseline gap-1">
-                      <span className="text-emerald-700 dark:text-[#00FF88] font-black opacity-90">
-                        {safeGet(currencySymbols, selectedCurrency)}
-                      </span>
-                      <span className="luxury-gradient-text font-glow">
-                        {formatConverted(convertedTotal)}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 dark:text-gray-700">••••••••</span>
-                  )}
-                </h2>
-                <div className="flex items-center gap-1.5 sm:gap-2 pt-1">
-                  <span className={`text-[10px] sm:text-xs font-heading font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${portfolioChangePercent >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20'
-                    : 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-500/20'
-                    }`}>
-                    <TrendingUp size={10} className={portfolioChangePercent < 0 ? 'rotate-180' : ''} />
-                    {portfolioChangePercent >= 0 ? '+' : ''}{portfolioChangePercent.toFixed(2)}% 24h
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                {/* Currency selector — dropdown uses fixed positioning to escape overflow:hidden */}
-                <div className="relative assets-currency-selector">
-                  <button
-                    onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
-                    className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-600 dark:text-gray-400 text-[10px] font-black min-w-[40px] flex items-center justify-center"
-                  >
-                    {selectedCurrency}
-                  </button>
-                </div>
-
-                {/* Hide/show balance */}
-                <button
-                  onClick={() => setBalanceVisible(!balanceVisible)}
-                  className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-600 dark:text-gray-400 hover:text-emerald-600 dark:hover:text-primary transition-all active:scale-95"
-                >
-                  {balanceVisible ? <Eye size={16} /> : <EyeOff size={16} />}
-                </button>
-
-                {/* Refresh */}
-                <button
-                  onClick={handleRefresh}
-                  disabled={isRefreshing}
-                  className="p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-600 dark:text-gray-400 hover:text-emerald-600 dark:hover:text-primary hover:bg-emerald-50 dark:hover:bg-white/10 transition-all active:scale-95"
-                >
-                  <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Live price ticker */}
-          {(() => {
-            const priceItems = [
-              tonPrice > 0 && { symbol: 'TON', price: `$${tonPrice.toFixed(2)}`, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-500/15' },
-              btcPrice > 0 && { symbol: 'BTC', price: `$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-500/15' },
-              ethPrice > 0 && { symbol: 'ETH', price: `$${ethPrice.toFixed(2)}`, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-100 dark:bg-indigo-500/15' },
-              solPrice > 0 && { symbol: 'SOL', price: `$${solPrice.toFixed(2)}`, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-500/15' },
-              bnbPrice > 0 && { symbol: 'BNB', price: `$${bnbPrice.toFixed(2)}`, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-100 dark:bg-yellow-500/15' },
-              tronPrice > 0 && { symbol: 'TRX', price: `$${tronPrice.toFixed(4)}`, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-500/15' },
-              usdtPrice > 0 && { symbol: 'USDT', price: `$${usdtPrice.toFixed(3)}`, color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-100 dark:bg-teal-500/15' },
-              currentRzcPrice > 0 && { symbol: 'RZC', price: `$${currentRzcPrice.toFixed(4)}`, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-500/15' },
-            ].filter(Boolean) as { symbol: string; price: string; color: string; bg: string }[];
-            if (priceItems.length === 0) return null;
-            const doubled = [...priceItems, ...priceItems];
-            return (
-              <div className="border-t border-gray-100 dark:border-white/5 overflow-hidden" style={{ contain: 'paint' }}>
-                <div className="flex items-stretch">
-                  <div className="flex-shrink-0 px-2.5 bg-gradient-to-b from-slate-800 to-slate-900 dark:from-white/10 dark:to-white/5 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[8px] font-black uppercase tracking-widest text-white dark:text-white/70">Live</span>
-                  </div>
-                  <div className="flex-1 overflow-hidden py-1.5">
-                    <div className="flex animate-marquee whitespace-nowrap gap-5 px-3" style={{ width: 'max-content' }}>
-                      {doubled.map((item, idx) => (
-                        <span key={idx} className="inline-flex items-center gap-1.5">
-                          <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md ${item.bg} ${item.color}`}>{item.symbol}</span>
-                          <span className="text-[10px] font-numbers font-bold text-slate-700 dark:text-slate-300">{item.price}</span>
-                          <span className="text-slate-300 dark:text-white/10 text-[10px]">·</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-
-
       {/* Tab Switcher */}
-      <div className="flex p-1 bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-300 dark:border-white/5 rounded-2xl shadow-sm">
+      <div className="flex p-1 bg-white dark:bg-[#0a0a0a]/80 border-2 border-gray-300 dark:border-white/5 rounded-2xl shadow-sm mt-4 ">
         <button
           onClick={() => setActiveTab('tokens')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-heading font-bold transition-all ${activeTab === 'tokens'
@@ -664,262 +555,198 @@ const Assets: React.FC = () => {
         </div>
       )}
 
-      {/* Asset List */}
+      {/* Market Asset List */}
       <div className="min-h-[400px]">
-        {activeTab === 'tokens' && (
-          <>
-            {error ? (
-              <div className="p-6 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-2xl">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={20} />
-                  <div>
-                    <h4 className="font-bold text-red-900 dark:text-red-300 mb-1">Failed to load tokens</h4>
-                    <p className="text-sm text-red-700 dark:text-red-400 mb-3">{error}</p>
-                    <button
-                      onClick={handleRefresh}
-                      className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase hover:bg-red-700 transition-all"
-                    >
-                      Retry
-                    </button>
+        {activeTab === 'tokens' && (() => {
+          // Build the unified market asset list
+          const tonBal = tonBalanceNum;
+          const rzcBal = (userProfile as any)?.rzc_balance || 0;
+          const usdtBal = multiChainBalances ? parseFloat(multiChainBalances.usdt || '0') : 0;
+          const tronBal = multiChainBalances ? parseFloat(multiChainBalances.tron || '0') : 0;
+          const ethBal = multiChainBalances?.eth ? parseFloat(multiChainBalances.eth) : 0;
+          const bnbBal = multiChainBalances?.bnb ? parseFloat(multiChainBalances.bnb) : 0;
+          const solBal = multiChainBalances?.sol ? parseFloat(multiChainBalances.sol) : 0;
+          const btcBal = multiChainBalances?.btc ? parseFloat(multiChainBalances.btc) : 0;
+
+          type MarketAsset = {
+            rank: number; symbol: string; name: string; logo: string;
+            price: number; change: number; balance: number; maxDecimals: number;
+            navState: object; accentFrom: string; accentTo: string;
+          };
+
+          const assets: MarketAsset[] = [
+            { rank: 1, symbol: 'BTC', name: 'Bitcoin', logo: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png', price: btcPrice, change: assetChanges?.btc ?? 0, balance: btcBal, maxDecimals: 8, navState: { symbol: 'BTC', name: 'Bitcoin', balance: String(btcBal), decimals: 0, emoji: '\u20bf', price: btcPrice, verified: true, type: 'BTC' }, accentFrom: 'from-orange-400', accentTo: 'to-amber-500' },
+            { rank: 2, symbol: 'ETH', name: 'Ethereum', logo: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png', price: ethPrice, change: assetChanges?.eth ?? 0, balance: ethBal, maxDecimals: 6, navState: { symbol: 'ETH', name: 'Ethereum', balance: String(ethBal), decimals: 0, emoji: '\u039e', price: ethPrice, verified: true, type: 'ETH' }, accentFrom: 'from-indigo-400', accentTo: 'to-blue-500' },
+            { rank: 3, symbol: 'BNB', name: 'BNB', logo: 'https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png', price: bnbPrice, change: assetChanges?.bnb ?? 0, balance: bnbBal, maxDecimals: 6, navState: { symbol: 'BNB', name: 'BNB', balance: String(bnbBal), decimals: 0, emoji: '\ud83e\ude99', price: bnbPrice, verified: true, type: 'BNB' }, accentFrom: 'from-yellow-400', accentTo: 'to-amber-400' },
+            { rank: 4, symbol: 'SOL', name: 'Solana', logo: 'https://assets.coingecko.com/coins/images/4128/large/solana.png', price: solPrice, change: assetChanges?.sol ?? 0, balance: solBal, maxDecimals: 6, navState: { symbol: 'SOL', name: 'Solana', balance: String(solBal), decimals: 0, emoji: '\u25ce', price: solPrice, verified: true, type: 'SOL' }, accentFrom: 'from-purple-400', accentTo: 'to-violet-500' },
+            { rank: 5, symbol: 'TON', name: tonName, logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png', price: tonPrice, change: changePercent24h ?? 0, balance: tonBal, maxDecimals: 4, navState: { symbol: 'TON', name: tonName, balance: String(tonBal * 1e9), decimals: 9, emoji: '\ud83d\udca4', price: tonPrice, verified: true, type: 'TON' }, accentFrom: 'from-blue-400', accentTo: 'to-cyan-400' },
+            { rank: 6, symbol: 'USDT', name: 'Tether USD', logo: 'https://assets.coingecko.com/coins/images/325/large/Tether.png', price: usdtPrice || 1.0, change: assetChanges?.usdt ?? 0, balance: usdtBal, maxDecimals: 4, navState: { symbol: 'USDT', name: 'Tether USD', balance: String(usdtBal), decimals: 0, emoji: '\u20ae', price: usdtPrice || 1.0, verified: true, type: 'EVM' }, accentFrom: 'from-teal-400', accentTo: 'to-emerald-400' },
+            { rank: 7, symbol: 'TRX', name: 'TRON', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png', price: tronPrice || 0, change: assetChanges?.tron ?? 0, balance: tronBal, maxDecimals: 4, navState: { symbol: 'TRX', name: 'TRON', balance: String(tronBal), decimals: 0, emoji: '\u20ae', price: tronPrice, verified: true, type: 'TRON' }, accentFrom: 'from-red-400', accentTo: 'to-rose-500' },
+            { rank: 8, symbol: 'RZC', name: 'RhizaCore', logo: '', price: currentRzcPrice, change: rzcChange24h, balance: rzcBal, maxDecimals: 0, navState: { symbol: 'RZC', name: 'RhizaCore Token', balance: String(rzcBal), decimals: 0, emoji: '\u26a1', price: currentRzcPrice, verified: true, type: 'RZC' }, accentFrom: 'from-emerald-400', accentTo: 'to-cyan-500' },
+          ].filter(a => !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase()) || a.symbol.toLowerCase().includes(searchQuery.toLowerCase()));
+
+          const SparklineChart = ({ change, seed }: { change: number; seed: number }) => {
+            const isPos = change >= 0;
+            const pts: number[] = [];
+            for (let i = 0; i < 8; i++) {
+              const trend = isPos ? (i / 7) * 10 : -(i / 7) * 10;
+              const wave = Math.sin((i + seed) * 1.4) * 12;
+              pts.push(Math.max(5, Math.min(45, 25 - trend + wave)));
+            }
+            const path = pts.map((y, x) => `${x === 0 ? 'M' : 'L'} ${((x / 7) * 56).toFixed(1)} ${y.toFixed(1)}`).join(' ');
+            const fillPath = path + ` L 56 50 L 0 50 Z`;
+            const stroke = isPos ? '#10b981' : '#ef4444';
+            const fill = isPos ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)';
+            return (
+              <svg width="58" height="32" viewBox="0 0 56 50" className="flex-shrink-0">
+                <path d={fillPath} fill={fill} />
+                <path d={path} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            );
+          };
+
+          return (
+            <div className="space-y-0">
+              {/* Column Headers */}
+              <div className="flex items-center px-4 py-2 mb-1">
+                <span className="w-7 text-[9px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-600">#</span>
+                <span className="flex-1 text-[9px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-600">Asset</span>
+                <span className="w-[58px] hidden sm:block text-[9px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-600 text-center">7D Chart</span>
+                <span className="w-28 text-[9px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-600 text-right">Price / 24h</span>
+              </div>
+
+              {/* Asset rows */}
+              <div className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/5 bg-white dark:bg-[#0a0a0a]/80 shadow-sm divide-y divide-gray-50 dark:divide-white/[0.04]">
+                {isLoading ? (
+                  <div className="divide-y divide-gray-50 dark:divide-white/[0.04]">
+                    {[1, 2, 3, 4, 5].map(i => <LoadingSkeleton key={i} height={68} />)}
                   </div>
-                </div>
-              </div>
-            ) : isLoading ? (
-              <div className="space-y-3">
-                <LoadingSkeleton height={80} />
-                <LoadingSkeleton height={80} />
-                <LoadingSkeleton height={80} />
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-[#0a0a0a]/80 border border-gray-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-white/5">
-                {/* TON Balance (Always first) */}
-                <div
-                  onClick={() => navigate('/wallet/asset-detail', {
-                    state: {
-                      symbol: 'TON',
-                      name: tonName,
-                      balance: String(tonBalanceNum * Math.pow(10, 9)),
-                      decimals: 9,
-                      emoji: '💎',
-                      price: tonPrice,
-                      verified: true,
-                      type: 'TON'
-                    }
-                  })}
-                  className="p-3 sm:p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-9 h-9 rounded-full relative group-hover:scale-105 transition-transform shrink-0 shadow-sm border border-gray-100 dark:border-white/10">
-                      <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ton/info/logo.png" alt="TON" className="w-full h-full rounded-full object-cover" />
-                      <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
-                        <ShieldCheck size={8} className="text-white" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">{tonName}</h4>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[11px] font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
-                          ${tonPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          {changePercent24h !== undefined && (
-                            <span className={`ml-1.5 font-bold ${changePercent24h >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                              {changePercent24h >= 0 ? '+' : ''}{changePercent24h.toFixed(2)}%
-                            </span>
+                ) : error ? (
+                  <div className="p-6 flex items-center gap-3 text-red-500">
+                    <AlertCircle size={18} /> <span className="text-sm font-semibold">{error}</span>
+                  </div>
+                ) : (
+                  assets.map((asset, idx) => {
+                    const isPos = asset.change >= 0;
+                    const holdingsUsd = asset.balance * asset.price;
+                    const hasHoldings = asset.balance > 0;
+                    const priceFormatted = asset.price >= 1000
+                      ? asset.price.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                      : asset.price >= 1
+                        ? asset.price.toFixed(2)
+                        : asset.price >= 0.001
+                          ? asset.price.toFixed(4)
+                          : asset.price.toFixed(6);
+                    return (
+                      <div
+                        key={asset.symbol}
+                        onClick={() => navigate('/wallet/asset-detail', { state: asset.navState })}
+                        className="group relative flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3.5 cursor-pointer hover:bg-gray-50/80 dark:hover:bg-white/[0.025] transition-all duration-150 active:scale-[0.995]"
+                      >
+                        <div className={`absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b ${asset.accentFrom} ${asset.accentTo} opacity-0 group-hover:opacity-100 transition-opacity rounded-full`} />
+                        <span className="w-7 text-[11px] font-black text-gray-300 dark:text-gray-700 flex-shrink-0 tabular-nums">{asset.rank}</span>
+                        <div className="relative flex-shrink-0">
+                          {asset.logo ? (
+                            <img src={asset.logo} alt={asset.symbol} className="w-9 h-9 rounded-full object-cover border border-gray-100 dark:border-white/10 group-hover:scale-105 transition-transform shadow-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          ) : (
+                            <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${asset.accentFrom} ${asset.accentTo} flex items-center justify-center text-white font-black text-[9px] group-hover:scale-105 transition-transform shadow-sm`}>{asset.symbol}</div>
                           )}
-                        </span>
+                          {hasHoldings && <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-gradient-to-br ${asset.accentFrom} ${asset.accentTo} border-2 border-white dark:border-[#0a0a0a]`} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-heading font-black text-gray-900 dark:text-white">{asset.name}</span>
+                            <span className="text-[9px] font-black uppercase text-gray-400 dark:text-gray-600 bg-gray-100 dark:bg-white/5 px-1.5 py-0.5 rounded-md tracking-wide">{asset.symbol}</span>
+                          </div>
+                          {hasHoldings ? (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-[10px] font-numbers font-bold text-gray-400 dark:text-gray-500">
+                                {balanceVisible ? `${asset.balance.toLocaleString(undefined, { maximumFractionDigits: asset.maxDecimals })} ${asset.symbol}` : '\u2022\u2022\u2022\u2022'}
+                              </span>
+                              {balanceVisible && holdingsUsd > 0.01 && (
+                                <span className={`text-[9px] font-numbers font-black px-1.5 py-px rounded-full bg-gradient-to-r ${asset.accentFrom} ${asset.accentTo} text-white`}>
+                                  ${holdingsUsd >= 1000 ? holdingsUsd.toLocaleString('en-US', { maximumFractionDigits: 0 }) : holdingsUsd.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-gray-300 dark:text-gray-700 font-medium mt-0.5 block">No holdings</span>
+                          )}
+                        </div>
+                        <div className="hidden sm:block flex-shrink-0">
+                          <SparklineChart change={asset.change} seed={idx * 2.5} />
+                        </div>
+                        <div className="text-right flex-shrink-0 w-28">
+                          <p className="text-sm font-numbers font-black text-gray-900 dark:text-white tabular-nums">${priceFormatted}</p>
+                          <span className={`inline-flex items-center gap-0.5 text-[10px] font-numbers font-black px-2 py-0.5 rounded-full mt-0.5 ${isPos ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'
+                            }`}>
+                            {isPos ? '\u25b2' : '\u25bc'} {Math.abs(asset.change).toFixed(2)}%
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* TON Jettons section */}
+              {!isLoading && filteredJettons.length > 0 && (
+                <div className="mt-5">
+                  <div className="flex items-center gap-2 px-1 mb-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-600">TON Jettons</span>
+                    <div className="flex-1 h-px bg-gray-100 dark:bg-white/5" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <p className="text-sm font-numbers font-black text-gray-900 dark:text-white">
-                          {tonBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 4 })} TON
-                        </p>
-                      </div>
-                      <span className="text-[11px] font-numbers font-semibold text-gray-500 dark:text-gray-400">
-                        ${(tonBalanceNum * tonPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
+                  <div className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/5 bg-white dark:bg-[#0a0a0a]/80 shadow-sm divide-y divide-gray-50 dark:divide-white/[0.04]">
+                    {filteredJettons.map((jetton, idx) => {
+                      const num = Number(jetton.balance) / Math.pow(10, jetton.jetton.decimals);
+                      const change = getJettonPriceChange(jetton.jetton.address);
+                      const isPos = change >= 0;
+                      const holdingsUsd = num * (jetton.price?.usd || 0);
+                      return (
+                        <div
+                          key={jetton.jetton.address}
+                          onClick={() => navigate('/wallet/asset-detail', { state: { symbol: jetton.jetton.symbol, name: jetton.jetton.name, balance: jetton.balance, decimals: jetton.jetton.decimals, emoji: jetton.jetton.emoji || '\ud83e\ude99', price: jetton.price?.usd || 0, verified: jetton.jetton.verified, type: 'JETTON', jettonAddress: jetton.jetton.address } })}
+                          className="group flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-gray-50/80 dark:hover:bg-white/[0.025] transition-all"
+                        >
+                          <span className="w-7 text-[11px] font-black text-gray-300 dark:text-gray-700 tabular-nums">{idx + 9}</span>
+                          <TokenImage src={jetton.jetton.image} alt={jetton.jetton.symbol} emoji={jetton.jetton.emoji} className="w-9 h-9 rounded-full flex-shrink-0 group-hover:scale-105 transition-transform border border-gray-100 dark:border-white/10 shadow-sm" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-heading font-black text-gray-900 dark:text-white truncate">{jetton.jetton.name}</span>
+                              {(jetton.jetton.verified || jetton.jetton.verification === 'whitelist') && <span className="text-[9px] text-emerald-500">\u2713</span>}
+                              <span className="text-[9px] font-black uppercase text-gray-400 dark:text-gray-600 bg-gray-100 dark:bg-white/5 px-1.5 py-0.5 rounded-md">{jetton.jetton.symbol}</span>
+                            </div>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-[10px] font-numbers font-bold text-gray-400 dark:text-gray-500">
+                                {balanceVisible ? `${num.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${jetton.jetton.symbol}` : '\u2022\u2022\u2022\u2022'}
+                              </span>
+                              {balanceVisible && holdingsUsd > 0.01 && (
+                                <span className="text-[9px] font-numbers font-black px-1.5 py-px rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                                  ${holdingsUsd.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0 w-24">
+                            {jetton.price?.usd ? (
+                              <>
+                                <p className="text-sm font-numbers font-black text-gray-900 dark:text-white tabular-nums">${jetton.price.usd >= 0.01 ? jetton.price.usd.toFixed(2) : jetton.price.usd.toFixed(6)}</p>
+                                <span className={`inline-flex items-center gap-0.5 text-[10px] font-numbers font-black px-2 py-0.5 rounded-full mt-0.5 ${isPos ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'}`}>
+                                  {isPos ? '\u25b2' : '\u25bc'} {Math.abs(change).toFixed(2)}%
+                                </span>
+                              </>
+                            ) : <span className="text-xs text-gray-400 dark:text-gray-600">\u2014</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
+              )}
+            </div>
+          );
+        })()}
 
-                {/* RZC Balance (Community Token) */}
-                {userProfile && (
-                  <div
-                    onClick={() => navigate('/wallet/asset-detail', {
-                      state: {
-                        symbol: 'RZC',
-                        name: 'RhizaCore Token',
-                        balance: String((userProfile as any).rzc_balance || 0),
-                        decimals: 0,
-                        emoji: '⚡',
-                        price: rzcPrice,
-                        verified: true,
-                        type: 'RZC'
-                      }
-                    })}
-                    className="p-3 sm:p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center text-white font-black text-[10px] relative group-hover:scale-105 transition-transform shrink-0 shadow-md shadow-emerald-500/20">
-                        RZC
-                        <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
-                          <ShieldCheck size={8} className="text-white" />
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">RhizaCore Token</h4>
-                          <VerificationBadge />
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[11px] font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
-                            ${currentRzcPrice.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <p className="text-sm font-numbers font-black text-gray-900 dark:text-white">
-                            {((userProfile as any).rzc_balance || 0).toLocaleString()} RZC
-                          </p>
-                        </div>
-                        <div className="flex items-center justify-end gap-1.5">
-                          <span className="text-[11px] font-numbers font-semibold text-emerald-600 dark:text-primary">
-                            ${(((userProfile as any).rzc_balance || 0) * currentRzcPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                          <span className={`text-[9px] font-numbers font-bold ${rzcChange24h >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {rzcChange24h >= 0 ? '+' : ''}{rzcChange24h.toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* USDT Balance (Multi-Chain) */}
-                {(() => {
-                  const unifiedUsdtBalance = multiChainBalances ? parseFloat(multiChainBalances.usdt || '0') : 0;
-                  const unifiedUsdtUsdValue = unifiedUsdtBalance * (usdtPrice || 1.0);
-                  
-                  return (
-                    <div
-                      onClick={() => navigate('/wallet/asset-detail', {
-                        state: {
-                          symbol: 'USDT',
-                          name: 'Tether USD',
-                          balance: String(unifiedUsdtBalance),
-                          decimals: 0,
-                          emoji: '₮',
-                          price: usdtPrice || 1.0,
-                          verified: true,
-                          type: 'EVM'
-                        }
-                      })}
-                      className="p-3 sm:p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-9 h-9 rounded-full relative group-hover:scale-105 transition-transform shrink-0 shadow-sm border border-gray-100 dark:border-white/10">
-                          <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png" alt="USDT" className="w-full h-full rounded-full object-cover" />
-                          <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
-                            <ShieldCheck size={8} className="text-white" />
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">Tether USD</h4>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[11px] font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
-                              ${(usdtPrice || 1.0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              {assetChanges?.usdt !== undefined && (
-                                <span className={`ml-1.5 font-bold ${assetChanges.usdt >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                  {assetChanges.usdt >= 0 ? '+' : ''}{assetChanges.usdt.toFixed(2)}%
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <p className="text-sm font-numbers font-black text-gray-900 dark:text-white">
-                              {balanceVisible ? unifiedUsdtBalance.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '••••'} USDT
-                            </p>
-                          </div>
-                          <span className="text-[11px] font-numbers font-semibold text-gray-500 dark:text-gray-400">
-                            {balanceVisible ? `$${unifiedUsdtUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '••••'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* TRON Balance (Multi-Chain) */}
-                {(() => {
-                  const unifiedTronBalance = multiChainBalances ? parseFloat(multiChainBalances.tron || '0') : 0;
-                  const unifiedTronUsdValue = unifiedTronBalance * (tronPrice || 0);
-                  
-                  return (
-                    <div
-                      onClick={() => navigate('/wallet/asset-detail', {
-                        state: {
-                          symbol: 'TRX',
-                          name: 'TRON',
-                          balance: String(unifiedTronBalance),
-                          decimals: 0,
-                          emoji: '₮',
-                          price: tronPrice || 0,
-                          verified: true,
-                          type: 'TRON'
-                        }
-                      })}
-                      className="p-3 sm:p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-9 h-9 rounded-full relative group-hover:scale-105 transition-transform shrink-0 shadow-sm border border-gray-100 dark:border-white/10">
-                          <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/tron/info/logo.png" alt="TRX" className="w-full h-full rounded-full object-cover" />
-                          <div className="absolute -bottom-1 -right-1 bg-emerald-500 dark:bg-emerald-600 rounded-full p-0.5 border-2 border-white dark:border-[#0a0a0a]">
-                            <ShieldCheck size={8} className="text-white" />
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-heading font-bold text-gray-900 dark:text-white truncate">TRON</h4>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[11px] font-numbers text-gray-500 dark:text-gray-400 font-medium truncate">
-                              ${(tronPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              {assetChanges?.tron !== undefined && (
-                                <span className={`ml-1.5 font-bold ${assetChanges.tron >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                  {assetChanges.tron >= 0 ? '+' : ''}{assetChanges.tron.toFixed(2)}%
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <p className="text-sm font-numbers font-black text-gray-900 dark:text-white">
-                              {balanceVisible ? unifiedTronBalance.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '••••'} TRX
-                            </p>
-                          </div>
-                          <span className="text-[11px] font-numbers font-semibold text-gray-500 dark:text-gray-400">
-                            {balanceVisible ? `$${unifiedTronUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '••••'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Jettons removed as requested */}
-              </div>
-            )}
-          </>
-        )}
 
         {activeTab === 'nfts' && (
           <>

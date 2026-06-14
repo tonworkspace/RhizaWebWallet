@@ -14,7 +14,9 @@
 
 import { supabaseService } from './supabaseService';
 import { getNetworkConfig } from '../constants';
-import type { EvmChain } from './tetherWdkService';
+import { getTargetEvmChain, type EvmChain } from './tetherWdkService';
+import { NetworkFailover, EVM_RPC_FAILOVER, SOLANA_RPC_FAILOVER } from './networkFailover';
+import { tonWalletService } from './tonWalletService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,33 +29,31 @@ export interface BalanceSyncResult {
 export interface MultiChainBalances {
   ton: string;
   evm: string;
+  eth: string;
+  bnb: string;
   btc: string;
   sol: string;
   tron: string;
   usdt: string;
+  usdtTotal: string;
+  tronUsdt: string;
+  ethUsdt: string;
+  bscUsdt: string;
 }
 
 // DB column names for each chain
-const DB_COLUMNS: Record<keyof MultiChainBalances, string> = {
+const DB_COLUMNS: Record<keyof Omit<MultiChainBalances, 'usdtTotal' | 'tronUsdt' | 'ethUsdt' | 'bscUsdt'>, string> = {
   ton:  'ton_balance',
   evm:  'evm_balance',
+  eth:  'eth_balance',
+  bnb:  'bnb_balance',
   btc:  'btc_balance',
   sol:  'sol_balance',
   tron: 'tron_balance',
   usdt: 'usdt_balance',
 };
 
-// EVM RPC URLs for different chains
-const EVM_RPC_URLS: Record<string, string> = {
-  ethereum: 'https://eth.llamarpc.com',
-  polygon: 'https://polygon-rpc.com',
-  arbitrum: 'https://arb1.arbitrum.io/rpc',
-  bsc: 'https://bsc-dataseed.binance.org',
-  avalanche: 'https://api.avax.network/ext/bc/C/rpc',
-  plasma: 'https://rpc.mainnet.taiko.xyz',
-  stable: 'https://rpc.mainnet.taiko.xyz',
-  sepolia: 'https://rpc.sepolia.org',
-};
+// Removed EVM_RPC_URLS in favor of EVM_RPC_FAILOVER from networkFailover
 
 // ── Module-level cache ────────────────────────────────────────────────────────
 // Key: `${chain}:${address}` — shared across all instances/renders
@@ -71,14 +71,47 @@ class BalanceSyncService {
     walletAddress: string,
     network: 'mainnet' | 'testnet',
     userId?: string | null,
-    forceRefresh = false
+    forceRefresh?: boolean
   ): Promise<BalanceSyncResult> {
-    if (forceRefresh) this.refreshForAddress(walletAddress);
-    return this._sync(
-      `ton:${network}:${walletAddress}`,
-      () => this._fetchTon(walletAddress, network),
-      (val) => this._persistChain(walletAddress, userId, 'ton', val)
-    );
+    const cacheKey = `ton:${network}:${walletAddress}`;
+    if (!forceRefresh) {
+      const cached = _cache.get(cacheKey);
+      if (cached && (Date.now() - cached.ts < CACHE_TTL)) {
+        return { balance: cached.balance, source: 'cache', syncedAt: cached.ts };
+      }
+    }
+
+    if (this._inProgress.has(cacheKey)) {
+      const cached = _cache.get(cacheKey);
+      return { balance: cached?.balance || '0.0000', source: 'cache', syncedAt: cached?.ts || 0 };
+    }
+    this._inProgress.add(cacheKey);
+
+    try {
+      let balance = '0.0000';
+      if (tonWalletService.isInitialized()) {
+        const bal = await tonWalletService.getBalance();
+        if (bal.success && bal.balance) {
+          balance = bal.balance;
+        } else {
+          throw new Error(bal.error || 'Failed to fetch TON wallet balance');
+        }
+      }
+
+      _cache.set(cacheKey, { balance, ts: Date.now() });
+
+      if (userId) {
+        this._persistChain(walletAddress, userId, 'ton', balance).catch(() => {});
+      }
+
+      return { balance, source: 'onchain', syncedAt: Date.now() };
+    } catch (e) {
+      console.warn('⚠️ TON balance sync failed, falling back to cache/db:', e);
+      const cached = _cache.get(cacheKey);
+      return { balance: cached?.balance || '0.0000', source: 'cache', syncedAt: cached?.ts || 0 };
+    } finally {
+      this._inProgress.delete(cacheKey);
+    }
   }
 
   // ── WDK multi-chain balances ────────────────────────────────────────────────
@@ -94,7 +127,7 @@ class BalanceSyncService {
     },
     network: 'mainnet' | 'testnet',
     userId?: string | null,
-    usdtBalance?: string,  // already fetched by WDK ERC-20 call
+    usdtRaw: string = '0.00',
     evmChain: EvmChain = 'polygon',
     forceRefresh = false   // bypass in-memory cache (use on explicit user refresh)
   ): Promise<MultiChainBalances> {
@@ -104,9 +137,6 @@ class BalanceSyncService {
         if (addr) this.refreshForAddress(addr);
       }
     }
-
-    const activeWalletType = typeof localStorage !== 'undefined' ? localStorage.getItem('rhiza_active_wallet_type') : null;
-    const isSecondary = activeWalletType === 'secondary';
 
     // ── USDT MULTI-CHAIN INTEGRATION ──
     // Derive EVM address from active mnemonic in memory if WDK address is not set
@@ -124,17 +154,23 @@ class BalanceSyncService {
     const results = await Promise.allSettled([
       addresses.ton  ? this._sync(`wdk-ton:${network}:${addresses.ton}`,   () => this._fetchTon(addresses.ton!, network),  (v) => this._persistChain(addresses.ton!, userId, 'ton', v))  : Promise.resolve({ balance: '0.0000', source: 'cache' as const, syncedAt: 0 }),
       (addresses.evm || derivedEvm)  ? this._sync(`evm:${evmChain}:${addresses.evm || derivedEvm}`,      () => this._fetchEvm(addresses.evm || derivedEvm!, evmChain, network),           (v) => this._persistChain(addresses.evm || derivedEvm!, userId, 'evm', v))  : Promise.resolve({ balance: '0.000000', source: 'cache' as const, syncedAt: 0 }),
+      (addresses.evm || derivedEvm)  ? this._sync(`evm:ethereum:${addresses.evm || derivedEvm}`,      () => this._fetchEvm(addresses.evm || derivedEvm!, 'ethereum', network),           (v) => this._persistChain(addresses.evm || derivedEvm!, userId, 'eth', v))  : Promise.resolve({ balance: '0.000000', source: 'cache' as const, syncedAt: 0 }),
+      (addresses.evm || derivedEvm)  ? this._sync(`evm:bsc:${addresses.evm || derivedEvm}`,      () => this._fetchEvm(addresses.evm || derivedEvm!, 'bsc', network),           (v) => this._persistChain(addresses.evm || derivedEvm!, userId, 'bnb', v))  : Promise.resolve({ balance: '0.000000', source: 'cache' as const, syncedAt: 0 }),
       addresses.btc  ? this._sync(`btc:${addresses.btc}`,                  () => this._fetchBtc(addresses.btc!),           (v) => this._persistChain(addresses.btc!, userId, 'btc', v))  : Promise.resolve({ balance: '0.00000000', source: 'cache' as const, syncedAt: 0 }),
-      addresses.sol  ? this._sync(`sol:${addresses.sol}`,                  () => this._fetchSol(addresses.sol!),           (v) => this._persistChain(addresses.sol!, userId, 'sol', v))  : Promise.resolve({ balance: '0.000000000', source: 'cache' as const, syncedAt: 0 }),
+      addresses.sol  ? this._sync(`sol:${addresses.sol}`,                  () => this._fetchSol(addresses.sol!, network),           (v) => this._persistChain(addresses.sol!, userId, 'sol', v))  : Promise.resolve({ balance: '0.000000000', source: 'cache' as const, syncedAt: 0 }),
       addresses.tron ? this._sync(`tron:${addresses.tron}`,                () => this._fetchTron(addresses.tron!),         (v) => this._persistChain(addresses.tron!, userId, 'tron', v)) : Promise.resolve({ balance: '0.000000', source: 'cache' as const, syncedAt: 0 }),
     ]);
 
-    const [tonR, evmR, btcR, solR, tronR] = results.map(r =>
+    const [tonR, evmR, ethR, bnbR, btcR, solR, tronR] = results.map(r =>
       r.status === 'fulfilled' ? r.value.balance : '0'
     );
 
     // Fetch multi-chain USDT balances across TON, BSC, and Ethereum
     let usdt = '0.00';
+    let usdtTotal = '0.00';
+    let tronUsdt = '0.00';
+    let ethUsdt = '0.00';
+    let bscUsdt = '0.00';
     if (addresses.ton) {
       try {
         const { usdtMultiChainService } = await import('./usdtMultiChainService');
@@ -145,7 +181,11 @@ class BalanceSyncService {
           network
         );
         usdt = usdtBalances.ton; // TON Jetton is the primary USDT balance
-        console.log(`💰 USDT balance synced — TON Jetton (main): ${usdt}, BSC: ${usdtBalances.bsc}, ETH: ${usdtBalances.ethereum}, TRON: ${usdtBalances.tron}, Total: ${usdtBalances.total}`);
+        usdtTotal = usdtBalances.total;
+        tronUsdt = usdtBalances.tron;
+        ethUsdt = usdtBalances.ethereum;
+        bscUsdt = usdtBalances.bsc;
+        console.log(`💰 USDT balance synced — TON Jetton (main): ${usdt}, BSC: ${bscUsdt}, ETH: ${ethUsdt}, TRON: ${tronUsdt}, Total: ${usdtTotal}`);
       } catch (e) {
         console.error('❌ Multi-chain USDT balance sync failed:', e);
       }
@@ -156,7 +196,7 @@ class BalanceSyncService {
       this._persistChain(addresses.ton, userId, 'usdt', usdt).catch(() => {});
     }
 
-    return { ton: tonR, evm: evmR, btc: btcR, sol: solR, tron: tronR, usdt };
+    return { ton: tonR, evm: evmR, eth: ethR, bnb: bnbR, btc: btcR, sol: solR, tron: tronR, usdt, usdtTotal, tronUsdt, ethUsdt, bscUsdt };
   }
 
   // ── Read cached/DB balances for instant display on page load ────────────────
@@ -173,10 +213,16 @@ class BalanceSyncService {
     return {
       ton:  get(`wdk-ton:${network}:${addresses.ton ?? ''}`,  '0.0000'),
       evm:  get(`evm:${evmChain}:${addresses.evm ?? ''}`,     '0.000000'),
+      eth:  get(`evm:ethereum:${addresses.evm ?? ''}`,        '0.000000'),
+      bnb:  get(`evm:bsc:${addresses.evm ?? ''}`,             '0.000000'),
       btc:  get(`btc:${addresses.btc ?? ''}`,                 '0.00000000'),
       sol:  get(`sol:${addresses.sol ?? ''}`,                 '0.000000000'),
       tron: get(`tron:${addresses.tron ?? ''}`,               '0.000000'),
       usdt: '0.00',
+      usdtTotal: '0.00',
+      tronUsdt: '0.00',
+      ethUsdt: '0.00',
+      bscUsdt: '0.00',
     };
   }
 
@@ -283,7 +329,11 @@ class BalanceSyncService {
   }
 
   private async _fetchEvm(address: string, chain: EvmChain, network: 'mainnet' | 'testnet'): Promise<string> {
-    const rpcUrl = network === 'mainnet' ? EVM_RPC_URLS[chain] : EVM_RPC_URLS.sepolia;
+    const validChain = getTargetEvmChain(chain, network);
+    const failover = EVM_RPC_FAILOVER as Record<string, string[]>;
+    const rpcUrls = failover[validChain] || failover['ethereum'];
+    const rpcUrl = await NetworkFailover.getWorkingRpc(rpcUrls);
+
     const res = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -296,16 +346,29 @@ class BalanceSyncService {
   }
 
   private async _fetchBtc(address: string): Promise<string> {
-    // Blockstream.info REST API — CORS-friendly, no key needed
-    const res = await fetch(`https://blockstream.info/api/address/${address}`);
-    if (!res.ok) throw new Error(`Blockstream HTTP ${res.status}`);
-    const data = await res.json();
-    const sats = (data.chain_stats?.funded_txo_sum ?? 0) - (data.chain_stats?.spent_txo_sum ?? 0);
-    return (sats / 1e8).toFixed(8);
+    try {
+      // Primary: Blockstream.info REST API
+      const res = await fetch(`https://blockstream.info/api/address/${address}`);
+      if (!res.ok) throw new Error(`Blockstream HTTP ${res.status}`);
+      const data = await res.json();
+      const sats = (data.chain_stats?.funded_txo_sum ?? 0) - (data.chain_stats?.spent_txo_sum ?? 0);
+      return (sats / 1e8).toFixed(8);
+    } catch (err) {
+      console.warn(`[BalanceSync] Blockstream BTC fetch failed, falling back to Mempool.space:`, err);
+      // Fallback: Mempool.space REST API
+      const res = await fetch(`https://mempool.space/api/address/${address}`);
+      if (!res.ok) throw new Error(`Mempool HTTP ${res.status}`);
+      const data = await res.json();
+      const sats = (data.chain_stats?.funded_txo_sum ?? 0) - (data.chain_stats?.spent_txo_sum ?? 0);
+      return (sats / 1e8).toFixed(8);
+    }
   }
 
-  private async _fetchSol(address: string): Promise<string> {
-    const res = await fetch('https://api.mainnet-beta.solana.com', {
+  private async _fetchSol(address: string, network: 'mainnet' | 'testnet'): Promise<string> {
+    const rpcUrls = network === 'mainnet' ? SOLANA_RPC_FAILOVER.mainnet : SOLANA_RPC_FAILOVER.devnet;
+    const rpcUrl = await NetworkFailover.getWorkingRpc(rpcUrls);
+
+    const res = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] })

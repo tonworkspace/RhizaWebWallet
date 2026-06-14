@@ -251,7 +251,7 @@ const AdminDashboard: React.FC = () => {
       const statsResult = await supabaseService.getStats();
       if (statsResult.success && statsResult.data) {
         // Calculate additional stats
-        const usersResult = await supabaseService.getAllUsers(1000);
+        const usersResult = await supabaseService.getAllUsers(1000000);
         if (usersResult.success && usersResult.data) {
           const allUsers = usersResult.data;
           const activeUsers = allUsers.filter(u => u.is_active).length;

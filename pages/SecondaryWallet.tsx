@@ -30,7 +30,7 @@ const SecondaryWallet: React.FC = () => {
   const activeWallet = WalletManager.getWallets().find(w => w.address === address);
   const multiChainWallet = WalletManager.getWallets().find(w => w.type === 'secondary');
   const hasStoredSecondary = !!localStorage.getItem('rhiza_secondary_wallet');
-  const isMultiChain = !!multiChainWallet || hasStoredSecondary;
+  const isMultiChain = !!multiChainWallet || hasStoredSecondary || activeWallet?.type === 'primary';
 
   const loadMultiChainData = async () => {
     if (!isMultiChain) return;
@@ -54,9 +54,15 @@ const SecondaryWallet: React.FC = () => {
             tonAddress: multiChainWallet.addresses.ton,
             btcAddress: multiChainWallet.addresses.btc
           });
+        } else if (activeWallet?.addresses) {
+          setAddresses({
+            evmAddress: activeWallet.addresses.evm,
+            tonAddress: activeWallet.addresses.ton,
+            btcAddress: activeWallet.addresses.btc
+          });
         }
         // Signal that the engine needs to be unlocked to fetch live balances
-        const hasStored = tetherWdkService.hasStoredWallet();
+        const hasStored = tetherWdkService.hasStoredWallet() || !!localStorage.getItem('rhiza_session');
         if (hasStored) {
           setNeedsUnlock(true);
         } else {
@@ -75,7 +81,16 @@ const SecondaryWallet: React.FC = () => {
     setError(null);
     try {
       const { tetherWdkService } = await import('../services/tetherWdkService');
-      const phrase = await tetherWdkService.getStoredWallet(unlockPassword || undefined);
+      let phrase: string | null = null;
+      if (tetherWdkService.hasStoredWallet()) {
+        phrase = await tetherWdkService.getStoredWallet(unlockPassword || undefined);
+      } else {
+        const { tonWalletService } = await import('../services/tonWalletService');
+        const mnemonic = await tonWalletService.getStoredSession(unlockPassword || undefined);
+        if (mnemonic) {
+          phrase = mnemonic.join(' ');
+        }
+      }
       if (!phrase) {
         setError('Incorrect password. Please try again.');
         setIsUnlocking(false);
@@ -460,23 +475,25 @@ const SecondaryWallet: React.FC = () => {
             </button>
           </div>
 
-          <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Trash2 size={14} className="text-red-500" />
-                <span className="text-xs font-black text-red-700 dark:text-red-400">Remove Internal Data</span>
+          {activeWallet?.type === 'secondary' && (
+            <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Trash2 size={14} className="text-red-500" />
+                  <span className="text-xs font-black text-red-700 dark:text-red-400">Remove Internal Data</span>
+                </div>
+                <button
+                  onClick={removeWallet}
+                  className="text-xs font-bold text-red-500 hover:text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                >
+                  Delete
+                </button>
               </div>
-              <button
-                onClick={removeWallet}
-                className="text-xs font-bold text-red-500 hover:text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
-              >
-                Delete
-              </button>
+              <p className="text-[11px] text-red-600 dark:text-red-400/70 font-medium mt-1.5">
+                Only this device's local record will be removed. Your crypto remains safely stored on the blockchain.
+              </p>
             </div>
-            <p className="text-[11px] text-red-600 dark:text-red-400/70 font-medium mt-1.5">
-              Only this device's local record will be removed. Your crypto remains safely stored on the blockchain.
-            </p>
-          </div>
+          )}
 
         </div>
       ) : null}

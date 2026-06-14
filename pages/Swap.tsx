@@ -135,7 +135,7 @@ const AssetPicker: React.FC<AssetPickerProps> = ({ assets, selected, onSelect, o
 
 // ─── Main Swap component ──────────────────────────────────────────────────────
 const Swap: React.FC = () => {
-  const { address, isLoggedIn, network, balance, multiChainBalances, refreshData } = useWallet();
+  const { address, isLoggedIn, network, balance, multiChainBalances, refreshData, addPendingTransaction } = useWallet();
 
   // Resolve the best available live TON balance.
   // Prefer multiChainBalances.ton (WDK W5R1) when non-zero, otherwise primary V4 balance.
@@ -341,6 +341,15 @@ const Swap: React.FC = () => {
       setSwapStatus('success');
       setFromAmount('');
       setQuote(null);
+      
+      if (addPendingTransaction && lastHash) {
+        addPendingTransaction({
+          hash: lastHash,
+          symbol: fromAsset.symbol,
+          amount: fromAmount,
+          type: 'swap'
+        });
+      }
       // Refresh wallet balance in context so the UI reflects the new balance
       refreshData(true).catch(() => {});
     } catch (err: any) {

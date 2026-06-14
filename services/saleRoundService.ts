@@ -28,7 +28,7 @@ export interface RecordPurchaseParams {
   rzcAmount: number;         // total RZC including bonus
   priceUsd: number;          // price per RZC at time of purchase
   costUsd: number;           // total USD paid
-  paymentMethod: 'TON' | 'USDT';
+  paymentMethod: 'TON' | 'USDT' | 'TRX' | 'USDT_TRC20';
   txHash?: string;
   referrerWallet?: string;
 }

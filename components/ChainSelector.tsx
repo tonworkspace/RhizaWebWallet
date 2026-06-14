@@ -3,12 +3,13 @@ import { Layers, ChevronDown, Check } from 'lucide-react';
 import { WalletManager } from '../utils/walletManager';
 
 interface ChainSelectorProps {
-  selectedChain: 'primary' | 'multichain-evm' | 'multichain-btc' | 'multichain-ton';
-  onChainChange: (chain: 'primary' | 'multichain-evm' | 'multichain-btc' | 'multichain-ton') => void;
+  selectedChain: 'primary' | 'multichain-evm' | 'multichain-btc' | 'multichain-ton' | 'multichain-sol';
+  onChainChange: (chain: 'primary' | 'multichain-evm' | 'multichain-btc' | 'multichain-ton' | 'multichain-sol') => void;
   multiChainBalances?: {
     evmBalance: string;
     tonBalance: string;
     btcBalance: string;
+    solBalance?: string;
   } | null;
   className?: string;
   compact?: boolean;
@@ -26,10 +27,8 @@ const ChainSelector: React.FC<ChainSelectorProps> = ({
 
   useEffect(() => {
     const checkMultiChainAvailability = async () => {
-      const allWallets = WalletManager.getWallets();
-      const multiChainWallet = allWallets.find(w => w.type === 'secondary');
-      
-      if (multiChainWallet) {
+      const activeWallet = WalletManager.getActiveWallet();
+      if (multiChainWallet || activeWallet?.type === 'primary') {
         setIsMultiChainAvailable(true);
         return;
       }
@@ -97,6 +96,19 @@ const ChainSelector: React.FC<ChainSelectorProps> = ({
       textColor: 'text-orange-400',
       description: 'Bitcoin Network',
       balance: multiChainBalances?.btcBalance,
+      available: isMultiChainAvailable
+    },
+    {
+      id: 'multichain-sol' as const,
+      name: 'Solana',
+      symbol: 'SOL',
+      icon: '◎',
+      color: 'from-purple-500 to-indigo-500',
+      bgColor: 'bg-purple-500/10',
+      borderColor: 'border-purple-500/20',
+      textColor: 'text-purple-400',
+      description: 'Solana Network',
+      balance: multiChainBalances?.solBalance,
       available: isMultiChainAvailable
     }
   ];

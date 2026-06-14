@@ -61,6 +61,10 @@ export const TON_NETWORK = {
   }
 };
 
+export const TON_USDT_MASTER_CONTRACT = 'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs';
+export const TRON_DEPOSIT_ADDRESS = import.meta.env.VITE_TRON_DEPOSIT_ADDRESS || 'TLkjdGzCpPCj7ozPmKoRYH1UJzF21GD1B7';
+export const TON_JETTON_GAS_DEFAULT = '0.05';
+
 // Network type for UI display
 export type NetworkType = 'mainnet' | 'testnet';
 

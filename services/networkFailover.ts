@@ -171,9 +171,16 @@ export class NetworkFailover {
   }
 }
 
+const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_KEY;
+const QUICKNODE_KEY = import.meta.env.VITE_QUICKNODE_KEY;
+const THIRDWEB_CLIENT_ID = import.meta.env.VITE_THIRDWEB_CLIENT_ID;
+
 // Enhanced RPC configuration with failover support
 export const EVM_RPC_FAILOVER = {
   polygon: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://137.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
+    ...(ALCHEMY_KEY ? [`https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
+    ...(QUICKNODE_KEY ? [`https://methodical-falling-putty.matic.quiknode.pro/${QUICKNODE_KEY}/`] : []),
     'https://polygon-rpc.com/',
     'https://rpc.ankr.com/polygon',
     'https://polygon.drpc.org',
@@ -181,11 +188,16 @@ export const EVM_RPC_FAILOVER = {
     'https://polygon.llamarpc.com'
   ],
   polygon_testnet: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://80002.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
+    ...(ALCHEMY_KEY ? [`https://polygon-amoy.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
     'https://rpc-amoy.polygon.technology',
     'https://polygon-amoy.drpc.org',
     'https://rpc.ankr.com/polygon_amoy'
   ],
   ethereum: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://1.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
+    ...(ALCHEMY_KEY ? [`https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
+    ...(QUICKNODE_KEY ? [`https://patient-wandering-cherry.quiknode.pro/${QUICKNODE_KEY}/`] : []),
     'https://eth.drpc.org',
     'https://ethereum.publicnode.com',
     'https://1rpc.io/eth',
@@ -194,28 +206,36 @@ export const EVM_RPC_FAILOVER = {
     'https://eth-mainnet.public.blastapi.io'
   ],
   arbitrum: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://42161.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
+    ...(ALCHEMY_KEY ? [`https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
     'https://arb1.arbitrum.io/rpc',
     'https://rpc.ankr.com/arbitrum',
     'https://arbitrum.drpc.org',
     'https://arbitrum.llamarpc.com'
   ],
   bsc: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://56.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
+    ...(ALCHEMY_KEY ? [`https://bnb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
     'https://bsc-dataseed.binance.org',
     'https://rpc.ankr.com/bsc',
     'https://bsc.drpc.org',
     'https://bsc.publicnode.com'
   ],
   bsc_testnet: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://97.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
     'https://data-seed-prebsc-1-s1.binance.org:8545',
     'https://data-seed-prebsc-2-s1.binance.org:8545',
     'https://bsc-testnet.publicnode.com'
   ],
   avalanche: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://43114.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
     'https://avalanche-c-chain-rpc.publicnode.com',
     'https://rpc.ankr.com/avalanche',
     'https://avalanche.drpc.org'
   ],
   sepolia: [
+    ...(THIRDWEB_CLIENT_ID ? [`https://11155111.rpc.thirdweb.com/${THIRDWEB_CLIENT_ID}`] : []),
+    ...(ALCHEMY_KEY ? [`https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
     'https://sepolia.drpc.org',
     'https://rpc.ankr.com/eth_sepolia',
     'https://ethereum-sepolia.publicnode.com'
@@ -238,12 +258,14 @@ export const TON_RPC_FAILOVER = {
 
 export const SOLANA_RPC_FAILOVER = {
   mainnet: [
+    ...(ALCHEMY_KEY ? [`https://solana-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
     'https://api.mainnet-beta.solana.com',
     'https://solana-api.projectserum.com',
     'https://rpc.ankr.com/solana',
     'https://solana.publicnode.com'
   ],
   devnet: [
+    ...(ALCHEMY_KEY ? [`https://solana-devnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
     'https://api.devnet.solana.com',
     'https://rpc.ankr.com/solana_devnet'
   ]
