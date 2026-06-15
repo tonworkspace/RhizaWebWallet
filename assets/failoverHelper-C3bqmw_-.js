@@ -1,0 +1,1 @@
+async function c(o,e,r){try{return await o()}catch(t){console.warn(`[Failover] Primary task '${r}' failed. Falling back to Secondary...`,t);try{return await e()}catch(a){throw console.error(`[Failover] Secondary task '${r}' also failed.`,a),a}}}export{c as executeWithFailover};
